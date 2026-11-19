@@ -157,8 +157,9 @@ func (s *Service) RunEnrichment(ctx context.Context) error {
 
 // finish writes the settlement and, on success, the facts, in one
 // transaction. The fenced UPDATE runs first; zero rows means the lease was
-// lost, so the facts are discarded. Facts fill blank columns only, and an
-// enriched activity lists the fields actually filled. The raw response goes
+// lost, so the facts are discarded. Facts are written under the
+// manual-values-win rule (package doc), and an enriched activity lists the
+// fields that actually changed. The raw response goes
 // to enrichment_jobs.response.
 func (s *Service) finish(ctx context.Context, j job, person *PersonFacts, company *CompanyFacts, st settlement) error {
 	return errors.New("not implemented")

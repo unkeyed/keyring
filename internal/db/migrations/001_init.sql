@@ -19,7 +19,9 @@ INSERT INTO stages (name, position) VALUES
     ('new', 0), ('qualified', 1), ('customer', 2), ('churned', 3);
 
 -- One row per business email domain. Free-mail domains never get a row.
--- Text columns are '' when unknown, never NULL, so "fill blank" is one rule.
+-- Text columns are '' when unknown, never NULL.
+-- manual_fields lists the columns a person or agent set. Machine writers
+-- (ingest, enrichment) never overwrite those (see the crm package doc).
 CREATE TABLE companies (
     id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     domain         text NOT NULL UNIQUE CHECK (domain = lower(domain) AND domain <> ''),
@@ -30,13 +32,16 @@ CREATE TABLE companies (
     industry       text NOT NULL DEFAULT '',
     country        text NOT NULL DEFAULT '',
     linkedin_url   text NOT NULL DEFAULT '',
+    manual_fields  text[] NOT NULL DEFAULT '{}' CHECK (manual_fields <@
+                   ARRAY['name', 'description', 'employee_range', 'industry', 'country', 'linkedin_url']),
     created_at     timestamptz NOT NULL DEFAULT now(),
     updated_at     timestamptz NOT NULL DEFAULT now()
 );
 
 -- One row per person, keyed by normalized email (crm.ParseEmail).
--- Machine writers (ingest, enrichment) only fill blank columns.
--- Humans and agents (UpdateContact) overwrite.
+-- Manual values win: a column named in manual_fields was set by a person or
+-- agent, and machine writers leave it alone. Otherwise the newest non-empty
+-- machine observation wins. 'company' stands for company_id.
 CREATE TABLE contacts (
     id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email         text NOT NULL UNIQUE CHECK (email = lower(btrim(email)) AND email LIKE '_%@_%'),
@@ -48,6 +53,8 @@ CREATE TABLE contacts (
     linkedin_url  text NOT NULL DEFAULT '',
     company_id    bigint REFERENCES companies (id) ON DELETE SET NULL,
     stage         text NOT NULL DEFAULT 'new' REFERENCES stages (name) ON UPDATE CASCADE,
+    manual_fields text[] NOT NULL DEFAULT '{}' CHECK (manual_fields <@
+                  ARRAY['name', 'title', 'location', 'bio', 'linkedin_url', 'company']),
     first_seen_at timestamptz NOT NULL,
     last_seen_at  timestamptz NOT NULL,
     created_at    timestamptz NOT NULL DEFAULT now(),

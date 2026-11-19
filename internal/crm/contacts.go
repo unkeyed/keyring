@@ -26,11 +26,22 @@ func (s *Service) FindContactByEmail(ctx context.Context, email string) (Contact
 	return ContactDetail{}, errors.New("not implemented")
 }
 
-// UpdateContact applies a human or agent edit. Non-nil fields overwrite.
+// UpdateContact applies a human or agent edit. Non-nil fields overwrite and
+// are added to manual_fields, so later sign-ups and enrichment leave them
+// alone. Stage and tags are never machine-written, so they need no entry.
 // An unknown Stage is ErrInvalid (foreign key violation 23503 mapped here).
 // Writes one contact_updated activity whose data is the field diff; a patch
 // that changes nothing writes nothing.
 func (s *Service) UpdateContact(ctx context.Context, actor Actor, id ContactID, p ContactPatch) (Contact, error) {
+	return Contact{}, errors.New("not implemented")
+}
+
+// ResetContactField removes f from the contact's manual_fields and writes a
+// contact_updated activity. The column keeps its value until the next
+// machine observation (a provider update or a re-enrich) replaces it.
+// A field the contact does not accept is ErrInvalid; one that is not manual
+// is a no-op.
+func (s *Service) ResetContactField(ctx context.Context, actor Actor, id ContactID, f Field) (Contact, error) {
 	return Contact{}, errors.New("not implemented")
 }
 

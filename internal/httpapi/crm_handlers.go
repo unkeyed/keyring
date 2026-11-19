@@ -114,6 +114,11 @@ func (s *server) updateContact(w http.ResponseWriter, r *http.Request, a crm.Act
 	return nil
 }
 
+// resetContactField responds with the contact, like updateContact.
+func (s *server) resetContactField(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
+	return errNotImplemented
+}
+
 func (s *server) addNote(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
 	return errNotImplemented
 }
@@ -135,6 +140,10 @@ func (s *server) getCompany(w http.ResponseWriter, r *http.Request, _ crm.Actor)
 }
 
 func (s *server) updateCompany(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
+	return errNotImplemented
+}
+
+func (s *server) resetCompanyField(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
 	return errNotImplemented
 }
 

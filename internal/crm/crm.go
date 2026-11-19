@@ -11,12 +11,18 @@
 //  1. Every write is an upsert on a natural key, so running it twice
 //     converges. Retries need no delivery log.
 //
-//  2. Machine writers (Ingest, enrichment) only fill blank columns.
-//     Humans and agents (UpdateContact, UpdateCompany) overwrite.
-//     Fill-blank commutes, so concurrent machine writers cannot clobber
-//     each other or a human edit. In SQL every machine write is:
+//  2. Manual values win; otherwise the newest observation wins. Humans and
+//     agents (UpdateContact, UpdateCompany) overwrite a column and add its
+//     name to the row's manual_fields in the same statement. Machine
+//     writers (Ingest, enrichment) overwrite a column only when it is not in
+//     manual_fields and the new value is non-empty, so a provider or
+//     context.dev can correct stale data but never a person's edit. In SQL
+//     every machine write is:
 //
-//     SET col = CASE WHEN length(col) = 0 THEN $new ELSE col END
+//     SET col = CASE WHEN 'col' = ANY(manual_fields) OR $new = ” THEN col ELSE $new END
+//
+//     ResetContactField and ResetCompanyField remove a name from
+//     manual_fields, so the next machine observation shows again.
 //
 // Every write that a person would want on the timeline inserts one
 // activities row in the same transaction. Nothing reads activities to

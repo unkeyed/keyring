@@ -29,15 +29,17 @@ import (
 //     (d) is also the race resolution: two providers delivering the same
 //     new person at once both land on one row.
 //     Deleted with no matching identity returns ErrNotFound (ignored upstream).
-//  3. Fill blanks on contacts (name, avatar_url); first_seen_at = LEAST,
+//  3. Write name and avatar_url on contacts under the manual-values-win rule
+//     (package doc), but only when step 4's upsert applied, so a stale
+//     webhook cannot overwrite a newer one. first_seen_at = LEAST,
 //     last_seen_at = GREATEST.
 //  4. Upsert identities ON CONFLICT (provider, external_id) DO UPDATE ...
 //     WHERE identities.occurred_at <= EXCLUDED.occurred_at. contact_id is
 //     never updated, so an identity never moves between contacts.
 //     Deleted sets deleted_at instead.
-//  5. Company: if the email domain is not free-mail and the contact has no
-//     company, upsert companies ON CONFLICT (domain), set contacts.company_id
-//     WHERE company_id IS NULL, and INSERT enrichment_jobs (company_id)
+//  5. Company: if the email domain is not free-mail and 'company' is not in
+//     the contact's manual_fields, upsert companies ON CONFLICT (domain), set
+//     contacts.company_id, and INSERT enrichment_jobs (company_id)
 //     ON CONFLICT DO NOTHING.
 //  6. INSERT enrichment_jobs (contact_id) ON CONFLICT DO NOTHING, with state
 //     'skipped' for a free-mail address and 'pending' otherwise.

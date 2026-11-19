@@ -52,26 +52,48 @@ func ParseTag(s string) (Tag, error) {
 // foreign key, not in Go, because the list is user-editable.
 type Stage string
 
-// Contact is one person. Display fields are plain columns: machine writers
-// fill blanks, humans and agents overwrite (see UpdateContact).
+// Field names a column a person or agent can set, which then stays theirs
+// until reset (see the package doc). Contacts accept FieldName, FieldTitle,
+// FieldLocation, FieldBio, FieldLinkedInURL and FieldCompany. Companies accept
+// FieldName, FieldDescription, FieldEmployeeRange, FieldIndustry,
+// FieldCountry and FieldLinkedInURL. The manual_fields CHECKs in
+// 001_init.sql list the same names.
+type Field string
+
+const (
+	FieldName          Field = "name"
+	FieldTitle         Field = "title"
+	FieldLocation      Field = "location"
+	FieldBio           Field = "bio"
+	FieldLinkedInURL   Field = "linkedin_url"
+	FieldCompany       Field = "company"
+	FieldDescription   Field = "description"
+	FieldEmployeeRange Field = "employee_range"
+	FieldIndustry      Field = "industry"
+	FieldCountry       Field = "country"
+)
+
+// Contact is one person. Display fields are plain columns. ManualFields
+// lists the ones a person or agent set, which machine writers leave alone.
 type Contact struct {
-	ID          ContactID   `json:"id"`
-	Email       Email       `json:"email"`
-	Name        string      `json:"name"`
-	AvatarURL   string      `json:"avatar_url"`
-	Title       string      `json:"title"`
-	Location    string      `json:"location"`
-	Bio         string      `json:"bio"`
-	LinkedInURL string      `json:"linkedin_url"`
-	Company     *CompanyRef `json:"company"` // nil for free-mail or unknown
-	Stage       Stage       `json:"stage"`
-	Tags        []Tag       `json:"tags"`
-	Providers   []string    `json:"providers"` // distinct identities.provider
-	Enrichment  JobState    `json:"enrichment"`
-	FirstSeenAt time.Time   `json:"first_seen_at"`
-	LastSeenAt  time.Time   `json:"last_seen_at"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	ID           ContactID   `json:"id"`
+	Email        Email       `json:"email"`
+	Name         string      `json:"name"`
+	AvatarURL    string      `json:"avatar_url"`
+	Title        string      `json:"title"`
+	Location     string      `json:"location"`
+	Bio          string      `json:"bio"`
+	LinkedInURL  string      `json:"linkedin_url"`
+	Company      *CompanyRef `json:"company"` // nil for free-mail or unknown
+	Stage        Stage       `json:"stage"`
+	Tags         []Tag       `json:"tags"`
+	Providers    []string    `json:"providers"` // distinct identities.provider
+	Enrichment   JobState    `json:"enrichment"`
+	ManualFields []Field     `json:"manual_fields"`
+	FirstSeenAt  time.Time   `json:"first_seen_at"`
+	LastSeenAt   time.Time   `json:"last_seen_at"`
+	CreatedAt    time.Time   `json:"created_at"`
+	UpdatedAt    time.Time   `json:"updated_at"`
 }
 
 type CompanyRef struct {
@@ -112,6 +134,7 @@ type Company struct {
 	LinkedInURL   string    `json:"linkedin_url"`
 	ContactCount  int       `json:"contact_count"`
 	Enrichment    JobState  `json:"enrichment"`
+	ManualFields  []Field   `json:"manual_fields"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -136,10 +159,10 @@ type ActivityKind string
 const (
 	ActivitySignedUp        ActivityKind = "signed_up"        // data: {provider, external_id, raw}
 	ActivityProviderDeleted ActivityKind = "provider_deleted" // data: {provider, external_id}
-	ActivityContactUpdated  ActivityKind = "contact_updated"  // data: {field: {from, to}}
-	ActivityCompanyUpdated  ActivityKind = "company_updated"  // data: {field: {from, to}}
+	ActivityContactUpdated  ActivityKind = "contact_updated"  // data: {field: {from, to}} or {reset: field}
+	ActivityCompanyUpdated  ActivityKind = "company_updated"  // data: {field: {from, to}} or {reset: field}
 	ActivityNoteAdded       ActivityKind = "note_added"       // data: {note_id}
-	ActivityEnriched        ActivityKind = "enriched"         // data: {filled: [field...]}
+	ActivityEnriched        ActivityKind = "enriched"         // data: {changed: [field...]}
 )
 
 // Activity is one timeline row. It records what happened; it is never read
@@ -210,7 +233,8 @@ type Page[T any] struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 }
 
-// ContactPatch is a partial update. nil fields are left alone. Tag changes
+// ContactPatch is a partial update. nil fields are left alone, and every
+// non-nil field becomes manual (CompanyDomain as FieldCompany). Tag changes
 // are add/remove sets, not a replacement list, so two agents tagging the same
 // contact at once both win.
 //

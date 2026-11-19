@@ -61,6 +61,11 @@ type updateContactIn struct {
 	Changes crm.ContactPatch `json:"changes"`
 }
 
+type resetContactFieldIn struct {
+	ID    crm.ContactID `json:"id"`
+	Field crm.Field     `json:"field" jsonschema:"name, title, location, bio, linkedin_url or company"`
+}
+
 type addNoteIn struct {
 	ContactID crm.ContactID `json:"contact_id"`
 	Body      string        `json:"body" jsonschema:"markdown note text"`
@@ -107,6 +112,12 @@ func addTools(srv *mcp.Server, svc *crm.Service) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "update_contact", Description: "Change a contact's fields, stage, company or tags."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in updateContactIn) (*mcp.CallToolResult, crm.Contact, error) {
 			c, err := svc.UpdateContact(ctx, actorOf(req), in.ID, in.Changes)
+			return nil, c, err
+		})
+
+	mcp.AddTool(srv, &mcp.Tool{Name: "reset_contact_field", Description: "Hand a field a person or agent set back to the auth provider and enrichment, so their next value shows."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in resetContactFieldIn) (*mcp.CallToolResult, crm.Contact, error) {
+			c, err := svc.ResetContactField(ctx, actorOf(req), in.ID, in.Field)
 			return nil, c, err
 		})
 

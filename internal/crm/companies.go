@@ -19,7 +19,13 @@ func (s *Service) GetCompanyByDomain(ctx context.Context, domain string) (Compan
 	return CompanyDetail{}, errors.New("not implemented")
 }
 
-// UpdateCompany overwrites non-nil fields and writes a company_updated activity.
+// UpdateCompany overwrites non-nil fields, adds them to manual_fields and
+// writes a company_updated activity.
 func (s *Service) UpdateCompany(ctx context.Context, actor Actor, id CompanyID, p CompanyPatch) (Company, error) {
+	return Company{}, errors.New("not implemented")
+}
+
+// ResetCompanyField is ResetContactField for companies.
+func (s *Service) ResetCompanyField(ctx context.Context, actor Actor, id CompanyID, f Field) (Company, error) {
 	return Company{}, errors.New("not implemented")
 }
