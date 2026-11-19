@@ -45,6 +45,7 @@ var routes = []route{
 	{"GET /v1/contacts/{id}", anyone, (*server).getContact},
 	{"PATCH /v1/contacts/{id}", anyone, (*server).updateContact},
 	{"DELETE /v1/contacts/{id}/manual_fields/{field}", anyone, (*server).resetContactField},
+	{"POST /v1/contacts/{id}/merge", anyone, (*server).mergeContacts},
 	{"POST /v1/contacts/{id}/notes", anyone, (*server).addNote},
 	{"DELETE /v1/notes/{id}", anyone, (*server).deleteNote},
 	{"POST /v1/contacts/{id}/enrich", anyone, (*server).enrichContact},

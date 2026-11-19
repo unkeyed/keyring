@@ -45,6 +45,19 @@ func (s *Service) ResetContactField(ctx context.Context, actor Actor, id Contact
 	return Contact{}, errors.New("not implemented")
 }
 
+// MergeContacts folds drop into keep, for one person that identity
+// resolution saw as two (a work and a personal address). A person or agent
+// asks for it; nothing merges automatically. In one transaction it moves
+// drop's identities, notes, tags and activities to keep, copies each of
+// drop's non-empty columns that keep has empty (and drop's manual_fields
+// with them), keeps the earlier first_seen_at and later last_seen_at,
+// deletes drop, and writes a contacts_merged activity on keep. Drop's email
+// stays on its identities, so a later sign-up with it resolves to keep
+// (Ingest step 2c). keep == drop is ErrInvalid.
+func (s *Service) MergeContacts(ctx context.Context, actor Actor, keep, drop ContactID) (Contact, error) {
+	return Contact{}, errors.New("not implemented")
+}
+
 // AddNote appends a note and a note_added activity.
 func (s *Service) AddNote(ctx context.Context, actor Actor, id ContactID, body string) (Note, error) {
 	return Note{}, errors.New("not implemented")

@@ -65,7 +65,8 @@ CREATE INDEX contacts_company ON contacts (company_id);
 CREATE INDEX contacts_stage ON contacts (stage);
 
 -- One row per (auth provider, provider user id). The provider's latest view
--- of the user. contact_id is set on first insert and never changes.
+-- of the user. contact_id is set on first insert; only crm.MergeContacts
+-- changes it.
 -- occurred_at guards against out-of-order webhooks: an upsert only applies
 -- when its fact is at least as new as the stored one.
 CREATE TABLE identities (

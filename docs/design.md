@@ -55,7 +55,7 @@ c, err := s.svc.UpdateContact(r.Context(), a, crm.ContactID(id), p)
 
 Data structures first. See `internal/db/migrations/001_init.sql` and `internal/crm/types.go`.
 
-- `contacts` is keyed by normalized email (`UNIQUE`). `identities` is keyed by `(provider, external_id)` and points at a contact. An identity's `contact_id` is set on insert and never updated. `companies` is keyed by `domain`. `contact_tags` is keyed by `(contact_id, tag)`. `stages` is a user-editable list that contacts reference by foreign key with `ON UPDATE CASCADE`.
+- `contacts` is keyed by normalized email (`UNIQUE`). `identities` is keyed by `(provider, external_id)` and points at a contact. An identity's `contact_id` is set on insert, and only `MergeContacts` changes it. `companies` is keyed by `domain`. `contact_tags` is keyed by `(contact_id, tag)`. `stages` is a user-editable list that contacts reference by foreign key with `ON UPDATE CASCADE`.
 - `activities` is the timeline. Its `dedupe_key` is a natural key such as `signed_up:clerk:user_123`, not a delivery id. A Clerk retry, a dashboard replay with a fresh `svix-id`, and a Supabase delivery that has no id at all all dedupe the same way. No delivery log table exists, because nothing needs one (per make-operations-idempotent).
 - `enrichment_jobs` has one row per contact or company (`UNIQUE` on each FK, `CHECK num_nonnulls = 1`). The row's `state` is the state machine, and the job is reused for re-enrichment.
 - Every table has exactly one writer package, named in the migration header (per separate-before-serializing-shared-state).
@@ -91,14 +91,14 @@ Invariants and where they are enforced:
 |---|---|
 | one contact per normalized email | `contacts.email UNIQUE` + `crm.Email` has an unexported field, so only parsing builds one |
 | one signed_up per provider user | `activities.dedupe_key UNIQUE` |
-| identity never moves contacts | `contact_id` absent from the upsert's `DO UPDATE` |
+| ingest never moves an identity | `contact_id` absent from the upsert's `DO UPDATE`; only `MergeContacts` updates it |
 | stale webhook cannot regress identity | `WHERE identities.occurred_at <= EXCLUDED.occurred_at` |
 | running job has a lease | `CHECK ((state='running') = (lease_until IS NOT NULL))` |
 | lost lease cannot write | `WHERE claims = $claims` |
 | no company for free mail | `Domain.IsFreeMail` checked in `Ingest` step 5 |
 | providers listed once | `signup.register` + `init`, duplicate panics at boot |
 
-What the design deliberately leaves out: event sourcing, a delivery log, a jobs framework, an ORM, code generation, contact merge, org events, and phone-only users.
+What the design deliberately leaves out: event sourcing, a delivery log, a jobs framework, an ORM, code generation, automatic contact merge, org events, and phone-only users.
 
 ## Synthesis decision
 

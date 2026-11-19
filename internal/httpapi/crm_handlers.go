@@ -119,6 +119,12 @@ func (s *server) resetContactField(w http.ResponseWriter, r *http.Request, a crm
 	return errNotImplemented
 }
 
+// mergeContacts folds the contact in the body ({"drop": id}) into the one in
+// the path and responds with the surviving contact.
+func (s *server) mergeContacts(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
+	return errNotImplemented
+}
+
 func (s *server) addNote(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
 	return errNotImplemented
 }

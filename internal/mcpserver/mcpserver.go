@@ -69,6 +69,11 @@ type resetContactFieldIn struct {
 	Field crm.Field     `json:"field" jsonschema:"name, title, location, bio, linkedin_url or company"`
 }
 
+type mergeContactsIn struct {
+	Keep crm.ContactID `json:"keep" jsonschema:"contact that survives"`
+	Drop crm.ContactID `json:"drop" jsonschema:"contact folded into keep and deleted"`
+}
+
 type addNoteIn struct {
 	ContactID crm.ContactID `json:"contact_id"`
 	Body      string        `json:"body" jsonschema:"markdown note text"`
@@ -144,6 +149,12 @@ func addTools(srv *mcp.Server, svc *crm.Service) {
 	addTool(srv, &mcp.Tool{Name: "reset_contact_field", Description: "Hand a field a person or agent set back to the auth provider and enrichment, so their next value shows."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in resetContactFieldIn) (*mcp.CallToolResult, crm.Contact, error) {
 			c, err := svc.ResetContactField(ctx, actorOf(req), in.ID, in.Field)
+			return nil, c, err
+		})
+
+	addTool(srv, &mcp.Tool{Name: "merge_contacts", Description: "Merge two contacts that are the same person. Moves drop's identities, notes, tags and history to keep, then deletes drop."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in mergeContactsIn) (*mcp.CallToolResult, crm.Contact, error) {
+			c, err := svc.MergeContacts(ctx, actorOf(req), in.Keep, in.Drop)
 			return nil, c, err
 		})
 

@@ -35,7 +35,8 @@ import (
 //     last_seen_at = GREATEST.
 //  4. Upsert identities ON CONFLICT (provider, external_id) DO UPDATE ...
 //     WHERE identities.occurred_at <= EXCLUDED.occurred_at. contact_id is
-//     never updated, so an identity never moves between contacts.
+//     never updated, so ingest never moves an identity between contacts.
+//     Only MergeContacts does.
 //     Deleted sets deleted_at instead.
 //  5. Company: if the email domain is not free-mail and 'company' is not in
 //     the contact's manual_fields, upsert companies ON CONFLICT (domain), set

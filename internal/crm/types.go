@@ -133,6 +133,7 @@ const (
 	ActivityContactUpdated  ActivityKind = "contact_updated"  // data: {field: {from, to}} or {reset: field}
 	ActivityCompanyUpdated  ActivityKind = "company_updated"  // data: {field: {from, to}} or {reset: field}
 	ActivityNoteAdded       ActivityKind = "note_added"       // data: {note_id}
+	ActivityContactsMerged  ActivityKind = "contacts_merged"  // on keep; data: {drop_id, drop_email}
 	ActivityEnriched        ActivityKind = "enriched"         // data: {changed: [field...]}
 )
 
