@@ -8,6 +8,8 @@ import { Login } from "./pages/Login";
 import { AcceptInvite } from "./pages/AcceptInvite";
 import { Contacts } from "./pages/Contacts";
 import { ContactPage } from "./pages/ContactPage";
+import { Companies } from "./pages/Companies";
+import { CompanyPage } from "./pages/CompanyPage";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -19,6 +21,8 @@ const router = createBrowserRouter([
       { index: true, element: <Navigate to="/contacts" replace /> },
       { path: "contacts", element: <Contacts /> },
       { path: "contacts/:id", element: <ContactPage /> },
+      { path: "companies", element: <Companies /> },
+      { path: "companies/:id", element: <CompanyPage /> },
       { path: "*", element: <NotFound /> },
     ],
   },
