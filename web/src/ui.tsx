@@ -183,9 +183,9 @@ export function CodeBlock({ code, label }: { code: string; label?: string }) {
 }
 
 export function Avatar({ src, label, size = 28, square }: { src?: string; label: string; size?: number; square?: boolean }) {
-  const [failed, setFailed] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string>();
   const shape = square ? "rounded-md" : "rounded-full";
-  if (src && !failed) {
+  if (src && src !== failedSrc) {
     return (
       <img
         src={src}
@@ -194,7 +194,7 @@ export function Avatar({ src, label, size = 28, square }: { src?: string; label:
         height={size}
         loading="lazy"
         referrerPolicy="no-referrer"
-        onError={() => setFailed(true)}
+        onError={() => setFailedSrc(src)}
         className={cx(shape, "shrink-0 bg-subtle object-cover")}
         style={{ width: size, height: size }}
       />
