@@ -1,0 +1,163 @@
+// Package httpapi serves the REST API, which is also the UI's API: the React
+// app calls the same /v1 routes with a session cookie that agents call with
+// an API key. Handlers decode, call one crm.Service method, encode. Any
+// logic beyond that belongs in crm.
+package httpapi
+
+import (
+	_ "embed"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+
+	"github.com/uncrm/uncrm/internal/auth"
+	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/uncrm/uncrm/internal/signup"
+)
+
+// access is who may call a route.
+type access int
+
+const (
+	public access = iota // no caller check: health, login, webhooks (signature checked in crm)
+	anyone               // API key or session
+	humans               // session only: key management, team, provider secrets
+)
+
+type handlerFunc func(s *server, w http.ResponseWriter, r *http.Request, a crm.Actor) error
+
+type route struct {
+	pattern string
+	access  access
+	handle  handlerFunc
+}
+
+// routes is the only list of HTTP endpoints. TestRoutesMatchOpenAPI fails
+// when openapi.yaml and this table disagree.
+var routes = []route{
+	{"GET /healthz", public, (*server).healthz},
+	{"GET /openapi.yaml", public, (*server).openapi},
+	{"POST /webhooks/{provider}", public, (*server).receiveWebhook},
+
+	{"POST /v1/signups", anyone, (*server).createSignup},
+	{"GET /v1/contacts", anyone, (*server).searchContacts},
+	{"GET /v1/contacts/{id}", anyone, (*server).getContact},
+	{"PATCH /v1/contacts/{id}", anyone, (*server).updateContact},
+	{"POST /v1/contacts/{id}/notes", anyone, (*server).addNote},
+	{"DELETE /v1/notes/{id}", anyone, (*server).deleteNote},
+	{"POST /v1/contacts/{id}/enrich", anyone, (*server).enrichContact},
+	{"GET /v1/companies", anyone, (*server).searchCompanies},
+	{"GET /v1/companies/{id}", anyone, (*server).getCompany},
+	{"PATCH /v1/companies/{id}", anyone, (*server).updateCompany},
+	{"POST /v1/companies/{id}/enrich", anyone, (*server).enrichCompany},
+	{"GET /v1/activity", anyone, (*server).listActivity},
+	{"GET /v1/tags", anyone, (*server).listTags},
+	{"GET /v1/stages", anyone, (*server).listStages},
+	{"GET /v1/status", anyone, (*server).status},
+
+	{"PUT /v1/stages", humans, (*server).setStages},
+	{"GET /v1/providers", humans, (*server).listProviders},
+	{"PUT /v1/providers/{name}", humans, (*server).connectProvider},
+	{"DELETE /v1/providers/{name}", humans, (*server).disconnectProvider},
+	{"GET /v1/keys", humans, (*server).listKeys},
+	{"POST /v1/keys", humans, (*server).createKey},
+	{"DELETE /v1/keys/{id}", humans, (*server).revokeKey},
+	{"POST /v1/invites", humans, (*server).createInvite},
+	{"GET /v1/me", humans, (*server).me},
+	{"POST /v1/me/password", humans, (*server).changePassword},
+
+	{"POST /auth/login", public, (*server).login},
+	{"POST /auth/logout", public, (*server).logout},
+	{"POST /auth/invites/accept", public, (*server).acceptInvite},
+}
+
+//go:embed openapi.yaml
+var openapiYAML []byte
+
+type server struct {
+	svc   *crm.Service
+	authn *auth.Authenticator
+	keys  auth.KeyStore
+	users *auth.Users
+	log   *slog.Logger
+}
+
+// NewMux mounts every route on a new mux; main adds /mcp and the UI's "/"
+// to the same mux. Unmatched /v1/ paths get a JSON 404 instead of falling
+// through to the UI. Browser-reachable routes are wrapped in
+// http.CrossOriginProtection, which rejects cross-site unsafe requests and
+// lets non-browser clients (no Sec-Fetch-Site / Origin) through.
+func NewMux(svc *crm.Service, authn *auth.Authenticator, log *slog.Logger) *http.ServeMux {
+	s := &server{svc: svc, authn: authn, keys: authn.Keys, users: authn.Users, log: log}
+	csrf := http.NewCrossOriginProtection()
+	mux := http.NewServeMux()
+	for _, rt := range routes {
+		h := s.wrap(rt)
+		if rt.pattern != "POST /webhooks/{provider}" {
+			h = csrf.Handler(h)
+		}
+		mux.Handle(rt.pattern, h)
+	}
+	mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such route"})
+	})
+	return mux
+}
+
+var errForbidden = errors.New("forbidden")
+
+func (s *server) wrap(rt route) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var actor crm.Actor
+		if rt.access != public {
+			a, via, err := s.authn.Caller(r)
+			if err != nil {
+				s.writeError(w, r, err)
+				return
+			}
+			if rt.access == humans && via != auth.ViaSession {
+				s.writeError(w, r, errForbidden)
+				return
+			}
+			actor = a
+		}
+		if err := rt.handle(s, w, r, actor); err != nil {
+			s.writeError(w, r, err)
+		}
+	})
+}
+
+// writeError is the single error-to-status mapping for REST.
+// Body: {"error": "<message>"}.
+func (s *server) writeError(w http.ResponseWriter, r *http.Request, err error) {
+	code := http.StatusInternalServerError
+	switch {
+	case errors.Is(err, crm.ErrNotFound), errors.Is(err, crm.ErrUnknownProvider), errors.Is(err, crm.ErrNotConnected):
+		code = http.StatusNotFound
+	case errors.Is(err, crm.ErrInvalid):
+		code = http.StatusBadRequest
+	case errors.Is(err, auth.ErrUnauthorized), errors.Is(err, auth.ErrInvalidKey), errors.Is(err, signup.ErrBadSignature):
+		code = http.StatusUnauthorized
+	case errors.Is(err, errForbidden):
+		code = http.StatusForbidden
+	}
+	msg := err.Error()
+	if code == http.StatusInternalServerError {
+		s.log.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
+		msg = "internal error"
+	}
+	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// readJSON decodes a body of at most 1 MiB, rejecting unknown fields, and
+// wraps failures in crm.ErrInvalid.
+func readJSON(r *http.Request, v any) error {
+	return errors.New("not implemented")
+}

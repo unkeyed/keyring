@@ -1,0 +1,6 @@
+openapi: 3.1.0
+info:
+  title: uncrm
+  version: 0.1.0
+# TODO: one entry per row of httpapi.routes. TestRoutesMatchOpenAPI enforces it.
+paths: {}
