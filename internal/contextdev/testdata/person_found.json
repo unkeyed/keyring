@@ -1,0 +1,33 @@
+{
+  "partial": false,
+  "match": {
+    "status": "candidate",
+    "score": 87,
+    "person": {
+      "name": {"full": "Ada Lovelace", "first": "Ada", "last": "Lovelace"},
+      "email": "ada@stripe.com",
+      "avatar_url": "https://cdn.context.dev/p/ada.png",
+      "bio": "Wrote the first published algorithm.",
+      "location": {"display": "London, England", "city": "London", "region": "England", "country": "United Kingdom", "country_code": "GB"},
+      "social_urls": ["https://x.com/ada", "https://www.linkedin.com/in/ada-lovelace", "https://linkedin.com/in/other"],
+      "website_urls": [],
+      "current_role": {
+        "title": "Head of Engines",
+        "organization": {"name": "Stripe", "domain": "stripe.com"},
+        "location": "London",
+        "description": "",
+        "start_date": {"year": 2020, "month": 1, "day": 1},
+        "end_date": null,
+        "is_current": true
+      },
+      "current_role_status": "present",
+      "experience": [],
+      "education": [],
+      "skills": [],
+      "last_updated": "2026-11-01T00:00:00Z",
+      "checked_at": "2026-11-18T00:00:00Z"
+    }
+  },
+  "key_metadata": {"credits_consumed": 20, "credits_remaining": 980},
+  "request_id": "req_person_1"
+}
