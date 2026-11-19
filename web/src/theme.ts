@@ -18,7 +18,7 @@ function apply(mode: ThemeMode) {
   document.documentElement.classList.toggle("dark", dark);
 }
 
-/** The color scheme choice. index.html applies it before first paint too. */
+/** index.html applies the stored choice before first paint too. */
 export function useTheme(): [ThemeMode, (m: ThemeMode) => void] {
   const [mode, setMode] = useState(read);
   useEffect(() => {

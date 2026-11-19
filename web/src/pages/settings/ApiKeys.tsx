@@ -5,7 +5,7 @@ import { keys } from "../../queries";
 import { Button, Card, ConfirmButton, CopyField, ErrorNote, Icon, inputClass, RelativeTime, Spinner } from "../../ui";
 import { SettingsHeader } from "./Settings";
 
-/** Names a key and creates it. The plaintext comes back once, to `onCreated`. */
+/** The plaintext key comes back once, to `onCreated`. */
 export function CreateKeyForm({ defaultName = "", onCreated }: { defaultName?: string; onCreated: (k: CreatedKey) => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState(defaultName);

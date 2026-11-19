@@ -1,7 +1,5 @@
 // The REST contract, mirrored from internal/httpapi/server.go (routes),
-// internal/crm/types.go (shapes) and internal/auth (keys, sessions). Every
-// call the UI makes goes through this file, so a contract change is a
-// one-file fix here.
+// internal/crm/types.go (shapes) and internal/auth (keys, sessions).
 
 type Brand<T, B extends string> = T & { readonly __brand: B };
 
@@ -10,7 +8,6 @@ export type CompanyID = Brand<number, "CompanyID">;
 export type NoteID = Brand<number, "NoteID">;
 export type KeyID = Brand<string, "KeyID">;
 
-/** Parses a route segment like "42" into an id, or null when it is not one. */
 export function parseID<T extends ContactID | CompanyID>(s: string | undefined): T | null {
   const n = Number(s);
   return Number.isSafeInteger(n) && n > 0 ? (n as T) : null;
@@ -394,7 +391,6 @@ export const api = {
   },
 };
 
-/** The link a teammate opens to accept an invite (routes to AcceptInvite). */
 export function inviteURL(token: string): string {
   return `${location.origin}/invite/${enc(token)}`;
 }

@@ -6,11 +6,6 @@ import { companyLabel, contactLabel } from "../format";
 import { keys } from "../queries";
 import { Avatar, Button, cx, Dialog, ErrorNote, Icon, inputClass, Spinner } from "../ui";
 
-/**
- * Folds one contact into another: for the same person seen twice (a work and
- * a personal address). Pick the other contact, choose which one survives,
- * confirm. The server moves identities, notes, tags and activity.
- */
 export function MergeDialog({ open, onClose, contact }: { open: boolean; onClose: () => void; contact: Contact }) {
   const [other, setOther] = useState<Contact | null>(null);
   const close = () => {

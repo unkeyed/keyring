@@ -145,7 +145,6 @@ export function CopyButton({ text, label = "Copy", className }: { text: string; 
   );
 }
 
-/** A one-line value (URL, secret, key) with a copy button. */
 export function CopyField({ value, label }: { value: string; label?: string }) {
   return (
     <div className="flex min-w-0 items-center gap-1 rounded-md border border-line bg-subtle pl-2.5">

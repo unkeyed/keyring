@@ -11,7 +11,7 @@ export function signupCurl(origin: string): string {
   -d '{"email": "ada@example.com", "name": "Ada Lovelace"}'`;
 }
 
-/** The contacts list before the first sign-up: two ways in, and a live "waiting" cue. */
+/** The contacts list before the first sign-up. */
 export function Onboarding() {
   const providers = useProviders();
   const names = providers.data?.map((p) => p.title) ?? [];
