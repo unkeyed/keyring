@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { Button, cx, errorMessage, Icon, inputClass } from "../ui";
 
 interface Props {
@@ -18,6 +18,8 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Blur is the one place an edit commits; Escape sets this so its blur discards instead.
+  const cancelled = useRef(false);
 
   const run = async (op: () => Promise<unknown>) => {
     setBusy(true);
@@ -33,20 +35,26 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
   };
 
   const commit = () => {
+    if (cancelled.current) {
+      cancelled.current = false;
+      return;
+    }
     if (draft === null) return;
     if (draft.trim() === value) return setDraft(null);
     void run(() => onSave(draft.trim()));
   };
 
-  const onKeyDown = (e: KeyboardEvent) => {
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      cancelled.current = true;
+      e.currentTarget.blur();
       setDraft(null);
       setError(null);
     } else if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      commit();
+      e.currentTarget.blur();
     }
   };
 

@@ -102,7 +102,12 @@ export function Contacts() {
     getNextPageParam: (last) => last.next_cursor || undefined,
     placeholderData: (prev) => prev,
     // New sign-ups show up without a reload; faster while waiting for the first.
-    refetchInterval: (q) => (q.state.data?.pages[0]?.items?.length ? 15_000 : 4_000),
+    // Paged-in lists stay put, since a refetch would re-request every page.
+    refetchInterval: (q) => {
+      const pages = q.state.data?.pages ?? [];
+      if (pages.length > 1) return false;
+      return pages[0]?.items?.length ? 15_000 : 4_000;
+    },
   });
   const rows = list.data?.pages.flatMap((p) => p.items ?? []) ?? [];
   const empty = list.isSuccess && rows.length === 0;

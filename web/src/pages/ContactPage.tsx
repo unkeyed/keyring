@@ -205,14 +205,14 @@ function ContactView({ id }: { id: ContactID }) {
 function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) => Promise<void> }) {
   const all = useTags();
   const [draft, setDraft] = useState("");
-  const change = useMutation({ mutationFn: onChange });
   const qc = useQueryClient();
+  const change = useMutation({ mutationFn: onChange, onSuccess: () => qc.invalidateQueries({ queryKey: keys.tags }) });
 
   const add = (e: FormEvent) => {
     e.preventDefault();
     const t = draft.trim().toLowerCase();
     if (!t || tags.includes(t)) return setDraft("");
-    change.mutate({ add_tags: [t] }, { onSuccess: () => void qc.invalidateQueries({ queryKey: keys.tags }) });
+    change.mutate({ add_tags: [t] });
     setDraft("");
   };
 
