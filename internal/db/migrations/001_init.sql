@@ -11,9 +11,8 @@
 --                  provider_connections
 --   internal/auth  users, sessions, invites, api_keys
 
--- Pipeline stages. Editable from Settings. Renames cascade to contacts.
--- A new contact takes the first stage by position (crm.Ingest), so a
--- rename of 'new' cannot leave a column default pointing at nothing.
+-- A new contact takes the first stage by position (crm.Ingest), so
+-- contacts.stage has no default that a rename of 'new' could break.
 CREATE TABLE stages (
     name     text PRIMARY KEY CHECK (name = btrim(name) AND name <> ''),
     position int  NOT NULL
@@ -22,7 +21,6 @@ INSERT INTO stages (name, position) VALUES
     ('new', 0), ('qualified', 1), ('customer', 2), ('churned', 3);
 
 -- One row per business email domain. Free-mail domains never get a row.
--- Text columns are '' when unknown, never NULL.
 -- manual_fields lists the columns a person or agent set. Machine writers
 -- (ingest, enrichment) never overwrite those (see the crm package doc).
 CREATE TABLE companies (
