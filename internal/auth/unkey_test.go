@@ -1,0 +1,234 @@
+package auth
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strconv"
+	"sync"
+	"testing"
+
+	"github.com/uncrm/uncrm/internal/crm"
+)
+
+// fakeUnkey models the slice of Unkey's v2 API the store uses. Like the real
+// service, verifyKey has no apiId: it answers for any key in the workspace
+// unless the request restricts keyspaces.
+type fakeUnkey struct {
+	t        *testing.T
+	rootKey  string
+	keyspace map[string]string // apiId -> keyspaceId
+
+	mu       sync.Mutex
+	keys     map[string]fakeKey // plaintext -> key
+	verifies int
+	down     bool
+}
+
+type fakeKey struct {
+	id, api, name string
+}
+
+func newFakeUnkey(t *testing.T) (*fakeUnkey, *httptest.Server) {
+	f := &fakeUnkey{
+		t:        t,
+		rootKey:  "unkey_root",
+		keyspace: map[string]string{"api_ours": "ks_ours", "api_other": "ks_other"},
+		keys:     map[string]fakeKey{},
+	}
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	return f, srv
+}
+
+func (f *fakeUnkey) add(plaintext, api, name string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := "key_" + strconv.Itoa(len(f.keys)+1)
+	f.keys[plaintext] = fakeKey{id: id, api: api, name: name}
+	return id
+}
+
+func (f *fakeUnkey) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+f.rootKey {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if f.down {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"meta":{},"error":{"title":"Service Unavailable","detail":"try later","status":503}}`))
+		return
+	}
+	var in struct {
+		Key, KeyID, APIID, Name, Prefix string
+		Keyspaces                       []string
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		f.t.Errorf("fake unkey: bad body: %v", err)
+	}
+	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
+	switch r.URL.Path {
+	case "/v2/keys.verifyKey":
+		f.verifies++
+		k, ok := f.keys[in.Key]
+		ks := f.keyspace[k.api]
+		if !ok || (in.Keyspaces != nil && !slices.Contains(in.Keyspaces, ks)) {
+			reply(map[string]any{"data": map[string]any{"valid": false, "code": "NOT_FOUND"}})
+			return
+		}
+		reply(map[string]any{"data": map[string]any{"valid": true, "code": "VALID", "keyId": k.id, "keyspaceId": ks, "name": k.name}})
+	case "/v2/keys.createKey":
+		plaintext := in.Prefix + "_" + strconv.Itoa(len(f.keys)) + "abcdefghijklmnop"
+		id := "key_" + strconv.Itoa(len(f.keys)+1)
+		f.keys[plaintext] = fakeKey{id: id, api: in.APIID, name: in.Name}
+		reply(map[string]any{"data": map[string]any{"keyId": id, "key": plaintext}})
+	case "/v2/apis.listKeys":
+		data := []map[string]any{}
+		for plaintext, k := range f.keys {
+			if k.api == in.APIID {
+				data = append(data, map[string]any{"keyId": k.id, "start": plaintext[:8], "name": k.name, "createdAt": 1701425400000})
+			}
+		}
+		reply(map[string]any{"data": data, "pagination": map[string]any{"hasMore": false}})
+	case "/v2/keys.deleteKey":
+		for plaintext, k := range f.keys {
+			if k.id == in.KeyID {
+				delete(f.keys, plaintext)
+			}
+		}
+		reply(map[string]any{"data": map[string]any{}})
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func (f *fakeUnkey) verifyCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.verifies
+}
+
+func newTestUnkeyStore(srv *httptest.Server) *unkeyKeys {
+	return newUnkeyKeys(UnkeyConfig{RootKey: "unkey_root", APIID: "api_ours"}, srv.URL)
+}
+
+func TestUnkeyVerify(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fake, srv := newFakeUnkey(t)
+	keys := newTestUnkeyStore(srv)
+	ours := fake.add("uncrm_ours", "api_ours", "agent")
+	fake.add("other_key", "api_other", "billing")
+
+	if _, err := keys.Verify(ctx, "other_key"); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("key from another API in the workspace, before our keyspace is known: %v, want ErrInvalidKey", err)
+	}
+	actor, err := keys.Verify(ctx, "uncrm_ours")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (crm.Actor{Kind: crm.ActorAPIKey, ID: ours, Label: "agent"}); actor != want {
+		t.Fatalf("verify gave %+v, want %+v", actor, want)
+	}
+	if _, err := keys.Verify(ctx, "other_key"); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("key from another API in the workspace, after our keyspace is known: %v, want ErrInvalidKey", err)
+	}
+	if _, err := keys.Verify(ctx, "uncrm_nope"); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("unknown key: %v, want ErrInvalidKey", err)
+	}
+}
+
+func TestUnkeyCachesValidKeysOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fake, srv := newFakeUnkey(t)
+	keys := newTestUnkeyStore(srv)
+	fake.add("uncrm_ours", "api_ours", "agent")
+
+	for range 3 {
+		if _, err := keys.Verify(ctx, "uncrm_ours"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := fake.verifyCalls(); n != 1 {
+		t.Fatalf("three verifies of one valid key made %d Unkey calls, want 1", n)
+	}
+
+	before := fake.verifyCalls()
+	for range 2 {
+		if _, err := keys.Verify(ctx, "uncrm_nope"); !errors.Is(err, ErrInvalidKey) {
+			t.Fatalf("unknown key: %v", err)
+		}
+	}
+	if n := fake.verifyCalls() - before; n != 2 {
+		t.Fatalf("two verifies of an invalid key made %d Unkey calls, want 2 (no negative cache)", n)
+	}
+	fake.add("uncrm_nope", "api_ours", "late")
+	if _, err := keys.Verify(ctx, "uncrm_nope"); err != nil {
+		t.Fatalf("a key rejected a moment ago and then created must verify at once: %v", err)
+	}
+}
+
+func TestUnkeyOutageIsAnErrorNotAPass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fake, srv := newFakeUnkey(t)
+	keys := newTestUnkeyStore(srv)
+	fake.add("uncrm_ours", "api_ours", "agent")
+	fake.mu.Lock()
+	fake.down = true
+	fake.mu.Unlock()
+
+	actor, err := keys.Verify(ctx, "uncrm_ours")
+	if err == nil || errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("verify during a 503 gave (%+v, %v), want a non-ErrInvalidKey error", actor, err)
+	}
+	if actor != (crm.Actor{}) {
+		t.Fatalf("verify during a 503 returned actor %+v", actor)
+	}
+	if _, _, err := keys.Create(ctx, crm.Actor{}, "x"); err == nil {
+		t.Fatal("create during a 503 succeeded")
+	}
+}
+
+func TestUnkeyCreateListRevoke(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fake, srv := newFakeUnkey(t)
+	keys := newTestUnkeyStore(srv)
+	other := fake.add("other_key", "api_other", "billing")
+
+	token, k, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "1"}, "zapier")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k.Name != "zapier" || k.ID == "" || k.Prefix != token[:10] {
+		t.Fatalf("created %+v from token %q", k, token)
+	}
+	if _, err := keys.Verify(ctx, token); err != nil {
+		t.Fatalf("a key just created must verify: %v", err)
+	}
+
+	list, err := keys.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != k.ID || list[0].Name != "zapier" {
+		t.Fatalf("list %+v, want only our API's key %s", list, k.ID)
+	}
+
+	if err := keys.Revoke(ctx, other); !errors.Is(err, crm.ErrNotFound) {
+		t.Fatalf("revoking another API's key: %v, want crm.ErrNotFound", err)
+	}
+	if err := keys.Revoke(ctx, k.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.Verify(ctx, token); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("revoked key still verifies on the replica that revoked it: %v", err)
+	}
+}

@@ -6,9 +6,16 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base32"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uncrm/uncrm/internal/crm"
 )
@@ -22,10 +29,14 @@ var (
 // implementation is live per process, chosen once in NewKeyStore.
 type KeyStore interface {
 	// Verify returns the actor for a presented key, or ErrInvalidKey.
+	// Any other error means the store could not decide (Unkey down, database
+	// gone), and callers must treat it as a failure, never as a pass.
 	Verify(ctx context.Context, token string) (crm.Actor, error)
 	// Create returns the plaintext once. It is never retrievable again.
 	Create(ctx context.Context, by crm.Actor, name string) (plaintext string, k Key, err error)
 	List(ctx context.Context) ([]Key, error)
+	// Revoke stops a key verifying. An id this store did not issue is
+	// crm.ErrNotFound.
 	Revoke(ctx context.Context, id string) error
 	// Mode is "builtin" or "unkey", shown on the Settings page.
 	Mode() string
@@ -49,32 +60,137 @@ type UnkeyConfig struct {
 // config error raised by main before this is called.
 func NewKeyStore(db *pgxpool.Pool, unkey UnkeyConfig) KeyStore {
 	if unkey.RootKey != "" {
-		return &unkeyKeys{cfg: unkey}
+		return newUnkeyKeys(unkey, unkeyBaseURL)
 	}
 	return &dbKeys{db: db}
 }
 
-// dbKeys stores SHA-256(token) in api_keys. Tokens are "uncrm_" + base62 of
-// 32 random bytes, so lookup by hash is safe and no slow hash is needed.
-// Verify updates last_used_at at most once a minute per key.
+const keyPrefix = "uncrm_"
+
+// keyName validates the human label both stores require.
+func keyName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 255 {
+		return "", fmt.Errorf("%w: key name must be 1 to 255 characters", crm.ErrInvalid)
+	}
+	return name, nil
+}
+
+// displayPrefix is the part of a key shown in lists: "uncrm_" plus four
+// characters, enough to tell keys apart and far too short to guess from.
+func displayPrefix(key string) string {
+	return key[:min(len(key), len(keyPrefix)+4)]
+}
+
+// tokenEncoding is lowercase RFC 4648 base32 without padding, so tokens are
+// safe in URLs, headers and cookies.
+var tokenEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
+
+// newToken returns 32 random bytes, encoded. API keys, session cookies and
+// invite tokens all use it, and each is stored only as hashToken(token).
+func newToken() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b) // never fails since Go 1.24
+	return tokenEncoding.EncodeToString(b)
+}
+
+// hashToken is the stored form of a token. Tokens carry 256 random bits, so
+// a plain SHA-256 is enough and no slow hash is needed.
+func hashToken(token string) []byte {
+	h := sha256.Sum256([]byte(token))
+	return h[:]
+}
+
+// dbKeys stores SHA-256(token) in api_keys. Verify looks a key up by its
+// hash alone, so no secret byte is ever compared in Go.
 type dbKeys struct {
 	db *pgxpool.Pool
 }
 
 func (k *dbKeys) Verify(ctx context.Context, token string) (crm.Actor, error) {
-	return crm.Actor{}, errors.New("not implemented")
+	// The UPDATE only fires when last_used_at is a minute stale, so a busy
+	// key costs one write a minute, not one per request.
+	var id int64
+	var name string
+	err := k.db.QueryRow(ctx, `
+		WITH k AS (
+			SELECT id, name, last_used_at FROM api_keys
+			WHERE token_hash = $1 AND revoked_at IS NULL
+		), touch AS (
+			UPDATE api_keys SET last_used_at = now() FROM k
+			WHERE api_keys.id = k.id
+			  AND (k.last_used_at IS NULL OR k.last_used_at < now() - interval '1 minute')
+		)
+		SELECT id, name FROM k`, hashToken(token)).Scan(&id, &name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return crm.Actor{}, ErrInvalidKey
+	}
+	if err != nil {
+		return crm.Actor{}, err
+	}
+	return crm.Actor{Kind: crm.ActorAPIKey, ID: strconv.FormatInt(id, 10), Label: name}, nil
 }
 
 func (k *dbKeys) Create(ctx context.Context, by crm.Actor, name string) (string, Key, error) {
-	return "", Key{}, errors.New("not implemented")
+	name, err := keyName(name)
+	if err != nil {
+		return "", Key{}, err
+	}
+	token := keyPrefix + newToken()
+	key := Key{Name: name, Prefix: displayPrefix(token)}
+	var id int64
+	err = k.db.QueryRow(ctx, `
+		INSERT INTO api_keys (name, prefix, token_hash, created_by)
+		VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+		key.Name, key.Prefix, hashToken(token), userID(by)).Scan(&id, &key.CreatedAt)
+	if err != nil {
+		return "", Key{}, err
+	}
+	key.ID = strconv.FormatInt(id, 10)
+	return token, key, nil
 }
 
 func (k *dbKeys) List(ctx context.Context) ([]Key, error) {
-	return nil, errors.New("not implemented")
+	rows, err := k.db.Query(ctx, `
+		SELECT id::text, name, prefix, created_at, last_used_at FROM api_keys
+		WHERE revoked_at IS NULL ORDER BY created_at DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Key, error) {
+		var key Key
+		err := row.Scan(&key.ID, &key.Name, &key.Prefix, &key.CreatedAt, &key.LastUsedAt)
+		return key, err
+	})
 }
 
+// Revoke is idempotent: revoking a revoked key succeeds and keeps the first
+// revocation time.
 func (k *dbKeys) Revoke(ctx context.Context, id string) error {
-	return errors.New("not implemented")
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return crm.ErrNotFound
+	}
+	tag, err := k.db.Exec(ctx, `UPDATE api_keys SET revoked_at = coalesce(revoked_at, now()) WHERE id = $1`, n)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return crm.ErrNotFound
+	}
+	return nil
 }
 
 func (k *dbKeys) Mode() string { return "builtin" }
+
+// userID is the users.id behind a user actor, or nil for any other actor.
+func userID(a crm.Actor) *int64 {
+	if a.Kind != crm.ActorUser {
+		return nil
+	}
+	id, err := strconv.ParseInt(a.ID, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &id
+}
