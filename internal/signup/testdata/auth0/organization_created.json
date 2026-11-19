@@ -1,0 +1,10 @@
+{
+  "id": "evt_9ViaAuwp1qYfmCCQIIK4O",
+  "source": "urn:auth0:acme:organizations",
+  "specversion": "1.0",
+  "type": "com.auth0.organization.created",
+  "time": "2025-02-06T11:00:00.000Z",
+  "data": {
+    "object": {"id": "org_abc123", "name": "navy", "display_name": "US Navy"}
+  }
+}

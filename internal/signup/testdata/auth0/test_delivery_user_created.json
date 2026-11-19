@@ -1,0 +1,25 @@
+{
+  "id": "evt_6SfwXrtm8nVcjzzNCFFH1L",
+  "source": "urn:auth0:",
+  "specversion": "1.0",
+  "type": "user.created",
+  "time": "2025-02-02T17:56:01.573Z",
+  "data": {
+    "object": {
+      "created_at": "2025-02-02T17:56:01.566Z",
+      "email": "nick-testing-21@example.com",
+      "email_verified": false,
+      "identities": [
+        {"connection": "Username-Password-Authentication", "isSocial": false, "provider": "auth0", "user_id": "679fb1b1e809445f129bc18d"}
+      ],
+      "name": "nick-testing-21@example.com",
+      "nickname": "nick-testing-21",
+      "picture": "test.png",
+      "updated_at": "2025-02-02T17:56:01.566Z",
+      "user_id": "auth0|679fb1b1e809445f129bc18d"
+    }
+  },
+  "a0tenant": "acme",
+  "a0stream": "est_38ANnv8pQhqsZrX2VFbftv",
+  "a0purpose": "test"
+}

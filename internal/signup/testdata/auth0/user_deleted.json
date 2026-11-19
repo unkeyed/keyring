@@ -1,0 +1,12 @@
+{
+  "id": "evt_8UhyZtvo0pXelBBPHHJ3N",
+  "source": "urn:auth0:acme:users",
+  "specversion": "1.0",
+  "type": "com.auth0.user.deleted",
+  "time": "2025-02-04T10:00:00.000Z",
+  "data": {
+    "object": {
+      "user_id": "google-oauth2|108234567890123456789"
+    }
+  }
+}
