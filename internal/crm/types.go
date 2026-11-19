@@ -12,35 +12,6 @@ type (
 	NoteID    int64
 )
 
-// Email is a normalized address: trimmed, lowercased, exactly one "@" with a
-// non-empty local part and domain. ParseEmail is the only constructor, so two
-// Emails name the same mailbox exactly when they are equal. That equality is
-// the whole identity-resolution rule across providers.
-//
-// Plus-addressing and Gmail dots are kept: ada+test@x.com is a different
-// contact from ada@x.com, because teams test sign-ups that way on purpose.
-type Email string
-
-func ParseEmail(s string) (Email, error) {
-	return "", errors.New("not implemented")
-}
-
-// Domain is the lowercased part after "@".
-func (e Email) Domain() Domain {
-	panic("not implemented")
-}
-
-// Domain is a lowercased host name.
-type Domain string
-
-// IsFreeMail reports whether the domain is a consumer mailbox provider
-// (gmail.com, outlook.com, ...), read from the embedded freemail.txt.
-// A free-mail domain never becomes a company and its addresses never get
-// person enrichment.
-func (d Domain) IsFreeMail() bool {
-	panic("not implemented")
-}
-
 // Tag is trimmed and lowercased by ParseTag. The schema CHECK enforces the same.
 type Tag string
 

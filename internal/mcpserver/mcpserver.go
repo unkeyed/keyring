@@ -8,6 +8,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
+
+	"github.com/google/jsonschema-go/jsonschema"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -92,14 +95,37 @@ type signupsOut struct {
 	Signups []crm.Activity `json:"signups"`
 }
 
+// schemaOpts tells schema inference that parse-only domain types travel as
+// strings. Without it, a struct with only unexported fields is inferred as an
+// empty object, and every tool output holding one fails validation.
+var schemaOpts = &jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+	reflect.TypeFor[crm.Email]():  {Type: "string"},
+	reflect.TypeFor[crm.Domain](): {Type: "string"},
+}}
+
+// addTool is mcp.AddTool with input and output schemas inferred under
+// schemaOpts. Every tool registers through it.
+func addTool[In, Out any](srv *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
+	in, err := jsonschema.For[In](schemaOpts)
+	if err != nil {
+		panic(err)
+	}
+	out, err := jsonschema.For[Out](schemaOpts)
+	if err != nil {
+		panic(err)
+	}
+	t.InputSchema, t.OutputSchema = in, out
+	mcp.AddTool(srv, t, h)
+}
+
 func addTools(srv *mcp.Server, svc *crm.Service) {
-	mcp.AddTool(srv, &mcp.Tool{Name: "search_contacts", Description: "Search contacts by text, tag, stage or provider."},
+	addTool(srv, &mcp.Tool{Name: "search_contacts", Description: "Search contacts by text, tag, stage or provider."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in searchContactsIn) (*mcp.CallToolResult, crm.Page[crm.Contact], error) {
 			p, err := svc.SearchContacts(ctx, crm.ContactQuery{Text: in.Query, Tag: in.Tag, Stage: in.Stage, Provider: in.Provider, Cursor: in.Cursor, Limit: in.Limit})
 			return nil, p, err
 		})
 
-	mcp.AddTool(srv, &mcp.Tool{Name: "get_contact", Description: "Get one contact with identities, notes and recent activity, by id or email."},
+	addTool(srv, &mcp.Tool{Name: "get_contact", Description: "Get one contact with identities, notes and recent activity, by id or email."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in getContactIn) (*mcp.CallToolResult, crm.ContactDetail, error) {
 			if in.Email != "" {
 				c, err := svc.FindContactByEmail(ctx, in.Email)
@@ -109,31 +135,31 @@ func addTools(srv *mcp.Server, svc *crm.Service) {
 			return nil, c, err
 		})
 
-	mcp.AddTool(srv, &mcp.Tool{Name: "update_contact", Description: "Change a contact's fields, stage, company or tags."},
+	addTool(srv, &mcp.Tool{Name: "update_contact", Description: "Change a contact's fields, stage, company or tags."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in updateContactIn) (*mcp.CallToolResult, crm.Contact, error) {
 			c, err := svc.UpdateContact(ctx, actorOf(req), in.ID, in.Changes)
 			return nil, c, err
 		})
 
-	mcp.AddTool(srv, &mcp.Tool{Name: "reset_contact_field", Description: "Hand a field a person or agent set back to the auth provider and enrichment, so their next value shows."},
+	addTool(srv, &mcp.Tool{Name: "reset_contact_field", Description: "Hand a field a person or agent set back to the auth provider and enrichment, so their next value shows."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in resetContactFieldIn) (*mcp.CallToolResult, crm.Contact, error) {
 			c, err := svc.ResetContactField(ctx, actorOf(req), in.ID, in.Field)
 			return nil, c, err
 		})
 
-	mcp.AddTool(srv, &mcp.Tool{Name: "add_note", Description: "Add a note to a contact's timeline."},
+	addTool(srv, &mcp.Tool{Name: "add_note", Description: "Add a note to a contact's timeline."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in addNoteIn) (*mcp.CallToolResult, crm.Note, error) {
 			n, err := svc.AddNote(ctx, actorOf(req), in.ContactID, in.Body)
 			return nil, n, err
 		})
 
-	mcp.AddTool(srv, &mcp.Tool{Name: "list_recent_signups", Description: "List the newest sign-ups across all providers."},
+	addTool(srv, &mcp.Tool{Name: "list_recent_signups", Description: "List the newest sign-ups across all providers."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in recentSignupsIn) (*mcp.CallToolResult, signupsOut, error) {
 			a, err := svc.ListActivity(ctx, crm.ActivityQuery{Kind: crm.ActivitySignedUp, Limit: in.Limit})
 			return nil, signupsOut{Signups: a}, err
 		})
 
-	mcp.AddTool(srv, &mcp.Tool{Name: "get_company", Description: "Get a company and its contacts, by id or domain."},
+	addTool(srv, &mcp.Tool{Name: "get_company", Description: "Get a company and its contacts, by id or domain."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in getCompanyIn) (*mcp.CallToolResult, crm.CompanyDetail, error) {
 			if in.Domain != "" {
 				c, err := svc.GetCompanyByDomain(ctx, in.Domain)
@@ -143,7 +169,7 @@ func addTools(srv *mcp.Server, svc *crm.Service) {
 			return nil, c, err
 		})
 
-	mcp.AddTool(srv, &mcp.Tool{Name: "enrich_contact", Description: "Queue a fresh enrichment for a contact and its company."},
+	addTool(srv, &mcp.Tool{Name: "enrich_contact", Description: "Queue a fresh enrichment for a contact and its company."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in enrichContactIn) (*mcp.CallToolResult, enrichOut, error) {
 			st, err := svc.EnrichContact(ctx, actorOf(req), in.ID)
 			return nil, enrichOut{State: st}, err

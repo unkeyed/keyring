@@ -89,7 +89,7 @@ Invariants and where they are enforced:
 
 | Invariant | Enforced by |
 |---|---|
-| one contact per normalized email | `contacts.email UNIQUE` + `ParseEmail` sole constructor |
+| one contact per normalized email | `contacts.email UNIQUE` + `crm.Email` has an unexported field, so only parsing builds one |
 | one signed_up per provider user | `activities.dedupe_key UNIQUE` |
 | identity never moves contacts | `contact_id` absent from the upsert's `DO UPDATE` |
 | stale webhook cannot regress identity | `WHERE identities.occurred_at <= EXCLUDED.occurred_at` |
