@@ -2,6 +2,10 @@ package crm
 
 import (
 	"errors"
+	"os"
+	"regexp"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -37,5 +41,22 @@ func TestSettle(t *testing.T) {
 // internal/db/migrations/001_init.sql and fails unless it lists exactly the
 // JobState constants.
 func TestJobStatesMatchSchema(t *testing.T) {
-	t.Skip("not implemented")
+	sql, err := os.ReadFile("../db/migrations/001_init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`state\s+text NOT NULL CHECK \(state IN \(([^)]*)\)\)`).FindSubmatch(sql)
+	if m == nil {
+		t.Fatal("no enrichment_jobs.state CHECK found in 001_init.sql")
+	}
+	var inSchema []string
+	for _, v := range strings.Split(string(m[1]), ",") {
+		inSchema = append(inSchema, strings.Trim(strings.TrimSpace(v), "'"))
+	}
+	inGo := []string{string(JobPending), string(JobRunning), string(JobDone), string(JobFailed), string(JobSkipped)}
+	slices.Sort(inSchema)
+	slices.Sort(inGo)
+	if !slices.Equal(inSchema, inGo) {
+		t.Fatalf("schema allows %v, Go defines %v", inSchema, inGo)
+	}
 }
