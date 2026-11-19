@@ -14,7 +14,7 @@ You need Docker with Compose v2.
    docker compose up -d --build --wait
    ```
 
-   Open <http://localhost:8080> and log in as `admin@example.com` with the password `uncrm-dev-password`. `docker-compose.yml` seeds this admin through `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+   Open <http://localhost:8080> and log in as `admin@example.com` with the password `uncrm-dev-password`. To log in with your own email and password instead, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in your shell or in a `.env` file before the first `docker compose up`. The password needs at least 12 characters.
 
 2. Open **Settings > Providers**, pick your auth provider, and follow the steps on the page. uncrm shows the webhook URL to paste into your provider, and the provider's guide is linked under [Connect your auth](#connect-your-auth). A provider cannot reach `localhost`, so on your laptop put a tunnel in front of port 8080, for example `cloudflared tunnel --url http://localhost:8080`, and use the tunnel's URL.
 

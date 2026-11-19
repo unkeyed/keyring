@@ -24,7 +24,7 @@ You need Docker with Compose v2.
 
    The answer is `HTTP/1.1 200 OK`.
 
-3. Open <http://localhost:8080> and log in as `admin@example.com` with the password `uncrm-dev-password`. `docker-compose.yml` sets these two values.
+3. Open <http://localhost:8080> and log in as `admin@example.com` with the password `uncrm-dev-password`. These are the defaults for `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `docker-compose.yml`. [Set your own admin login](#set-your-own-admin-login) replaces them.
 
 Postgres keeps its data in the `db` volume that `docker-compose.yml` declares. `docker compose down` stops the stack and keeps the data. `docker compose down -v` also deletes the data.
 
@@ -38,7 +38,7 @@ UNCRM_PORT=18080 UNCRM_DB_PORT=15432 docker compose up -d --build --wait
 
 ### Set other variables
 
-Compose passes `CONTEXT_DEV_API_KEY` from your shell or from a `.env` file next to `docker-compose.yml`. To turn on enrichment, put the key in `.env` and restart:
+Compose passes `CONTEXT_DEV_API_KEY`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` from your shell or from a `.env` file next to `docker-compose.yml`. To turn on enrichment, put the key in `.env` and restart:
 
 ```sh
 echo 'CONTEXT_DEV_API_KEY=your-context-dev-key' >> .env
@@ -57,9 +57,17 @@ services:
 
 [Configuration](configuration.md) lists every variable.
 
-### Replace the dev password
+### Set your own admin login
 
-The dev admin has a password that is in this repository. Before other people can reach your uncrm, log in as `admin@example.com` and set a new password in **Settings > Team**.
+The default admin password is in this repository. Before other people can reach your uncrm, replace the default login. To start with your own login, put it in `.env` before the first `docker compose up`:
+
+```sh
+echo 'ADMIN_EMAIL=you@example.com' >> .env
+echo 'ADMIN_PASSWORD=a-password-of-12-or-more-characters' >> .env
+docker compose up -d --build --wait
+```
+
+On every start, uncrm creates this user if no user with that email exists. It never changes an existing user, so a new `ADMIN_PASSWORD` does not change the password of a user that already exists. If you already logged in as `admin@example.com`, set a new password in **Settings > Team** instead.
 
 Setting a different `ADMIN_EMAIL` later does not remove `admin@example.com`. It adds a second user.
 

@@ -19,8 +19,8 @@ services:
     build: .
     environment:
       DATABASE_URL: postgres://uncrm:uncrm@db:5432/uncrm?sslmode=disable
-      ADMIN_EMAIL: admin@example.com
-      ADMIN_PASSWORD: uncrm-dev-password
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-uncrm-dev-password}
       CONTEXT_DEV_API_KEY: ${CONTEXT_DEV_API_KEY:-}
     ports:
       - "${UNCRM_PORT:-8080}:8080"
