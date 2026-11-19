@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://uncrm:uncrm@localhost:5432/uncrm?sslmode=disable
 BASE_URL ?= http://localhost:8080
-GO_TEST_SKIP ?= TestEveryProviderHasFixtures
+GO_TEST_SKIP ?=
 
 .PHONY: dev test lint build web e2e
 
