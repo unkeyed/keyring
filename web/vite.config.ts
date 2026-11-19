@@ -15,7 +15,6 @@ export default defineConfig({
       "/mcp": api,
       "/webhooks": api,
       "/healthz": api,
-      "/openapi.yaml": api,
     },
   },
 });

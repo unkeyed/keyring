@@ -77,7 +77,7 @@ Create a key in **Settings > Agents & MCP**, then add uncrm to Claude Code:
 claude mcp add --transport http uncrm https://<host>/mcp --header "Authorization: Bearer <key>"
 ```
 
-The agent can then search, read, update, tag, note, and merge contacts. [Connect agents to uncrm](docs/agents.md) covers Cursor, Claude Desktop, the full tool list, and the REST API. Every route is in the OpenAPI spec at `https://<host>/openapi.yaml`.
+The agent can then search, read, update, tag, note, and merge contacts. [Connect agents to uncrm](docs/agents.md) covers Cursor, Claude Desktop, the full tool list, and the REST API. Every route is in the OpenAPI spec at `https://<host>/v1/openapi.yaml`.
 
 ## API keys
 

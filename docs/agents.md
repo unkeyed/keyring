@@ -137,4 +137,4 @@ An error answers with a status code and `{"error": "<message>"}`:
 
 ### API reference
 
-uncrm serves its OpenAPI spec at `https://crm.example.com/openapi.yaml`. The spec is built into the binary, so it describes the version you run. No API key is needed to read it.
+uncrm serves its OpenAPI spec at `https://crm.example.com/v1/openapi.yaml`. The spec is built into the binary, so it describes the version you run. No API key is needed to read it.
