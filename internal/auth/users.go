@@ -321,7 +321,7 @@ func (u *Users) Invite(ctx context.Context, by crm.Actor, email string) (token s
 		return "", err
 	}
 	if exists {
-		return "", fmt.Errorf("%w: %s already has an account", crm.ErrInvalid, email)
+		return "", fmt.Errorf("%w: %s already has an account", crm.ErrConflict, email)
 	}
 	token = newToken()
 	_, err = u.db.Exec(ctx, `
@@ -363,7 +363,7 @@ func (u *Users) AcceptInvite(ctx context.Context, token, name, password string) 
 			ON CONFLICT (email) DO NOTHING RETURNING id`,
 			email, strings.TrimSpace(name), hash).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: %s already has an account, log in instead", crm.ErrInvalid, email)
+			return fmt.Errorf("%w: %s already has an account, log in instead", crm.ErrConflict, email)
 		}
 		return err
 	})

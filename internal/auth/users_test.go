@@ -230,10 +230,11 @@ func TestInviteIsSingleUse(t *testing.T) {
 	if _, err := users.Invite(ctx, crm.Actor{Kind: crm.ActorAPIKey, ID: "1"}, "ada@example.com"); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("invite by an API key: %v, want ErrUnauthorized", err)
 	}
-	for _, bad := range []string{"not-an-email", "admin@example.com"} {
-		if _, err := users.Invite(ctx, admin, bad); !errors.Is(err, crm.ErrInvalid) {
-			t.Fatalf("invite %q: %v, want crm.ErrInvalid", bad, err)
-		}
+	if _, err := users.Invite(ctx, admin, "not-an-email"); !errors.Is(err, crm.ErrInvalid) {
+		t.Fatalf("invite a non-email: %v, want crm.ErrInvalid", err)
+	}
+	if _, err := users.Invite(ctx, admin, "admin@example.com"); !errors.Is(err, crm.ErrConflict) {
+		t.Fatalf("invite an existing user: %v, want crm.ErrConflict", err)
 	}
 
 	token, err := users.Invite(ctx, admin, " Ada@Example.com ")

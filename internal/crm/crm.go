@@ -45,6 +45,7 @@ import (
 var (
 	ErrNotFound        = errors.New("not found")
 	ErrInvalid         = errors.New("invalid input")
+	ErrConflict        = errors.New("conflict") // the thing to create already exists
 	ErrUnknownProvider = errors.New("unknown provider")
 	ErrNotConnected    = errors.New("provider not connected")
 )
