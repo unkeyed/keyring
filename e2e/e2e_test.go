@@ -37,6 +37,14 @@ func TestHealthz(t *testing.T) {
 	res.expect(t, http.StatusOK)
 }
 
+func TestOpenAPIIsPublic(t *testing.T) {
+	res := do(t, request{method: "GET", path: "/v1/openapi.yaml"})
+	res.expect(t, http.StatusOK)
+	if !bytes.HasPrefix(res.body, []byte("openapi: 3.1")) {
+		t.Fatalf("GET /v1/openapi.yaml does not start with an OpenAPI 3.1 header: %.40q", res.body)
+	}
+}
+
 func TestClerkWebhookCreatesOneContact(t *testing.T) {
 	inst := bootstrap(t)
 	run := unique()
@@ -141,7 +149,8 @@ func TestMCPSearchContacts(t *testing.T) {
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)
 	}
-	for _, want := range []string{"search_contacts", "get_contact", "update_contact", "add_note", "list_recent_signups", "get_company", "enrich_contact"} {
+	for _, want := range []string{"search_contacts", "get_contact", "update_contact", "set_stage", "reset_contact_field", "add_note", "merge_contacts",
+		"list_recent_signups", "get_company", "search_companies", "enrich_contact", "get_status"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("tools/list = %v, missing %s", names, want)
 		}

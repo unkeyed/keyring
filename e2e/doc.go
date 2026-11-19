@@ -7,6 +7,7 @@
 //     rejected.
 //   - POST /v1/signups with an API key creates a contact and is idempotent.
 //   - GET /v1/contacts lists and searches contacts with that key.
+//   - GET /v1/openapi.yaml serves the spec without credentials.
 //   - The MCP server at /mcp lists its tools, and search_contacts finds the
 //     contact.
 //
