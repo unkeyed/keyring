@@ -5,11 +5,17 @@
 package httpapi
 
 import (
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 
 	"github.com/uncrm/uncrm/internal/auth"
 	"github.com/uncrm/uncrm/internal/crm"
@@ -37,7 +43,7 @@ type route struct {
 // when openapi.yaml and this table disagree.
 var routes = []route{
 	{"GET /healthz", public, (*server).healthz},
-	{"GET /openapi.yaml", public, (*server).openapi},
+	{"GET /v1/openapi.yaml", public, (*server).openapi},
 	{"POST /webhooks/{provider}", public, (*server).receiveWebhook},
 
 	{"POST /v1/signups", anyone, (*server).createSignup},
@@ -66,10 +72,12 @@ var routes = []route{
 	{"GET /v1/keys", humans, (*server).listKeys},
 	{"POST /v1/keys", humans, (*server).createKey},
 	{"DELETE /v1/keys/{id}", humans, (*server).revokeKey},
+	{"GET /v1/users", humans, (*server).listUsers},
 	{"POST /v1/invites", humans, (*server).createInvite},
 	{"GET /v1/me", humans, (*server).me},
 	{"POST /v1/me/password", humans, (*server).changePassword},
 
+	{"GET /auth/setup", public, (*server).setup},
 	{"POST /auth/login", public, (*server).login},
 	{"POST /auth/logout", public, (*server).logout},
 	{"POST /auth/invites/accept", public, (*server).acceptInvite},
@@ -103,12 +111,15 @@ func NewMux(svc *crm.Service, authn *auth.Authenticator, log *slog.Logger) *http
 		mux.Handle(rt.pattern, h)
 	}
 	mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such route"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such route; the API is described at GET /v1/openapi.yaml"})
 	})
 	return mux
 }
 
-var errForbidden = errors.New("forbidden")
+var (
+	errForbidden   = errors.New("forbidden: API keys cannot use this route; sign in to the UI")
+	errUnavailable = errors.New("unavailable")
+)
 
 func (s *server) wrap(rt route) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +127,7 @@ func (s *server) wrap(rt route) http.Handler {
 		if rt.access != public {
 			a, via, err := s.authn.Caller(r)
 			if err != nil {
-				s.writeError(w, r, err)
+				s.writeError(w, r, callerErr(err))
 				return
 			}
 			if rt.access == humans && via != auth.ViaSession {
@@ -131,26 +142,67 @@ func (s *server) wrap(rt route) http.Handler {
 	})
 }
 
+// callerErr marks a failure to authenticate that is not the caller's fault:
+// Caller returns ErrUnauthorized or ErrInvalidKey for bad credentials, and
+// anything else means the key store or database could not decide.
+func callerErr(err error) error {
+	if errors.Is(err, auth.ErrUnauthorized) || errors.Is(err, auth.ErrInvalidKey) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", errUnavailable, err)
+}
+
+// keyStoreErr does the same for key management. A KeyStore reports the
+// caller's mistakes as crm.ErrInvalid or crm.ErrNotFound; any other error
+// means Postgres or Unkey could not answer.
+func keyStoreErr(err error) error {
+	if err == nil || errors.Is(err, crm.ErrInvalid) || errors.Is(err, crm.ErrNotFound) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", errUnavailable, err)
+}
+
 // writeError is the single error-to-status mapping for REST.
-// Body: {"error": "<message>"}.
+// Body: {"error": "<message>"}, plus "request_id" on a 5xx, whose cause is
+// logged under the same id.
 func (s *server) writeError(w http.ResponseWriter, r *http.Request, err error) {
+	var throttled *auth.ThrottledError
+	var netErr net.Error
 	code := http.StatusInternalServerError
 	switch {
-	case errors.Is(err, crm.ErrNotFound), errors.Is(err, crm.ErrUnknownProvider), errors.Is(err, crm.ErrNotConnected):
-		code = http.StatusNotFound
 	case errors.Is(err, crm.ErrInvalid):
 		code = http.StatusBadRequest
 	case errors.Is(err, auth.ErrUnauthorized), errors.Is(err, auth.ErrInvalidKey), errors.Is(err, signup.ErrBadSignature):
 		code = http.StatusUnauthorized
 	case errors.Is(err, errForbidden):
 		code = http.StatusForbidden
+	case errors.Is(err, crm.ErrNotFound), errors.Is(err, crm.ErrUnknownProvider), errors.Is(err, crm.ErrNotConnected):
+		code = http.StatusNotFound
+	case errors.Is(err, crm.ErrConflict):
+		code = http.StatusConflict
+	case errors.As(err, &throttled):
+		code = http.StatusTooManyRequests
+		w.Header().Set("Retry-After", strconv.Itoa(int(throttled.RetryAfter.Seconds())))
+	case errors.Is(err, errUnavailable), errors.As(err, &netErr):
+		code = http.StatusServiceUnavailable
 	}
-	msg := err.Error()
-	if code == http.StatusInternalServerError {
-		s.log.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
-		msg = "internal error"
+	if code < 500 {
+		writeJSON(w, code, map[string]string{"error": err.Error()})
+		return
 	}
-	writeJSON(w, code, map[string]string{"error": msg})
+	id := requestID()
+	s.log.Error("request failed", "request_id", id, "status", code, "method", r.Method, "path", r.URL.Path, "err", err)
+	msg := "internal error"
+	if code == http.StatusServiceUnavailable {
+		msg = "the database or key store is unavailable; retry shortly"
+	}
+	writeJSON(w, code, map[string]string{"error": msg, "request_id": id})
+}
+
+func requestID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -162,5 +214,16 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 // readJSON decodes a body of at most 1 MiB, rejecting unknown fields, and
 // wraps failures in crm.ErrInvalid.
 func readJSON(r *http.Request, v any) error {
-	return errors.New("not implemented")
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("%w: request body is empty, want a JSON object", crm.ErrInvalid)
+		}
+		return fmt.Errorf("%w: bad JSON body: %v", crm.ErrInvalid, err)
+	}
+	if dec.More() {
+		return fmt.Errorf("%w: request body holds more than one JSON value", crm.ErrInvalid)
+	}
+	return nil
 }

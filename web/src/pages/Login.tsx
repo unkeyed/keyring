@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router";
 import { api, ApiError } from "../api";
 import { Button, ErrorNote, Field, inputClass } from "../ui";
@@ -35,6 +35,7 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const setup = useQuery({ queryKey: ["setup"], queryFn: api.auth.setup, staleTime: Infinity });
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -64,13 +65,14 @@ export function Login() {
           {busy ? "Logging in…" : "Log in"}
         </Button>
       </form>
-      <details className="mt-5 text-xs text-muted">
-        <summary className="cursor-pointer select-none hover:text-fg">First time here?</summary>
-        <p className="mt-2 leading-relaxed">
-          The first account comes from the <code className="font-mono">ADMIN_EMAIL</code> and <code className="font-mono">ADMIN_PASSWORD</code> environment
-          variables on this deployment. Teammates join through an invite link from Settings, Team.
+      {setup.data?.has_users === false ? (
+        <p className="mt-5 rounded-md border border-line bg-subtle p-3 text-xs leading-relaxed text-muted">
+          No account exists yet. Set <code className="font-mono">ADMIN_EMAIL</code> and <code className="font-mono">ADMIN_PASSWORD</code> on this deployment
+          and restart it, then log in with them.
         </p>
-      </details>
+      ) : (
+        <p className="mt-5 text-xs text-muted">New here? Ask a teammate for an invite link from Settings, Team.</p>
+      )}
     </AuthShell>
   );
 }

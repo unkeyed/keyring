@@ -1,18 +1,14 @@
 package httpapi
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/uncrm/uncrm/internal/crm"
 	"github.com/uncrm/uncrm/internal/signup"
 )
-
-var errNotImplemented = errors.New("not implemented")
 
 func (s *server) healthz(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
 	w.WriteHeader(http.StatusOK) // process only; Unkey advises not to check the DB here
@@ -77,11 +73,24 @@ func (s *server) createSignup(w http.ResponseWriter, r *http.Request, a crm.Acto
 	return nil
 }
 
-// searchContacts maps query params q, tag, stage, provider, company_id,
-// signed_up_after, signed_up_before (RFC 3339), cursor, limit onto
-// crm.ContactQuery.
 func (s *server) searchContacts(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	return errNotImplemented
+	p := queryParams(r, "q", "tag", "stage", "provider", "company_id", "signed_up_after", "signed_up_before", "cursor", "limit")
+	q := crm.ContactQuery{
+		Text:           p.str("q"),
+		Tag:            crm.Tag(p.str("tag")),
+		Stage:          crm.Stage(p.str("stage")),
+		Provider:       p.str("provider"),
+		CompanyID:      crm.CompanyID(p.int("company_id")),
+		SignedUpAfter:  p.time("signed_up_after"),
+		SignedUpBefore: p.time("signed_up_before"),
+		Cursor:         p.str("cursor"),
+		Limit:          int(p.int("limit")),
+	}
+	if p.err != nil {
+		return p.err
+	}
+	page, err := s.svc.SearchContacts(r.Context(), q)
+	return respond(w, http.StatusOK, page, err)
 }
 
 func (s *server) getContact(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
@@ -90,11 +99,7 @@ func (s *server) getContact(w http.ResponseWriter, r *http.Request, _ crm.Actor)
 		return err
 	}
 	c, err := s.svc.GetContact(r.Context(), crm.ContactID(id))
-	if err != nil {
-		return err
-	}
-	writeJSON(w, http.StatusOK, c)
-	return nil
+	return respond(w, http.StatusOK, c, err)
 }
 
 func (s *server) updateContact(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
@@ -107,76 +112,173 @@ func (s *server) updateContact(w http.ResponseWriter, r *http.Request, a crm.Act
 		return err
 	}
 	c, err := s.svc.UpdateContact(r.Context(), a, crm.ContactID(id), p)
-	if err != nil {
-		return err
-	}
-	writeJSON(w, http.StatusOK, c)
-	return nil
+	return respond(w, http.StatusOK, c, err)
 }
 
 // resetContactField responds with the contact, like updateContact.
 func (s *server) resetContactField(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return errNotImplemented
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	c, err := s.svc.ResetContactField(r.Context(), a, crm.ContactID(id), crm.Field(r.PathValue("field")))
+	return respond(w, http.StatusOK, c, err)
 }
 
 // mergeContacts folds the contact in the body ({"drop": id}) into the one in
 // the path and responds with the surviving contact.
 func (s *server) mergeContacts(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return errNotImplemented
+	keep, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	var b struct {
+		Drop crm.ContactID `json:"drop"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		return err
+	}
+	c, err := s.svc.MergeContacts(r.Context(), a, crm.ContactID(keep), b.Drop)
+	return respond(w, http.StatusOK, c, err)
 }
 
 func (s *server) addNote(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return errNotImplemented
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	var b struct {
+		Body string `json:"body"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		return err
+	}
+	n, err := s.svc.AddNote(r.Context(), a, crm.ContactID(id), b.Body)
+	return respond(w, http.StatusCreated, n, err)
 }
 
 func (s *server) deleteNote(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return errNotImplemented
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	return noContent(w, s.svc.DeleteNote(r.Context(), a, crm.NoteID(id)))
+}
+
+// enrichResult is the body of both enrich routes: the job's state after the
+// request, usually "pending" ("skipped" for a free-mail contact).
+type enrichResult struct {
+	State crm.JobState `json:"state"`
 }
 
 func (s *server) enrichContact(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return errNotImplemented
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	st, err := s.svc.EnrichContact(r.Context(), a, crm.ContactID(id))
+	return respond(w, http.StatusAccepted, enrichResult{st}, err)
 }
 
 func (s *server) searchCompanies(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	return errNotImplemented
+	p := queryParams(r, "q", "cursor", "limit")
+	q := crm.CompanyQuery{Text: p.str("q"), Cursor: p.str("cursor"), Limit: int(p.int("limit"))}
+	if p.err != nil {
+		return p.err
+	}
+	page, err := s.svc.SearchCompanies(r.Context(), q)
+	return respond(w, http.StatusOK, page, err)
 }
 
 func (s *server) getCompany(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	return errNotImplemented
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	c, err := s.svc.GetCompany(r.Context(), crm.CompanyID(id))
+	return respond(w, http.StatusOK, c, err)
 }
 
 func (s *server) updateCompany(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return errNotImplemented
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	var p crm.CompanyPatch
+	if err := readJSON(r, &p); err != nil {
+		return err
+	}
+	c, err := s.svc.UpdateCompany(r.Context(), a, crm.CompanyID(id), p)
+	return respond(w, http.StatusOK, c, err)
 }
 
 func (s *server) resetCompanyField(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return errNotImplemented
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	c, err := s.svc.ResetCompanyField(r.Context(), a, crm.CompanyID(id), crm.Field(r.PathValue("field")))
+	return respond(w, http.StatusOK, c, err)
 }
 
 func (s *server) enrichCompany(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return errNotImplemented
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	st, err := s.svc.EnrichCompany(r.Context(), a, crm.CompanyID(id))
+	return respond(w, http.StatusAccepted, enrichResult{st}, err)
 }
 
 func (s *server) listActivity(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	return errNotImplemented
+	p := queryParams(r, "kind", "contact_id", "since", "limit")
+	q := crm.ActivityQuery{
+		Kind:      crm.ActivityKind(p.str("kind")),
+		ContactID: crm.ContactID(p.int("contact_id")),
+		Since:     p.time("since"),
+		Limit:     int(p.int("limit")),
+	}
+	if p.err != nil {
+		return p.err
+	}
+	a, err := s.svc.ListActivity(r.Context(), q)
+	return respond(w, http.StatusOK, a, err)
 }
 
 func (s *server) listTags(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	return errNotImplemented
+	tags, err := s.svc.ListTags(r.Context())
+	return respond(w, http.StatusOK, tags, err)
 }
 
 func (s *server) listStages(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	return errNotImplemented
+	stages, err := s.svc.ListStages(r.Context())
+	return respond(w, http.StatusOK, stages, err)
+}
+
+// statusBody adds the key store mode, which auth owns, to crm's summary.
+type statusBody struct {
+	crm.Status
+	KeyStore string `json:"key_store"` // "builtin" or "unkey"
 }
 
 func (s *server) status(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	return errNotImplemented
+	st, err := s.svc.Status(r.Context())
+	return respond(w, http.StatusOK, statusBody{st, s.keys.Mode()}, err)
 }
 
-func pathID(r *http.Request, name string) (int64, error) {
-	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
-	if err != nil || id <= 0 {
-		return 0, fmt.Errorf("%w: bad %s", crm.ErrInvalid, name)
+// respond writes v with code, or returns err for writeError.
+func respond(w http.ResponseWriter, code int, v any, err error) error {
+	if err != nil {
+		return err
 	}
-	return id, nil
+	writeJSON(w, code, v)
+	return nil
+}
+
+func noContent(w http.ResponseWriter, err error) error {
+	if err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }

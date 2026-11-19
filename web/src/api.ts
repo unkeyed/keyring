@@ -62,10 +62,10 @@ export interface Contact {
   linkedin_url: string;
   company: CompanyRef | null;
   stage: Stage;
-  tags: Tag[] | null;
-  providers: string[] | null;
+  tags: Tag[];
+  providers: string[];
   enrichment: JobState;
-  manual_fields: ContactField[] | null;
+  manual_fields: ContactField[];
   first_seen_at: Timestamp;
   last_seen_at: Timestamp;
   created_at: Timestamp;
@@ -114,10 +114,10 @@ export type Activity = ActivityData & {
 };
 
 export interface ContactDetail extends Contact {
-  identities: Identity[] | null;
-  notes: Note[] | null;
+  identities: Identity[];
+  notes: Note[];
   /** Newest first, capped at 50. */
-  activity: Activity[] | null;
+  activity: Activity[];
 }
 
 export interface Company {
@@ -132,18 +132,18 @@ export interface Company {
   linkedin_url: string;
   contact_count: number;
   enrichment: JobState;
-  manual_fields: CompanyField[] | null;
+  manual_fields: CompanyField[];
   created_at: Timestamp;
   updated_at: Timestamp;
 }
 
 export interface CompanyDetail extends Company {
-  contacts: Contact[] | null;
+  contacts: Contact[];
 }
 
 /** A keyset page, newest first. No next_cursor means the last page. */
 export interface Page<T> {
-  items: T[] | null;
+  items: T[];
   next_cursor?: string;
 }
 
@@ -227,9 +227,12 @@ export interface EnrichmentHalt {
 export interface Status {
   enrichment_enabled: boolean;
   enrichment_halt?: EnrichmentHalt;
-  jobs: Partial<Record<JobState, number>> | null;
+  /** Every state, 0 when no job is in it. */
+  jobs: Record<JobState, number>;
   contacts: number;
   companies: number;
+  /** Where API keys live: Postgres, or Unkey when UNKEY_ROOT_KEY is set. */
+  key_store: "builtin" | "unkey";
 }
 
 export interface Key {
@@ -241,12 +244,25 @@ export interface Key {
   last_used_at?: Timestamp;
 }
 
+/** A person who can log into the UI. */
+export interface User {
+  id: number;
+  email: Email;
+  name: string;
+  created_at: Timestamp;
+}
+
 /** POST /v1/keys: the plaintext key is returned exactly once. */
 export interface CreatedKey extends Key {
   key: string;
 }
 
-/** Error body for every non-2xx: {"error": "<message>"}. */
+/** The job state after an enrich request: usually "pending", "skipped" for free mail. */
+export interface EnrichResult {
+  state: JobState;
+}
+
+/** Error body for every non-2xx: {"error": "<message>"}, plus request_id on a 5xx. */
 export class ApiError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -288,6 +304,8 @@ const enc = encodeURIComponent;
 
 export const api = {
   auth: {
+    /** Public. has_users is false until ADMIN_EMAIL and ADMIN_PASSWORD seed the first account. */
+    setup: () => request<{ has_users: boolean }>("GET", "/auth/setup"),
     /** Sets the session cookie. */
     login: (email: string, password: string) => request<void>("POST", "/auth/login", { body: { email, password } }),
     logout: () => request<void>("POST", "/auth/logout"),
@@ -315,7 +333,7 @@ export const api = {
     /** Folds drop into keep, deletes drop, and returns keep. */
     merge: (keep: ContactID, drop: ContactID) => request<Contact>("POST", `/v1/contacts/${keep}/merge`, { body: { drop } }),
     addNote: (id: ContactID, body: string) => request<Note>("POST", `/v1/contacts/${id}/notes`, { body: { body } }),
-    enrich: (id: ContactID) => request<unknown>("POST", `/v1/contacts/${id}/enrich`),
+    enrich: (id: ContactID) => request<EnrichResult>("POST", `/v1/contacts/${id}/enrich`),
   },
 
   notes: {
@@ -328,19 +346,19 @@ export const api = {
     update: (id: CompanyID, patch: CompanyPatch) => request<Company>("PATCH", `/v1/companies/${id}`, { body: patch }),
     resetField: (id: CompanyID, field: CompanyField) =>
       request<Company>("DELETE", `/v1/companies/${id}/manual_fields/${field}`),
-    enrich: (id: CompanyID) => request<unknown>("POST", `/v1/companies/${id}/enrich`),
+    enrich: (id: CompanyID) => request<EnrichResult>("POST", `/v1/companies/${id}/enrich`),
   },
 
   activity: {
-    list: (q: ActivityQuery) => request<Activity[] | null>("GET", "/v1/activity", { query: { ...q } }),
+    list: (q: ActivityQuery) => request<Activity[]>("GET", "/v1/activity", { query: { ...q } }),
   },
 
   /** Every tag in use, with its contact count. */
-  tags: () => request<Record<Tag, number> | null>("GET", "/v1/tags"),
+  tags: () => request<Record<Tag, number>>("GET", "/v1/tags"),
 
   stages: {
     /** In position order. */
-    list: () => request<Stage[] | null>("GET", "/v1/stages"),
+    list: () => request<Stage[]>("GET", "/v1/stages"),
     /** Replaces the ordered list; renames maps old name to new so contacts follow. */
     set: (stages: Stage[], renames: Record<Stage, Stage>) => request<void>("PUT", "/v1/stages", { body: { stages, renames } }),
   },
@@ -348,7 +366,7 @@ export const api = {
   status: () => request<Status>("GET", "/v1/status"),
 
   providers: {
-    list: () => request<ProviderStatus[] | null>("GET", "/v1/providers"),
+    list: () => request<ProviderStatus[]>("GET", "/v1/providers"),
     /** An empty secret asks uncrm to issue one; the response holds it once. */
     connect: (name: string, secret: string) =>
       request<{ secret: string }>("PUT", `/v1/providers/${enc(name)}`, { body: { secret } }),
@@ -356,9 +374,14 @@ export const api = {
   },
 
   keys: {
-    list: () => request<Key[] | null>("GET", "/v1/keys"),
+    list: () => request<Key[]>("GET", "/v1/keys"),
     create: (name: string) => request<CreatedKey>("POST", "/v1/keys", { body: { name } }),
     revoke: (id: KeyID) => request<void>("DELETE", `/v1/keys/${enc(id)}`),
+  },
+
+  users: {
+    /** Everyone who can log in, oldest first. */
+    list: () => request<User[]>("GET", "/v1/users"),
   },
 
   invites: {
