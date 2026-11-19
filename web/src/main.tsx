@@ -10,6 +10,7 @@ import { Contacts } from "./pages/Contacts";
 import { ContactPage } from "./pages/ContactPage";
 import { Companies } from "./pages/Companies";
 import { CompanyPage } from "./pages/CompanyPage";
+import { Settings, settingsRoutes } from "./pages/settings/Settings";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -23,6 +24,7 @@ const router = createBrowserRouter([
       { path: "contacts/:id", element: <ContactPage /> },
       { path: "companies", element: <Companies /> },
       { path: "companies/:id", element: <CompanyPage /> },
+      { path: "settings", element: <Settings />, children: settingsRoutes },
       { path: "*", element: <NotFound /> },
     ],
   },

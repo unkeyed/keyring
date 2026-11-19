@@ -1,0 +1,190 @@
+import { useState, type FormEvent, type ReactNode } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, type ProviderStatus } from "../../api";
+import { Markdown } from "../../components/Markdown";
+import { keys, useProviders } from "../../queries";
+import { Badge, Button, Card, ConfirmButton, CopyField, ErrorNote, Icon, inputClass, RelativeTime, Spinner } from "../../ui";
+import { SettingsHeader } from "./Settings";
+
+export function Providers() {
+  // Polls, so a delivery or a bad signature shows up while the user is wiring the webhook.
+  const providers = useProviders({ poll: true });
+  return (
+    <>
+      <SettingsHeader title="Providers">
+        Point your auth provider&apos;s webhook at uncrm and every sign-up becomes a contact. Each card shows the last delivery, so you can tell right away
+        whether the setup worked.
+      </SettingsHeader>
+      {providers.isPending && <Spinner />}
+      <ErrorNote error={providers.error} />
+      <div className="space-y-4">
+        {providers.data?.map((p) => (
+          <ProviderCard key={p.name} p={p} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+type Health = { tone: "neutral" | "success" | "danger" | "accent"; text: ReactNode };
+
+function health(p: ProviderStatus): Health {
+  if (!p.connected) return { tone: "neutral", text: "Not connected" };
+  const failedLast = p.last_error_at && (!p.last_delivery_at || Date.parse(p.last_error_at) > Date.parse(p.last_delivery_at));
+  if (failedLast) {
+    return {
+      tone: "danger",
+      text: (
+        <>
+          Last delivery failed <RelativeTime iso={p.last_error_at!} />: {p.last_error}
+        </>
+      ),
+    };
+  }
+  if (p.last_delivery_at) {
+    return {
+      tone: "success",
+      text: (
+        <>
+          Last delivery <RelativeTime iso={p.last_delivery_at} />
+        </>
+      ),
+    };
+  }
+  return { tone: "accent", text: "Connected. Waiting for the first webhook…" };
+}
+
+const healthStyles = {
+  neutral: "text-muted",
+  success: "text-success",
+  danger: "text-danger bg-danger-soft",
+  accent: "text-accent",
+};
+
+function ProviderCard({ p }: { p: ProviderStatus }) {
+  const qc = useQueryClient();
+  const [issued, setIssued] = useState<string | null>(null);
+  const [secret, setSecret] = useState("");
+  const [editing, setEditing] = useState(false);
+  const refresh = () => qc.invalidateQueries({ queryKey: keys.providers });
+
+  const connect = useMutation({
+    mutationFn: (s: string) => api.providers.connect(p.name, s),
+    onSuccess: (res) => {
+      if (p.issue_secret) setIssued(res.secret);
+      setSecret("");
+      setEditing(false);
+      return refresh();
+    },
+  });
+  const disconnect = useMutation({
+    mutationFn: () => api.providers.disconnect(p.name),
+    onSuccess: () => {
+      setIssued(null);
+      return refresh();
+    },
+  });
+
+  const webhookURL = location.origin + p.webhook_path;
+  const setup = p.setup.replaceAll("{{webhook_url}}", webhookURL).replaceAll("{{secret}}", issued ?? "<your secret>");
+  const h = health(p);
+  const showSetup = !p.connected || issued !== null || editing;
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (secret.trim()) connect.mutate(secret.trim());
+  };
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-[14px] font-semibold">{p.title}</h3>
+          {p.connected && <Badge tone="success">Connected</Badge>}
+        </div>
+        {p.connected && (
+          <ConfirmButton label={`Disconnect ${p.title}`} confirmLabel="Disconnect?" onConfirm={() => disconnect.mutate()} disabled={disconnect.isPending}>
+            Disconnect
+          </ConfirmButton>
+        )}
+      </div>
+
+      <div className="space-y-4 p-4">
+        <p className={`flex items-center gap-1.5 rounded-md text-xs ${healthStyles[h.tone]} ${h.tone === "danger" ? "px-2.5 py-1.5" : ""}`}>
+          {h.tone === "accent" && <span className="size-1.5 animate-pulse rounded-full bg-current" />}
+          {h.tone === "danger" && <Icon name="alert" className="size-3.5" />}
+          {h.text}
+        </p>
+
+        <div>
+          <div className="mb-1 text-xs font-medium text-muted">Webhook URL</div>
+          <CopyField value={webhookURL} />
+        </div>
+
+        {p.issue_secret ? (
+          issued ? (
+            <div className="rounded-md border border-warn/40 bg-warn-soft p-3">
+              <div className="mb-1.5 text-xs font-medium text-warn">Signing secret. Copy it now; it is shown only once.</div>
+              <CopyField value={issued} />
+            </div>
+          ) : p.connected ? (
+            <ConfirmButton label="Generate a new secret" confirmLabel="Replace the secret? The old one stops working." onConfirm={() => connect.mutate("")}>
+              <Icon name="refresh" className="size-3.5" />
+              Generate a new secret
+            </ConfirmButton>
+          ) : (
+            <Button variant="primary" onClick={() => connect.mutate("")} disabled={connect.isPending}>
+              <Icon name="key" className="size-3.5" />
+              Generate signing secret
+            </Button>
+          )
+        ) : p.connected && !editing ? (
+          <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+            <Icon name="pencil" className="size-3.5" />
+            Replace signing secret
+          </Button>
+        ) : (
+          <form onSubmit={submit}>
+            <label className="mb-1 block text-xs font-medium text-muted" htmlFor={`secret-${p.name}`}>
+              Signing secret from {p.title}
+            </label>
+            <div className="flex gap-2">
+              <input
+                id={`secret-${p.name}`}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Paste the secret"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+                className={`${inputClass} font-mono`}
+              />
+              <Button type="submit" variant="primary" disabled={!secret.trim() || connect.isPending}>
+                {p.connected ? "Save" : "Connect"}
+              </Button>
+              {editing && (
+                <Button variant="ghost" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </form>
+        )}
+        <ErrorNote error={connect.error ?? disconnect.error} />
+
+        {showSetup ? (
+          <div className="border-t border-line pt-4">
+            <Markdown source={setup} />
+          </div>
+        ) : (
+          <details className="border-t border-line pt-3">
+            <summary className="cursor-pointer text-xs font-medium text-muted select-none hover:text-fg">Setup instructions</summary>
+            <div className="mt-3">
+              <Markdown source={setup} />
+            </div>
+          </details>
+        )}
+      </div>
+    </Card>
+  );
+}
