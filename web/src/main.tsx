@@ -6,6 +6,8 @@ import { ApiError } from "./api";
 import { Layout, NotFound } from "./Layout";
 import { Login } from "./pages/Login";
 import { AcceptInvite } from "./pages/AcceptInvite";
+import { Contacts } from "./pages/Contacts";
+import { ContactPage } from "./pages/ContactPage";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -15,6 +17,8 @@ const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { index: true, element: <Navigate to="/contacts" replace /> },
+      { path: "contacts", element: <Contacts /> },
+      { path: "contacts/:id", element: <ContactPage /> },
       { path: "*", element: <NotFound /> },
     ],
   },
