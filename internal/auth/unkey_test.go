@@ -30,6 +30,7 @@ type fakeUnkey struct {
 
 type fakeKey struct {
 	id, api, name string
+	expired       bool
 }
 
 func newFakeUnkey(t *testing.T) (*fakeUnkey, *httptest.Server) {
@@ -50,6 +51,14 @@ func (f *fakeUnkey) add(plaintext, api, name string) string {
 	id := "key_" + strconv.Itoa(len(f.keys)+1)
 	f.keys[plaintext] = fakeKey{id: id, api: api, name: name}
 	return id
+}
+
+func (f *fakeUnkey) expire(plaintext string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := f.keys[plaintext]
+	k.expired = true
+	f.keys[plaintext] = k
 }
 
 func (f *fakeUnkey) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +88,10 @@ func (f *fakeUnkey) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ks := f.keyspace[k.api]
 		if !ok || (in.Keyspaces != nil && !slices.Contains(in.Keyspaces, ks)) {
 			reply(map[string]any{"data": map[string]any{"valid": false, "code": "NOT_FOUND"}})
+			return
+		}
+		if k.expired {
+			reply(map[string]any{"data": map[string]any{"valid": false, "code": "EXPIRED", "keyId": k.id, "keyspaceId": ks, "name": k.name}})
 			return
 		}
 		reply(map[string]any{"data": map[string]any{"valid": true, "code": "VALID", "keyId": k.id, "keyspaceId": ks, "name": k.name}})
@@ -140,6 +153,11 @@ func TestUnkeyVerify(t *testing.T) {
 	}
 	if _, err := keys.Verify(ctx, "uncrm_nope"); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("unknown key: %v, want ErrInvalidKey", err)
+	}
+	fake.add("uncrm_expired", "api_ours", "old")
+	fake.expire("uncrm_expired")
+	if _, err := keys.Verify(ctx, "uncrm_expired"); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expired key of our API: %v, want ErrInvalidKey", err)
 	}
 }
 
