@@ -2,7 +2,8 @@ package crm
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -16,7 +17,11 @@ type (
 type Tag string
 
 func ParseTag(s string) (Tag, error) {
-	return "", errors.New("not implemented")
+	t := strings.ToLower(strings.TrimSpace(s))
+	if t == "" {
+		return "", fmt.Errorf("%w: empty tag", ErrInvalid)
+	}
+	return Tag(t), nil
 }
 
 // Stage names a row in the stages table. Validity is enforced by the

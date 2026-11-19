@@ -2,8 +2,8 @@ package crm
 
 import (
 	"database/sql/driver"
-	"errors"
 	"fmt"
+	"strings"
 )
 
 // Email is a normalized address: trimmed, lowercased, exactly one "@" with a
@@ -20,7 +20,15 @@ import (
 type Email struct{ addr string }
 
 func ParseEmail(s string) (Email, error) {
-	return Email{}, errors.New("not implemented")
+	addr := strings.ToLower(strings.TrimSpace(s))
+	local, host, ok := strings.Cut(addr, "@")
+	if !ok || local == "" || strings.ContainsAny(local, " \t\r\n<>,;\"") || len(addr) > 320 {
+		return Email{}, fmt.Errorf("%w: email %q", ErrInvalid, s)
+	}
+	if _, err := ParseDomain(host); err != nil || strings.HasSuffix(host, ".") {
+		return Email{}, fmt.Errorf("%w: email %q", ErrInvalid, s)
+	}
+	return Email{addr: addr}, nil
 }
 
 func (e Email) String() string { return e.addr }
@@ -28,7 +36,8 @@ func (e Email) IsZero() bool   { return e.addr == "" }
 
 // Domain is the part after "@", already normalized by ParseEmail.
 func (e Email) Domain() Domain {
-	panic("not implemented")
+	_, host, _ := strings.Cut(e.addr, "@")
+	return Domain{host: host}
 }
 
 func (e Email) MarshalText() ([]byte, error) { return []byte(e.addr), nil }
@@ -71,7 +80,31 @@ func (e *Email) Scan(src any) error {
 type Domain struct{ host string }
 
 func ParseDomain(s string) (Domain, error) {
-	return Domain{}, errors.New("not implemented")
+	host := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), ".")
+	labels := strings.Split(host, ".")
+	if len(labels) < 2 || len(host) > 253 {
+		return Domain{}, fmt.Errorf("%w: domain %q", ErrInvalid, s)
+	}
+	for _, l := range labels {
+		if !validLabel(l) {
+			return Domain{}, fmt.Errorf("%w: domain %q", ErrInvalid, s)
+		}
+	}
+	return Domain{host: host}, nil
+}
+
+// validLabel allows ASCII letters, digits and inner hyphens, plus any
+// non-ASCII rune so internationalized domains pass unconverted.
+func validLabel(l string) bool {
+	if l == "" || l[0] == '-' || l[len(l)-1] == '-' {
+		return false
+	}
+	for _, r := range l {
+		if r < 0x80 && r != '-' && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func (d Domain) String() string { return d.host }
@@ -82,7 +115,7 @@ func (d Domain) IsZero() bool   { return d.host == "" }
 // A free-mail domain never becomes a company and its addresses never get
 // person enrichment.
 func (d Domain) IsFreeMail() bool {
-	panic("not implemented")
+	return freemail()[d.host]
 }
 
 func (d Domain) MarshalText() ([]byte, error) { return []byte(d.host), nil }
