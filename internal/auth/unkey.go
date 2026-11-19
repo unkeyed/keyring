@@ -229,7 +229,7 @@ func (k *unkeyKeys) listKeys(ctx context.Context, fresh bool) ([]Key, error) {
 			return nil, err
 		}
 		for _, u := range res.Data {
-			key := Key{ID: u.KeyID, Name: u.Name, Prefix: u.Start, CreatedAt: time.UnixMilli(u.CreatedAt).UTC()}
+			key := Key{ID: u.KeyID, Name: u.Name, Prefix: displayPrefix(u.Start), CreatedAt: time.UnixMilli(u.CreatedAt).UTC()}
 			if u.LastUsedAt > 0 {
 				t := time.UnixMilli(u.LastUsedAt).UTC()
 				key.LastUsedAt = &t
