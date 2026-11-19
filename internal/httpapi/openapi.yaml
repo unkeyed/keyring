@@ -2,5 +2,1497 @@ openapi: 3.1.0
 info:
   title: uncrm
   version: 0.1.0
-# TODO: one entry per row of httpapi.routes. TestRoutesMatchOpenAPI enforces it.
-paths: {}
+  summary: The REST API of a self-hosted CRM that collects every sign-up from your auth providers.
+  description: |
+    The React UI and your agents call the same routes. Agents send an API key
+    (`Authorization: Bearer uncrm_...`, created under Settings > API keys).
+    People send the `uncrm_session` cookie that `POST /auth/login` sets.
+    Routes for keys, providers, stages and the team accept only the cookie, so
+    a leaked agent key cannot mint more access.
+
+    Every error is `{"error": "<message>"}` with a status that says what to do:
+    400 fix the request, 401 bad or missing credentials, 403 this route needs a
+    signed-in person, 404 no such thing, 409 it already exists, 429 wait for
+    `Retry-After` seconds, 503 the database or key store is down so retry later.
+    A 5xx also carries `request_id`, which the server log repeats.
+
+    Lists are never null: an empty list is `[]`. Timestamps are RFC 3339.
+    Unknown query parameters and unknown body fields are rejected with 400.
+
+    Write rule: a field a person or agent sets is pinned. It is listed in
+    `manual_fields`, and sign-ups and enrichment leave it alone until someone
+    resets it with `DELETE .../manual_fields/{field}`.
+
+    The same operations are available as MCP tools at `/mcp` (Streamable HTTP,
+    same bearer key).
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /
+    description: The uncrm instance serving this document.
+security:
+  - apiKey: []
+  - session: []
+tags:
+  - name: contacts
+    description: People, one per email, merged across auth providers.
+  - name: companies
+    description: One per business email domain. Free-mail addresses get none.
+  - name: timeline
+    description: Activity, tags and stages.
+  - name: settings
+    description: Session only. Agents get 403.
+  - name: auth
+    description: Login for people. Agents use API keys instead.
+  - name: system
+    description: Health, this document and provider webhooks.
+paths:
+  /healthz:
+    get:
+      tags: [system]
+      operationId: healthz
+      summary: Liveness check. 200 when the process is up; does not touch the database.
+      security: []
+      responses:
+        "200":
+          description: The process is up.
+  /v1/openapi.yaml:
+    get:
+      tags: [system]
+      operationId: getOpenAPI
+      summary: This document.
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI 3.1 description of every route.
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /webhooks/{provider}:
+    post:
+      tags: [system]
+      operationId: receiveWebhook
+      summary: Receive a sign-up webhook from an auth provider.
+      description: |
+        Point the provider's webhook at this URL after connecting it with
+        `PUT /v1/providers/{name}`. The signature is checked with the stored
+        secret. Retries and replays of the same user land once. A verified
+        delivery that carries nothing to store (an event uncrm ignores, a
+        phone-only user) still answers 204 so the provider stops retrying.
+        The outcome shows on the Settings page as last delivery or last error.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          description: Registered provider name.
+          schema:
+            type: string
+            enum: [auth0, better-auth, clerk, stytch, supabase, workos]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: The provider's own event payload.
+      responses:
+        "204":
+          description: Stored, or verified and ignored.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: The signature did not verify against the stored secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown provider, or the provider is not connected yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/signups:
+    post:
+      tags: [contacts]
+      operationId: createSignup
+      summary: Record a sign-up from any auth system that has no built-in adapter.
+      description: |
+        Only `email` is required. The call is idempotent on (`source`,
+        `external_id`), which default to `api` and the normalized email, so
+        posting the same person twice records one sign-up: 201 the first
+        time, 200 with `duplicate: true` after. `source` may not be a built-in
+        provider name; connect that provider instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupBody"
+      responses:
+        "201":
+          description: A new contact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResult"
+        "200":
+          description: An existing contact; `duplicate` says whether this sign-up was already recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /v1/contacts:
+    get:
+      tags: [contacts]
+      operationId: searchContacts
+      summary: List and search contacts, newest first.
+      description: Every filter is optional and they combine with AND. Page with `cursor` from the previous `next_cursor`.
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive substring of email, name, company name or company domain.
+          schema:
+            type: string
+        - name: tag
+          in: query
+          schema:
+            type: string
+        - name: stage
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          description: Auth provider name, such as `clerk`, or `api` for POST /v1/signups.
+          schema:
+            type: string
+        - name: company_id
+          in: query
+          schema:
+            type: integer
+        - name: signed_up_after
+          in: query
+          description: First seen at or after this time.
+          schema:
+            type: string
+            format: date-time
+        - name: signed_up_before
+          in: query
+          description: First seen before this time.
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: One page of contacts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/contacts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [contacts]
+      operationId: getContact
+      summary: One contact with its identities, notes and the newest 50 timeline entries.
+      responses:
+        "200":
+          description: The contact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [contacts]
+      operationId: updateContact
+      summary: Edit a contact's fields, stage, company or tags.
+      description: |
+        Omitted fields are left alone. Each field you send is pinned (added to
+        `manual_fields`). Tags are add and remove sets, so two agents tagging
+        at once both win. An unknown stage is 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactPatch"
+      responses:
+        "200":
+          description: The contact after the edit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/contacts/{id}/manual_fields/{field}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: field
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ContactField"
+    delete:
+      tags: [contacts]
+      operationId: resetContactField
+      summary: Unpin a field so the next sign-up or enrichment can set it again.
+      description: The current value stays until a machine observes a new one. Unpinning a field that is not pinned is a no-op.
+      responses:
+        "200":
+          description: The contact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/contacts/{id}/merge:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [contacts]
+      operationId: mergeContacts
+      summary: Fold another contact (drop) into this one (keep). Use when one person signed up with two emails.
+      description: Moves drop's identities, notes, tags and history to keep, fills keep's empty fields from drop, then deletes drop. Cannot be undone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [drop]
+              additionalProperties: false
+              properties:
+                drop:
+                  type: integer
+                  description: The contact to fold in and delete.
+      responses:
+        "200":
+          description: The surviving contact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/contacts/{id}/notes:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [contacts]
+      operationId: addNote
+      summary: Add a Markdown note to a contact's timeline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              additionalProperties: false
+              properties:
+                body:
+                  type: string
+                  description: Markdown. Must not be blank.
+      responses:
+        "201":
+          description: The note.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/notes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    delete:
+      tags: [contacts]
+      operationId: deleteNote
+      summary: Delete a note. Its note_added timeline entry stays.
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/contacts/{id}/enrich:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [contacts]
+      operationId: enrichContact
+      summary: Queue a fresh context.dev lookup for a contact and its company.
+      description: Runs in the background. Without CONTEXT_DEV_API_KEY the job waits as pending. Free-mail contacts are skipped.
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrichResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/companies:
+    get:
+      tags: [companies]
+      operationId: searchCompanies
+      summary: List and search companies, newest first.
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive substring of the company name or domain.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: One page of companies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/companies/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [companies]
+      operationId: getCompany
+      summary: One company with its contacts.
+      responses:
+        "200":
+          description: The company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [companies]
+      operationId: updateCompany
+      summary: Edit a company's fields. Each field you send is pinned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyPatch"
+      responses:
+        "200":
+          description: The company after the edit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/companies/{id}/manual_fields/{field}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: field
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/CompanyField"
+    delete:
+      tags: [companies]
+      operationId: resetCompanyField
+      summary: Unpin a company field so enrichment can set it again.
+      responses:
+        "200":
+          description: The company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/companies/{id}/enrich:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [companies]
+      operationId: enrichCompany
+      summary: Queue a fresh context.dev lookup for a company.
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrichResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/activity:
+    get:
+      tags: [timeline]
+      operationId: listActivity
+      summary: The timeline across all contacts, newest first. Use kind=signed_up for recent sign-ups.
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            $ref: "#/components/schemas/ActivityKind"
+        - name: contact_id
+          in: query
+          schema:
+            type: integer
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Timeline entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Activity"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/tags:
+    get:
+      tags: [timeline]
+      operationId: listTags
+      summary: Every tag in use, with how many contacts carry it.
+      responses:
+        "200":
+          description: Tag to contact count.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/stages:
+    get:
+      tags: [timeline]
+      operationId: listStages
+      summary: The pipeline stages in order. New contacts start in the first.
+      responses:
+        "200":
+          description: Stage names.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [settings]
+      operationId: setStages
+      summary: Replace the ordered stage list.
+      description: renames maps an old name to a new one so contacts follow. Removing a stage that contacts still use is 400.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stages]
+              additionalProperties: false
+              properties:
+                stages:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                renames:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "204":
+          description: Saved.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/status:
+    get:
+      tags: [system]
+      operationId: getStatus
+      summary: Instance summary. Contact and company counts, enrichment state, key store mode.
+      responses:
+        "200":
+          description: The summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/providers:
+    get:
+      tags: [settings]
+      operationId: listProviders
+      summary: Every auth provider adapter, connected or not, with its last delivery or error.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Providers sorted by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProviderStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/providers/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags: [settings]
+      operationId: connectProvider
+      summary: Store the webhook signing secret for a provider, replacing any previous one.
+      description: Paste the provider's secret, or send an empty secret for providers with issue_secret to have uncrm generate one. The response holds the secret once.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                secret:
+                  type: string
+      responses:
+        "200":
+          description: Connected.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret]
+                properties:
+                  secret:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [settings]
+      operationId: disconnectProvider
+      summary: Forget the provider's secret. Its contacts stay; new deliveries get 404.
+      security:
+        - session: []
+      responses:
+        "204":
+          description: Disconnected.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/keys:
+    get:
+      tags: [settings]
+      operationId: listKeys
+      summary: Active API keys, newest first. Plaintext is never shown again.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Keys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Key"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      tags: [settings]
+      operationId: createKey
+      summary: Create an API key for an agent or a backend. The response is the only time the key is shown.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  description: A label people recognize, such as "Claude Code".
+      responses:
+        "201":
+          description: The key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedKey"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/keys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [settings]
+      operationId: revokeKey
+      summary: Revoke a key. It stops working at once (within 30 seconds with Unkey).
+      security:
+        - session: []
+      responses:
+        "204":
+          description: Revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/users:
+    get:
+      tags: [settings]
+      operationId: listUsers
+      summary: Everyone who can log into the UI, oldest first.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/invites:
+    post:
+      tags: [settings]
+      operationId: createInvite
+      summary: Create a one-time invite for a teammate, valid for 7 days. Send them /invite/{token}.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "201":
+          description: The invite token.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/me:
+    get:
+      tags: [settings]
+      operationId: getMe
+      summary: The signed-in person.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: The actor that writes made by this session record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Actor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/me/password:
+    post:
+      tags: [settings]
+      operationId: changePassword
+      summary: Change the signed-in person's password (at least 12 characters).
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_password, new_password]
+              additionalProperties: false
+              properties:
+                old_password:
+                  type: string
+                new_password:
+                  type: string
+                  minLength: 12
+      responses:
+        "204":
+          description: Changed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /auth/setup:
+    get:
+      tags: [auth]
+      operationId: getSetup
+      summary: Whether any account exists. False until ADMIN_EMAIL and ADMIN_PASSWORD seed the first one.
+      security: []
+      responses:
+        "200":
+          description: Setup state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [has_users]
+                properties:
+                  has_users:
+                    type: boolean
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Log in with email and password and receive the uncrm_session cookie.
+      description: After five wrong passwords for one email, further attempts wait with exponential backoff (429).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "204":
+          description: Logged in. Set-Cookie carries the session.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: End the session and clear the cookie. Succeeds without a session too.
+      security: []
+      responses:
+        "204":
+          description: Logged out.
+  /auth/invites/accept:
+    post:
+      tags: [auth]
+      operationId: acceptInvite
+      summary: Create an account from an invite token and log in.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              additionalProperties: false
+              properties:
+                token:
+                  type: string
+                name:
+                  type: string
+                password:
+                  type: string
+                  minLength: 12
+      responses:
+        "204":
+          description: Account created. Set-Cookie carries the session.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The invite is unknown, expired or already used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: An API key from Settings > API keys, such as `uncrm_ab12...`.
+    session:
+      type: apiKey
+      in: cookie
+      name: uncrm_session
+      description: Set by POST /auth/login. Unsafe cross-site browser requests are rejected.
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    cursor:
+      name: cursor
+      in: query
+      description: The next_cursor of the previous page.
+      schema:
+        type: string
+    limit:
+      name: limit
+      in: query
+      description: Page size, default 50, at most 200.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 200
+  responses:
+    BadRequest:
+      description: The request is malformed. The message says which field.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: No credentials, or a bad API key, session or password.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: This route needs a signed-in person; API keys cannot use it.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: No such contact, company, note, key or provider.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: That email already has an account.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: Too many failed logins for this email. Wait Retry-After seconds.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unavailable:
+      description: The database or the key store (Postgres or Unkey) could not answer. Retry shortly.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        request_id:
+          type: string
+          description: Present on 5xx; the server log carries the same id.
+    JobState:
+      type: string
+      enum: [pending, running, done, failed, skipped]
+    ContactField:
+      type: string
+      enum: [name, title, location, bio, linkedin_url, company]
+    CompanyField:
+      type: string
+      enum: [name, description, employee_range, industry, country, linkedin_url]
+    ActivityKind:
+      type: string
+      enum: [signed_up, provider_deleted, contact_updated, company_updated, note_added, contacts_merged, enriched]
+    Actor:
+      type: object
+      description: Who caused a write.
+      required: [kind, id, label]
+      properties:
+        kind:
+          type: string
+          enum: [user, api_key, provider, system]
+        id:
+          type: string
+        label:
+          type: string
+    CompanyRef:
+      type: object
+      required: [id, domain, name]
+      properties:
+        id:
+          type: integer
+        domain:
+          type: string
+        name:
+          type: string
+          description: Empty until enriched or edited; show domain then.
+    ContactRef:
+      type: object
+      required: [id, email, name]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+    Contact:
+      type: object
+      required: [id, email, name, avatar_url, title, location, bio, linkedin_url, company, stage, tags, providers, enrichment, manual_fields, first_seen_at, last_seen_at, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          description: Normalized (lowercased) email. One contact per email.
+        name:
+          type: string
+        avatar_url:
+          type: string
+        title:
+          type: string
+        location:
+          type: string
+        bio:
+          type: string
+        linkedin_url:
+          type: string
+        company:
+          description: Null for free-mail addresses and unknown companies.
+          oneOf:
+            - $ref: "#/components/schemas/CompanyRef"
+            - type: "null"
+        stage:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        providers:
+          type: array
+          description: Auth providers this person signed up through.
+          items:
+            type: string
+        enrichment:
+          description: Empty string when no enrichment job exists.
+          anyOf:
+            - $ref: "#/components/schemas/JobState"
+            - const: ""
+        manual_fields:
+          type: array
+          description: Pinned fields that sign-ups and enrichment leave alone.
+          items:
+            $ref: "#/components/schemas/ContactField"
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Identity:
+      type: object
+      description: One auth provider's latest view of the person.
+      required: [provider, external_id, email, email_verified, name, avatar_url, occurred_at]
+      properties:
+        provider:
+          type: string
+        external_id:
+          type: string
+        email:
+          type: string
+        email_verified:
+          type: boolean
+        name:
+          type: string
+        avatar_url:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+    Note:
+      type: object
+      required: [id, contact_id, body, author, created_at]
+      properties:
+        id:
+          type: integer
+        contact_id:
+          type: integer
+        body:
+          type: string
+          description: Markdown.
+        author:
+          $ref: "#/components/schemas/Actor"
+        created_at:
+          type: string
+          format: date-time
+    Activity:
+      type: object
+      required: [id, kind, actor, data, occurred_at]
+      properties:
+        id:
+          type: integer
+        kind:
+          $ref: "#/components/schemas/ActivityKind"
+        contact:
+          $ref: "#/components/schemas/ContactRef"
+        company:
+          $ref: "#/components/schemas/CompanyRef"
+        actor:
+          $ref: "#/components/schemas/Actor"
+        data:
+          type: object
+          description: |
+            Depends on kind. signed_up {provider, external_id, raw};
+            provider_deleted {provider, external_id}; contact_updated and
+            company_updated {field: {from, to}} or {reset: field};
+            note_added {note_id}; contacts_merged {drop_id, drop_email};
+            enriched {changed: [field]}.
+        occurred_at:
+          type: string
+          format: date-time
+    ContactDetail:
+      allOf:
+        - $ref: "#/components/schemas/Contact"
+        - type: object
+          required: [identities, notes, activity]
+          properties:
+            identities:
+              type: array
+              items:
+                $ref: "#/components/schemas/Identity"
+            notes:
+              type: array
+              description: Newest first.
+              items:
+                $ref: "#/components/schemas/Note"
+            activity:
+              type: array
+              description: Newest first, at most 50.
+              items:
+                $ref: "#/components/schemas/Activity"
+    Company:
+      type: object
+      required: [id, domain, name, description, logo_url, employee_range, industry, country, linkedin_url, contact_count, enrichment, manual_fields, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+        domain:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        logo_url:
+          type: string
+        employee_range:
+          type: string
+        industry:
+          type: string
+        country:
+          type: string
+        linkedin_url:
+          type: string
+        contact_count:
+          type: integer
+        enrichment:
+          anyOf:
+            - $ref: "#/components/schemas/JobState"
+            - const: ""
+        manual_fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompanyField"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CompanyDetail:
+      allOf:
+        - $ref: "#/components/schemas/Company"
+        - type: object
+          required: [contacts]
+          properties:
+            contacts:
+              type: array
+              items:
+                $ref: "#/components/schemas/Contact"
+    ContactPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contact"
+        next_cursor:
+          type: string
+          description: Absent on the last page.
+    CompanyPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Company"
+        next_cursor:
+          type: string
+    ContactPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        location:
+          type: string
+        bio:
+          type: string
+        linkedin_url:
+          type: string
+        stage:
+          type: string
+          description: One of GET /v1/stages.
+        company_domain:
+          type: string
+          description: Move the contact to this company domain. An empty string detaches it.
+        add_tags:
+          type: array
+          items:
+            type: string
+        remove_tags:
+          type: array
+          items:
+            type: string
+    CompanyPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        employee_range:
+          type: string
+        industry:
+          type: string
+        country:
+          type: string
+        linkedin_url:
+          type: string
+    SignupBody:
+      type: object
+      required: [email]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        avatar_url:
+          type: string
+        email_verified:
+          type: boolean
+        source:
+          type: string
+          description: Your system's name. Defaults to "api". Built-in provider names are rejected.
+        external_id:
+          type: string
+          description: Your system's user id. Defaults to the normalized email.
+        occurred_at:
+          type: string
+          format: date-time
+          description: Defaults to now.
+    IngestResult:
+      type: object
+      required: [contact_id, created, duplicate]
+      properties:
+        contact_id:
+          type: integer
+        created:
+          type: boolean
+          description: True when this call created the contact.
+        duplicate:
+          type: boolean
+          description: True when this sign-up was already recorded.
+    EnrichResult:
+      type: object
+      required: [state]
+      properties:
+        state:
+          $ref: "#/components/schemas/JobState"
+    ProviderStatus:
+      type: object
+      required: [name, title, webhook_path, issue_secret, setup, connected]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        webhook_path:
+          type: string
+          description: Such as /webhooks/clerk. Prefix it with this server's origin.
+        issue_secret:
+          type: boolean
+          description: True when uncrm generates the secret; false when you paste the provider's.
+        setup:
+          type: string
+          description: Markdown setup steps with {{webhook_url}} and {{secret}} placeholders.
+        connected:
+          type: boolean
+        last_delivery_at:
+          type: string
+          format: date-time
+        last_error:
+          type: string
+        last_error_at:
+          type: string
+          format: date-time
+    Status:
+      type: object
+      required: [enrichment_enabled, jobs, contacts, companies, key_store]
+      properties:
+        enrichment_enabled:
+          type: boolean
+          description: False when CONTEXT_DEV_API_KEY is unset; jobs then wait as pending.
+        enrichment_halt:
+          type: object
+          description: Present while context.dev rejected the key or account and enrichment is paused.
+          required: [reason, until]
+          properties:
+            reason:
+              type: string
+            until:
+              type: string
+              format: date-time
+        jobs:
+          type: object
+          description: Enrichment job count per state, every state present.
+          additionalProperties:
+            type: integer
+        contacts:
+          type: integer
+        companies:
+          type: integer
+        key_store:
+          type: string
+          enum: [builtin, unkey]
+    Key:
+      type: object
+      required: [id, name, prefix, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+          description: The first characters of the key, such as uncrm_ab12, to tell keys apart.
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+    CreatedKey:
+      allOf:
+        - $ref: "#/components/schemas/Key"
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: The plaintext key. Shown only in this response.
+    User:
+      type: object
+      required: [id, email, name, created_at]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
