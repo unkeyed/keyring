@@ -16,10 +16,9 @@
 //     name to the row's manual_fields in the same statement. Machine
 //     writers (Ingest, enrichment) overwrite a column only when it is not in
 //     manual_fields and the new value is non-empty, so a provider or
-//     context.dev can correct stale data but never a person's edit. In SQL
-//     every machine write is:
-//
-//     SET col = CASE WHEN 'col' = ANY(manual_fields) OR $new = ” THEN col ELSE $new END
+//     context.dev can correct stale data but never a person's edit. Every
+//     machine write goes through observe, on a row held by lockContact or
+//     lockCompany, so the check and the write see the same manual_fields.
 //
 //     ResetContactField and ResetCompanyField remove a name from
 //     manual_fields, so the next machine observation shows again.
@@ -27,10 +26,15 @@
 // Every write that a person would want on the timeline inserts one
 // activities row in the same transaction. Nothing reads activities to
 // decide state.
+//
+// Transactions lock rows in one order: contacts, then companies, then
+// enrichment_jobs. That order is why the enrichment worker locks the
+// contact before it fences its job row.
 package crm
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -55,4 +59,14 @@ type Service struct {
 // run once a key is configured and the container restarts.
 func New(db *pgxpool.Pool, enricher Enricher) *Service {
 	return &Service{db: db, enricher: enricher, now: time.Now}
+}
+
+// observe is write rule 2 for one column: it sets *col to the machine value
+// v unless f is manual or v is empty, and reports whether *col changed.
+func observe(manual []Field, f Field, col *string, v string) bool {
+	if v == "" || v == *col || slices.Contains(manual, f) {
+		return false
+	}
+	*col = v
+	return true
 }

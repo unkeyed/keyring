@@ -12,6 +12,8 @@
 --   internal/auth  users, sessions, invites, api_keys
 
 -- Pipeline stages. Editable from Settings. Renames cascade to contacts.
+-- A new contact takes the first stage by position (crm.Ingest), so a
+-- rename of 'new' cannot leave a column default pointing at nothing.
 CREATE TABLE stages (
     name     text PRIMARY KEY CHECK (name = btrim(name) AND name <> ''),
     position int  NOT NULL
@@ -53,7 +55,7 @@ CREATE TABLE contacts (
     bio           text NOT NULL DEFAULT '',
     linkedin_url  text NOT NULL DEFAULT '',
     company_id    bigint REFERENCES companies (id) ON DELETE SET NULL,
-    stage         text NOT NULL DEFAULT 'new' REFERENCES stages (name) ON UPDATE CASCADE,
+    stage         text NOT NULL REFERENCES stages (name) ON UPDATE CASCADE,
     manual_fields text[] NOT NULL DEFAULT '{}' CHECK (manual_fields <@
                   ARRAY['name', 'title', 'location', 'bio', 'linkedin_url', 'company']),
     first_seen_at timestamptz NOT NULL,

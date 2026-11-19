@@ -4,7 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Enricher looks people and companies up in an outside service.
@@ -117,15 +122,20 @@ UPDATE enrichment_jobs
         ORDER BY run_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1)
-RETURNING id, contact_id, company_id, claims, failures`
+RETURNING id, contact_id, company_id, claims, failures,
+          (SELECT email FROM contacts WHERE id = contact_id),
+          (SELECT domain FROM companies WHERE id = company_id)`
 
-// job is a claimed row. claims is the fencing token.
+// job is a claimed row. claims is the fencing token. email or domain is the
+// subject to look up, matching whichever of contactID and companyID is set.
 type job struct {
 	id        int64
 	contactID *ContactID
 	companyID *CompanyID
 	claims    int
 	failures  int
+	email     Email
+	domain    Domain
 }
 
 // settlement is the row update that ends a claim.
@@ -176,27 +186,226 @@ func settle(failures int, err error, now time.Time) settlement {
 //	    finish(j, facts, settle(j.failures, err, now))
 //	}
 func (s *Service) RunEnrichment(ctx context.Context) error {
-	return errors.New("not implemented")
+	if s.enricher == nil {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if _, err := s.db.Exec(ctx, `DELETE FROM enrichment_halt`); err != nil {
+		return err
+	}
+	for {
+		ran, err := s.enrichOnce(ctx)
+		if err != nil && ctx.Err() == nil {
+			slog.Error("enrichment: job not finished; its lease will return it", "err", err)
+		}
+		if ran && err == nil {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
 }
+
+// enrichOnce claims one due job, calls the enricher outside any
+// transaction and finishes the claim. It reports false when nothing was due.
+// On shutdown it leaves the claim running, and the lease returns it.
+func (s *Service) enrichOnce(ctx context.Context) (bool, error) {
+	j, ok, err := s.claim(ctx)
+	if err != nil || !ok {
+		return false, err
+	}
+	var person *PersonFacts
+	var company *CompanyFacts
+	var callErr error
+	if j.contactID != nil {
+		f, err := s.enricher.Person(ctx, j.email)
+		person, callErr = &f, err
+	} else {
+		f, err := s.enricher.Company(ctx, j.domain)
+		company, callErr = &f, err
+	}
+	if ctx.Err() != nil {
+		return true, ctx.Err()
+	}
+	return true, s.finish(ctx, j, person, company, settle(j.failures, callErr, s.now()))
+}
+
+func (s *Service) claim(ctx context.Context) (job, bool, error) {
+	var j job
+	err := s.db.QueryRow(ctx, claimSQL, leaseFor).
+		Scan(&j.id, &j.contactID, &j.companyID, &j.claims, &j.failures, &j.email, &j.domain)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return j, false, nil
+	}
+	return j, err == nil, err
+}
+
+// enrichmentActor writes enrichment's facts and timeline entries.
+var enrichmentActor = Actor{Kind: ActorSystem, ID: "enrichment", Label: "context.dev"}
 
 // finish writes the settlement and, on success, the facts, in one
 // transaction. A settlement with halt upserts enrichment_halt with the
-// error and now() + halt. The fenced UPDATE runs first; zero rows means the lease was
-// lost, so the facts are discarded. Facts are written under the
-// manual-values-win rule (package doc), and an enriched activity lists the
-// fields that actually changed. The raw response goes
-// to enrichment_jobs.response.
+// error and now() + halt. The UPDATE is fenced by claims; zero rows means
+// the lease was lost, so the facts are discarded. When facts will be
+// written, the subject row is locked before the job row (lock order, see
+// the package doc). Facts are written under the manual-values-win rule,
+// and an enriched activity lists the fields that actually changed. The raw
+// response goes to enrichment_jobs.response.
 func (s *Service) finish(ctx context.Context, j job, person *PersonFacts, company *CompanyFacts, st settlement) error {
-	return errors.New("not implemented")
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var raw json.RawMessage
+		var c contactRow
+		var co companyRow
+		var err error
+		found := false
+		switch {
+		case st.state != JobDone:
+		case person != nil:
+			if raw, found = person.Raw, person.Found; found {
+				c, err = lockContact(ctx, tx, *j.contactID)
+			}
+		case company != nil:
+			if raw, found = company.Raw, company.Found; found {
+				co, err = lockCompany(ctx, tx, *j.companyID)
+			}
+		}
+		if errors.Is(err, ErrNotFound) {
+			return nil // the subject was deleted, and its job with it
+		}
+		if err != nil {
+			return err
+		}
+
+		tag, err := tx.Exec(ctx, `
+			UPDATE enrichment_jobs
+			   SET state = $3, run_at = $4, lease_until = NULL, failures = $5, last_error = $6,
+			       response = COALESCE($7::jsonb, response), updated_at = now()
+			 WHERE id = $1 AND state = 'running' AND claims = $2`,
+			j.id, j.claims, st.state, st.runAt, st.failures, st.lastErr, raw)
+		if err != nil || tag.RowsAffected() == 0 {
+			return err
+		}
+		if st.halt > 0 {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO enrichment_halt (reason, until) VALUES ($1, now() + $2::interval)
+				ON CONFLICT (singleton) DO UPDATE SET reason = EXCLUDED.reason, until = EXCLUDED.until, at = now()`,
+				st.lastErr, st.halt); err != nil {
+				return err
+			}
+		}
+		if !found {
+			return nil
+		}
+
+		var changed []Field
+		if person != nil {
+			changed = observeAll(c.manual, []observation{
+				{FieldName, &c.name, person.Name},
+				{fieldAvatarURL, &c.avatarURL, person.AvatarURL},
+				{FieldTitle, &c.title, person.Title},
+				{FieldLocation, &c.location, person.Location},
+				{FieldBio, &c.bio, person.Bio},
+				{FieldLinkedInURL, &c.linkedInURL, person.LinkedInURL},
+			})
+			if len(changed) > 0 {
+				err = writeContact(ctx, tx, c)
+			}
+		} else {
+			changed = observeAll(co.manual, []observation{
+				{FieldName, &co.name, company.Name},
+				{FieldDescription, &co.description, company.Description},
+				{fieldLogoURL, &co.logoURL, company.LogoURL},
+				{FieldEmployeeRange, &co.employeeRange, company.EmployeeRange},
+				{FieldIndustry, &co.industry, company.Industry},
+				{FieldCountry, &co.country, company.Country},
+				{FieldLinkedInURL, &co.linkedInURL, company.LinkedInURL},
+			})
+			if len(changed) > 0 {
+				err = writeCompany(ctx, tx, co)
+			}
+		}
+		if err != nil || len(changed) == 0 {
+			return err
+		}
+		a := activityRow{kind: ActivityEnriched, actor: enrichmentActor, data: map[string][]Field{"changed": changed}, at: s.now()}
+		if person != nil {
+			a.contact = c.id
+		} else {
+			a.company = co.id
+		}
+		_, err = recordActivity(ctx, tx, a)
+		return err
+	})
+}
+
+// observation is one machine value for one column.
+type observation struct {
+	f   Field
+	col *string
+	v   string
+}
+
+// observeAll applies each observation under write rule 2 and returns the
+// fields that changed.
+func observeAll(manual []Field, obs []observation) []Field {
+	var changed []Field
+	for _, o := range obs {
+		if observe(manual, o.f, o.col, o.v) {
+			changed = append(changed, o.f)
+		}
+	}
+	return changed
 }
 
 // EnrichContact re-queues the contact's job (and its company's) from done,
 // failed or skipped: state = 'pending', run_at = now(), failures = 0.
 // A pending or running job is left alone. Returns the resulting state.
+// A free-mail contact stays skipped: context.dev answers it with a 4xx,
+// and repeated 4xx can get a free key disabled.
 func (s *Service) EnrichContact(ctx context.Context, actor Actor, id ContactID) (JobState, error) {
-	return "", errors.New("not implemented")
+	var email Email
+	var companyID *CompanyID
+	err := s.db.QueryRow(ctx, `SELECT email, company_id FROM contacts WHERE id = $1`, id).Scan(&email, &companyID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("%w: contact %d", ErrNotFound, id)
+	}
+	if err != nil {
+		return "", err
+	}
+	if companyID != nil {
+		if _, err := s.requeue(ctx, "company_id", int64(*companyID), JobPending); err != nil {
+			return "", err
+		}
+	}
+	state := JobPending
+	if email.Domain().IsFreeMail() {
+		state = JobSkipped
+	}
+	return s.requeue(ctx, "contact_id", int64(id), state)
 }
 
 func (s *Service) EnrichCompany(ctx context.Context, actor Actor, id CompanyID) (JobState, error) {
-	return "", errors.New("not implemented")
+	return s.requeue(ctx, "company_id", int64(id), JobPending)
+}
+
+// requeue moves the job for subject (contact_id or company_id) id to state,
+// creating it if missing, unless it is pending or running.
+func (s *Service) requeue(ctx context.Context, subject string, id int64, state JobState) (JobState, error) {
+	var got JobState
+	err := s.db.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO enrichment_jobs (%[1]s, state) VALUES ($1, $2)
+		ON CONFLICT (%[1]s) DO UPDATE
+		   SET state = EXCLUDED.state, run_at = now(), failures = 0, last_error = '', updated_at = now()
+		 WHERE enrichment_jobs.state IN ('done', 'failed', 'skipped')
+		RETURNING state`, subject), id, state).Scan(&got)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = s.db.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM enrichment_jobs WHERE %s = $1`, subject), id).Scan(&got)
+	}
+	if pgCode(err) == foreignKeyViolation {
+		return "", fmt.Errorf("%w: %s %d", ErrNotFound, strings.TrimSuffix(subject, "_id"), id)
+	}
+	return got, err
 }
