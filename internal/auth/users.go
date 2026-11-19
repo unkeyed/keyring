@@ -2,8 +2,14 @@ package auth
 
 import (
 	"context"
+	"crypto/pbkdf2"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,7 +40,32 @@ func NewUsers(db *pgxpool.Pool) *Users { return &Users{db: db} }
 // SeedAdmin creates the first user. Both empty is a no-op; the login page
 // then explains which env vars to set when the users table is empty.
 func (u *Users) SeedAdmin(ctx context.Context, email, password string) error {
-	return errors.New("not implemented")
+	if email == "" {
+		return nil
+	}
+	hash, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
+	_, err = u.db.Exec(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING`,
+		strings.ToLower(strings.TrimSpace(email)), hash)
+	return err
+}
+
+const pbkdf2Iterations = 600_000
+
+// hashPassword returns "pbkdf2-sha256$600000$<salt b64>$<hash b64>".
+func hashPassword(password string) (string, error) {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	key, err := pbkdf2.Key(sha256.New, password, salt, pbkdf2Iterations, 32)
+	if err != nil {
+		return "", err
+	}
+	b64 := base64.RawStdEncoding.EncodeToString
+	return fmt.Sprintf("pbkdf2-sha256$%d$%s$%s", pbkdf2Iterations, b64(salt), b64(key)), nil
 }
 
 // Login checks the password and returns a new session cookie value.
