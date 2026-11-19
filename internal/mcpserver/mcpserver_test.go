@@ -12,7 +12,7 @@ import (
 // output type, so registering every tool proves the domain types are
 // schema-safe.
 func TestToolSchemasInfer(t *testing.T) {
-	addTools(mcp.NewServer(&mcp.Implementation{Name: "uncrm", Version: "test"}, nil), nil)
+	addTools(mcp.NewServer(&mcp.Implementation{Name: "uncrm", Version: "test"}, nil), nil, nil)
 }
 
 // An object schema with no properties that forbids additional ones accepts
@@ -22,7 +22,7 @@ func TestToolSchemasInfer(t *testing.T) {
 func TestToolSchemasHaveNoEmptyObjects(t *testing.T) {
 	ctx := context.Background()
 	srv := mcp.NewServer(&mcp.Implementation{Name: "uncrm", Version: "test"}, nil)
-	addTools(srv, nil)
+	addTools(srv, nil, nil)
 	st, ct := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {
 		t.Fatal(err)
@@ -38,6 +38,9 @@ func TestToolSchemasHaveNoEmptyObjects(t *testing.T) {
 	}
 	for _, tool := range tools.Tools {
 		for _, bad := range emptyObjects(tool.Name+".input", tool.InputSchema) {
+			if bad == tool.Name+".input" {
+				continue // a tool that takes no arguments
+			}
 			t.Errorf("%s accepts only {}", bad)
 		}
 		for _, bad := range emptyObjects(tool.Name+".output", tool.OutputSchema) {
