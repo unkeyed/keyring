@@ -44,13 +44,15 @@ import (
 //     WHERE identities.occurred_at <= EXCLUDED.occurred_at. contact_id is
 //     never updated, so ingest never moves an identity between contacts.
 //     Only MergeContacts does.
-//     Deleted sets deleted_at instead.
-//  5. Company: if the email domain is not free-mail and 'company' is not in
-//     the contact's manual_fields, upsert companies ON CONFLICT (domain), set
-//     contacts.company_id, and INSERT enrichment_jobs (company_id)
-//     ON CONFLICT DO NOTHING.
-//  6. INSERT enrichment_jobs (contact_id) ON CONFLICT DO NOTHING, with state
-//     'skipped' for a free-mail address and 'pending' otherwise.
+//     Deleted sets deleted_at and moves occurred_at forward instead, so an
+//     update older than the delete is stale too.
+//  5. Company, also only when step 4 applied: if the email domain is not
+//     free-mail and 'company' is not in the contact's manual_fields, upsert
+//     companies ON CONFLICT (domain) and set contacts.company_id. A company
+//     this step creates gets its pending enrichment job alongside.
+//  6. When step 2 created the contact, INSERT its enrichment_jobs row with
+//     state 'skipped' for a free-mail address and 'pending' otherwise. An
+//     existing contact already has one, committed with the contact.
 //  7. Created and Deleted insert an activity with dedupe_key
 //     "signed_up:<source>:<external_id>" or "provider_deleted:<source>:<external_id>"
 //     ON CONFLICT (dedupe_key) DO NOTHING. Duplicate = no row inserted.

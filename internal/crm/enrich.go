@@ -123,8 +123,8 @@ UPDATE enrichment_jobs
         FOR UPDATE SKIP LOCKED
         LIMIT 1)
 RETURNING id, contact_id, company_id, claims, failures,
-          (SELECT email FROM contacts WHERE id = contact_id),
-          (SELECT domain FROM companies WHERE id = company_id)`
+          (SELECT c.email FROM contacts c WHERE c.id = enrichment_jobs.contact_id),
+          (SELECT co.domain FROM companies co WHERE co.id = enrichment_jobs.company_id)`
 
 // job is a claimed row. claims is the fencing token. email or domain is the
 // subject to look up, matching whichever of contactID and companyID is set.
@@ -243,7 +243,6 @@ func (s *Service) claim(ctx context.Context) (job, bool, error) {
 	return j, err == nil, err
 }
 
-// enrichmentActor writes enrichment's facts and timeline entries.
 var enrichmentActor = Actor{Kind: ActorSystem, ID: "enrichment", Label: "context.dev"}
 
 // finish writes the settlement and, on success, the facts, in one
