@@ -70,17 +70,24 @@ The header value comes from `env` because some clients split arguments at spaces
 
 ## MCP tools
 
+uncrm's MCP server has 14 tools.
+
 | Tool | What it does |
 |---|---|
-| `search_contacts` | Searches contacts by text, tag, stage, or auth provider. Returns one page and a cursor for the next. |
+| `search_contacts` | Searches contacts by text, tag, stage, auth provider, company, or sign-up time. Returns one page and a cursor for the next. |
 | `get_contact` | Gets one contact by id or email, with identities, notes, and recent activity. |
 | `update_contact` | Changes a contact's fields, stage, company, or tags. |
+| `set_stage` | Moves a contact to a pipeline stage. |
 | `reset_contact_field` | Gives a field back to the auth provider and enrichment, so their next value shows. |
 | `merge_contacts` | Merges two contacts that are the same person. Moves the identities, notes, tags, and history of `drop` to `keep`, then deletes `drop`. |
 | `add_note` | Adds a Markdown note to a contact's timeline. |
 | `list_recent_signups` | Lists the newest sign-ups from every provider. |
 | `get_company` | Gets a company and its contacts, by id or domain. |
+| `search_companies` | Searches companies by name or domain. Returns one page and a cursor for the next. |
 | `enrich_contact` | Queues a new context.dev lookup for a contact and its company. |
+| `list_stages` | Lists the pipeline stages in order. New contacts start in the first one. |
+| `list_tags` | Lists every tag in use and how many contacts have it. |
+| `get_status` | Counts contacts and companies, says whether enrichment is on or paused and why, and names the API key store. |
 
 A value that a person or an agent sets wins over machine data. After an agent sets a contact's `title`, a later webhook or enrichment does not change it. `reset_contact_field` removes that hold.
 
