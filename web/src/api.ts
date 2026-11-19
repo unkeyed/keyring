@@ -91,14 +91,18 @@ export interface Note {
   created_at: Timestamp;
 }
 
-type FieldDiff = { from: unknown; to: unknown };
+export type FieldDiff = { from: unknown; to: unknown };
+/** A tag edit is a set change, recorded under the "tags" key of contact_updated. */
+export type TagChange = { added?: Tag[]; removed?: Tag[] };
+/** Changed field to its diff; "tags" holds a TagChange instead. */
+export type FieldChanges = { [field: string]: FieldDiff | TagChange };
 
 /** One variant per crm.ActivityKind, with the data shape its comment documents. */
 export type ActivityData =
   | { kind: "signed_up"; data: { provider: string; external_id: string; raw?: unknown } }
   | { kind: "provider_deleted"; data: { provider: string; external_id: string } }
-  | { kind: "contact_updated"; data: { reset: Field } | Record<string, FieldDiff> }
-  | { kind: "company_updated"; data: { reset: Field } | Record<string, FieldDiff> }
+  | { kind: "contact_updated"; data: { reset: Field } | FieldChanges }
+  | { kind: "company_updated"; data: { reset: Field } | FieldChanges }
   | { kind: "note_added"; data: { note_id: NoteID } }
   | { kind: "contacts_merged"; data: { drop_id: ContactID; drop_email: Email } }
   | { kind: "enriched"; data: { changed: Field[] | null } };

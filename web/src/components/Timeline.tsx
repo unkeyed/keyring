@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Activity, ActivityData, ActivityKind } from "../api";
+import type { Activity, ActivityData, ActivityKind, FieldChanges, FieldDiff, TagChange } from "../api";
 import { Icon, RelativeTime, type IconName } from "../ui";
 
 const fieldNames: Record<string, string> = {
@@ -28,16 +28,36 @@ function describeUpdate(data: Extract<ActivityData, { kind: "contact_updated" }>
       </>
     );
   }
-  const diffs = Object.entries(data as Record<string, { from: unknown; to: unknown }>);
+  const diffs = Object.entries(data as FieldChanges);
   if (diffs.length === 1) {
     const [f, d] = diffs[0];
+    if (f === "tags") return describeTags(d as TagChange);
+    const diff = d as FieldDiff;
     return (
       <>
-        changed <b>{fieldName(f)}</b> from <i className="not-italic text-muted">{show(d.from)}</i> to <b>{show(d.to)}</b>
+        changed <b>{fieldName(f)}</b> from <i className="not-italic text-muted">{show(diff.from)}</i> to <b>{show(diff.to)}</b>
       </>
     );
   }
   return <>changed {diffs.map(([f]) => fieldName(f)).join(", ")}</>;
+}
+
+function describeTags({ added = [], removed = [] }: TagChange): ReactNode {
+  return (
+    <>
+      {added.length > 0 && (
+        <>
+          tagged <b>{added.join(", ")}</b>
+        </>
+      )}
+      {added.length > 0 && removed.length > 0 && " and "}
+      {removed.length > 0 && (
+        <>
+          removed <b>{removed.join(", ")}</b>
+        </>
+      )}
+    </>
+  );
 }
 
 type Kind<K extends ActivityKind> = {
