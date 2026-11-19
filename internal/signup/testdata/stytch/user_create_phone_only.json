@@ -1,0 +1,19 @@
+{
+  "action": "CREATE",
+  "event_id": "webhook-event-test-55555555-5555-5555-5555-555555555555",
+  "id": "user-test-55555555-5555-5555-5555-555555555555",
+  "object_type": "user",
+  "project_id": "project-test-00000000-0000-0000-0000-000000000000",
+  "source": "DIRECT",
+  "timestamp": "2024-11-21T07:00:00Z",
+  "vertical": "CONSUMER",
+  "user": {
+    "user_id": "user-test-55555555-5555-5555-5555-555555555555",
+    "emails": [],
+    "phone_numbers": [{"phone_id": "phone-number-test-00000000-0000-0000-0000-000000000000", "phone_number": "+12025550162", "verified": true}],
+    "name": {"first_name": "", "middle_name": "", "last_name": ""},
+    "providers": [],
+    "status": "active",
+    "created_at": "2024-11-21T07:00:00Z"
+  }
+}

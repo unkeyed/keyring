@@ -1,0 +1,11 @@
+{
+  "action": "DELETE",
+  "event_id": "webhook-event-test-22222222-2222-2222-2222-222222222222",
+  "id": "user-test-00000000-0000-0000-0000-000000000000",
+  "object_type": "user",
+  "project_id": "project-test-00000000-0000-0000-0000-000000000000",
+  "source": "DIRECT",
+  "timestamp": "2024-11-23T10:00:00Z",
+  "vertical": "CONSUMER",
+  "workspace_id": "workspace-prod-00000000-0000-0000-0000-000000000000"
+}

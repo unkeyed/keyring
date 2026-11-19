@@ -1,0 +1,15 @@
+{
+  "action": "CREATE",
+  "event_id": "webhook-event-test-44444444-4444-4444-4444-444444444444",
+  "id": "organization-test-00000000-0000-0000-0000-000000000000",
+  "object_type": "organization",
+  "project_id": "project-test-00000000-0000-0000-0000-000000000000",
+  "source": "DASHBOARD",
+  "timestamp": "2024-11-21T06:40:00Z",
+  "vertical": "B2B",
+  "organization": {
+    "organization_id": "organization-test-00000000-0000-0000-0000-000000000000",
+    "organization_name": "US Navy",
+    "organization_slug": "navy"
+  }
+}

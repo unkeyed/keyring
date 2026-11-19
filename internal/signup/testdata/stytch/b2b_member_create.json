@@ -1,0 +1,21 @@
+{
+  "action": "CREATE",
+  "event_id": "webhook-event-test-33333333-3333-3333-3333-333333333333",
+  "id": "member-test-00000000-0000-0000-0000-000000000000",
+  "object_type": "member",
+  "project_id": "project-test-00000000-0000-0000-0000-000000000000",
+  "source": "SCIM",
+  "timestamp": "2024-11-21T06:47:49.555247073Z",
+  "vertical": "B2B",
+  "workspace_id": "workspace-prod-00000000-0000-0000-0000-000000000000",
+  "details": {"organization_id": "organization-test-00000000-0000-0000-0000-000000000000"},
+  "member": {
+    "member_id": "member-test-00000000-0000-0000-0000-000000000000",
+    "organization_id": "organization-test-00000000-0000-0000-0000-000000000000",
+    "email_address": "grace@navy.example.com",
+    "email_address_verified": true,
+    "name": "Grace Hopper",
+    "status": "active",
+    "created_at": "2024-01-02T03:04:05Z"
+  }
+}
