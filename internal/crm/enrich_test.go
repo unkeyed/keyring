@@ -1,6 +1,7 @@
 package crm
 
 import (
+	"context"
 	"errors"
 	"os"
 	"regexp"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestSettle(t *testing.T) {
@@ -58,5 +61,163 @@ func TestJobStatesMatchSchema(t *testing.T) {
 	slices.Sort(inGo)
 	if !slices.Equal(inSchema, inGo) {
 		t.Fatalf("schema allows %v, Go defines %v", inSchema, inGo)
+	}
+}
+
+// expireLeases stands in for leaseFor passing on every running job.
+func expireLeases(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE enrichment_jobs SET lease_until = now() - interval '1 second' WHERE state = 'running'`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExpiredLeaseIsReclaimed(t *testing.T) {
+	s, pool := newService(t, fakeEnricher{
+		person: func(Email) (PersonFacts, error) { return PersonFacts{Found: true, Title: "CEO"}, nil },
+	})
+	id := ingest(t, s, clerk, created(clerk, "user_1", "ada@stripe.com")).ContactID
+
+	if _, ok, err := s.claim(context.Background()); !ok || err != nil {
+		t.Fatalf("claim = %v, %v", ok, err)
+	}
+	// That worker dies here without finishing its claim.
+	drain(t, s)
+	if st := status(t, s); st.Jobs[JobRunning] != 1 || st.Jobs[JobDone] != 1 {
+		t.Fatalf("jobs = %v, want the crashed claim still leased and the other job done", st.Jobs)
+	}
+
+	expireLeases(t, pool)
+	drain(t, s)
+	if st := status(t, s); st.Jobs[JobRunning] != 0 || st.Jobs[JobDone] != 2 {
+		t.Fatalf("jobs = %v, want the expired claim reclaimed and done", st.Jobs)
+	}
+	if c := contact(t, s, id); c.Title != "CEO" {
+		t.Fatalf("title = %q after the reclaimed job ran", c.Title)
+	}
+}
+
+func TestStaleWorkerCannotOverwriteNewerClaim(t *testing.T) {
+	ctx := context.Background()
+	seed, pool := newService(t, nil)
+	id := ingest(t, seed, clerk, created(clerk, "user_1", "ada@stripe.com")).ContactID
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	stale := New(pool, fakeEnricher{
+		person: func(Email) (PersonFacts, error) {
+			close(entered)
+			<-release
+			return PersonFacts{Found: true, Title: "stale"}, nil
+		},
+		company: func(Domain) (CompanyFacts, error) {
+			close(entered)
+			<-release
+			return CompanyFacts{Found: true, Name: "Stale Inc"}, nil
+		},
+	})
+	fresh := New(pool, fakeEnricher{
+		person:  func(Email) (PersonFacts, error) { return PersonFacts{Found: true, Title: "fresh"}, nil },
+		company: func(Domain) (CompanyFacts, error) { return CompanyFacts{Found: true, Name: "Fresh Inc"}, nil },
+	})
+
+	finished := make(chan error)
+	go func() {
+		_, err := stale.enrichOnce(ctx)
+		finished <- err
+	}()
+	<-entered
+	expireLeases(t, pool)
+	drain(t, fresh)
+	close(release)
+	if err := <-finished; err != nil {
+		t.Fatalf("stale worker: %v", err)
+	}
+
+	co, err := seed.GetCompanyByDomain(ctx, "stripe.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := contact(t, seed, id); c.Title != "fresh" || co.Name != "Fresh Inc" {
+		t.Fatalf("title %q company %q: the worker that lost its lease overwrote the newer claim", c.Title, co.Name)
+	}
+	if st := status(t, seed); st.Jobs[JobDone] != 2 {
+		t.Fatalf("jobs = %v", st.Jobs)
+	}
+}
+
+func TestHaltPausesEveryReplicaUntilRestart(t *testing.T) {
+	ctx := context.Background()
+	seed, pool := newService(t, nil)
+	ingest(t, seed, clerk, created(clerk, "user_1", "ada@stripe.com"))
+	ingest(t, seed, clerk, created(clerk, "user_2", "grace@navy.mil"))
+
+	badKey := &EnrichError{Kind: EnrichHalted, Msg: "context.dev 401 UNAUTHORIZED"}
+	rejected := fakeEnricher{
+		person:  func(Email) (PersonFacts, error) { return PersonFacts{}, badKey },
+		company: func(Domain) (CompanyFacts, error) { return CompanyFacts{}, badKey },
+	}
+	a, b := New(pool, rejected), New(pool, rejected)
+	if ran, err := a.enrichOnce(ctx); !ran || err != nil {
+		t.Fatalf("replica a: ran %v err %v", ran, err)
+	}
+	st := status(t, seed)
+	if st.EnrichmentHalt == nil || !strings.Contains(st.EnrichmentHalt.Reason, "401") || st.Jobs[JobPending] != 4 {
+		t.Fatalf("after a 401: halt %+v jobs %v; want a halt and every job still pending", st.EnrichmentHalt, st.Jobs)
+	}
+	if ran, err := b.enrichOnce(ctx); ran || err != nil {
+		t.Fatalf("replica b ran %v err %v while halted, want no claim", ran, err)
+	}
+
+	fixed := New(pool, fakeEnricher{})
+	runCtx, stop := context.WithCancel(ctx)
+	stopped := make(chan error, 1)
+	go func() { stopped <- fixed.RunEnrichment(runCtx) }()
+	for deadline := time.Now().Add(10 * time.Second); status(t, seed).Jobs[JobDone] < 3; {
+		if time.Now().After(deadline) {
+			t.Fatalf("restarted worker did not resume: jobs %v", status(t, seed).Jobs)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	stop()
+	wantErr(t, <-stopped, context.Canceled)
+	if st := status(t, seed); st.EnrichmentHalt != nil || st.Jobs[JobPending] != 1 {
+		t.Fatalf("after restart: halt %+v jobs %v; want no halt and only the halted job waiting out its pause",
+			st.EnrichmentHalt, st.Jobs)
+	}
+}
+
+func TestNoKeyLeavesJobsPending(t *testing.T) {
+	s, _ := newService(t, nil)
+	ingest(t, s, clerk, created(clerk, "user_1", "ada@stripe.com"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	wantErr(t, s.RunEnrichment(ctx), context.DeadlineExceeded)
+
+	st := status(t, s)
+	if st.EnrichmentEnabled || st.Jobs[JobPending] != 2 || st.Jobs[JobRunning] != 0 {
+		t.Fatalf("status = %+v, want enrichment off and both jobs pending", st)
+	}
+}
+
+func TestEnrichmentErrorsRetryOrFail(t *testing.T) {
+	s, _ := newService(t, fakeEnricher{
+		person: func(Email) (PersonFacts, error) {
+			return PersonFacts{}, &EnrichError{Kind: EnrichPermanent, Msg: "context.dev 400"}
+		},
+		company: func(Domain) (CompanyFacts, error) { return CompanyFacts{}, errors.New("dial tcp: connection refused") },
+	})
+	id := ingest(t, s, clerk, created(clerk, "user_1", "ada@stripe.com")).ContactID
+	drain(t, s)
+
+	c := contact(t, s, id)
+	co, err := s.GetCompany(context.Background(), c.Company.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Enrichment != JobFailed || co.Enrichment != JobPending {
+		t.Fatalf("person after a 400 = %q, company after a network error = %q; want failed and pending (retry later)",
+			c.Enrichment, co.Enrichment)
 	}
 }
