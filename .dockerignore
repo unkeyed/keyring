@@ -1,0 +1,7 @@
+.git
+.audit
+bin
+web/node_modules
+web/dist
+docker-compose.yml
+Dockerfile
