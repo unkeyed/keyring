@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-// Clerk is the exemplar adapter. Copy this file to add a provider.
+// Clerk is the exemplar adapter. Copy this file and testdata/clerk to add a
+// provider.
 
 func init() {
 	register(Provider{

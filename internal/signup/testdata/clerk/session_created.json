@@ -1,0 +1,6 @@
+{
+  "type": "session.created",
+  "object": "event",
+  "timestamp": 1654012591835,
+  "data": {"id": "sess_123", "object": "session", "user_id": "user_29w83sxmDNGwOuEthce5gg56FcC"}
+}

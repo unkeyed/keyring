@@ -1,0 +1,27 @@
+{
+  "type": "user.created",
+  "object": "event",
+  "timestamp": 1654012591835,
+  "instance_id": "ins_123",
+  "data": {
+    "id": "user_29w83sxmDNGwOuEthce5gg56FcC",
+    "object": "user",
+    "first_name": "Example",
+    "last_name": "Example",
+    "username": null,
+    "image_url": "https://img.clerk.com/xxxxxx",
+    "primary_email_address_id": "idn_29w83yL7CwVlJXylYLxcslromF1",
+    "email_addresses": [
+      {
+        "id": "idn_29w83yL7CwVlJXylYLxcslromF1",
+        "object": "email_address",
+        "email_address": "example@example.org",
+        "verification": {"status": "verified", "strategy": "ticket"},
+        "linked_to": []
+      }
+    ],
+    "phone_numbers": [],
+    "created_at": 1654012591514,
+    "updated_at": 1654012591835
+  }
+}
