@@ -1,6 +1,6 @@
 # Contributing to uncrm
 
-Thanks for helping. This page covers running uncrm from source, the checks a change has to pass, and the most common contribution: a new auth provider. Read [docs/design.md](docs/design.md) before a larger change. It explains how the packages fit together and why.
+This page covers running uncrm from source, the checks a change has to pass, and the most common contribution: a new auth provider. Read [docs/design.md](docs/design.md) before a larger change. It explains how the packages fit together and why.
 
 ## Run uncrm from source
 

@@ -79,7 +79,7 @@ Use the prebuilt image `ghcr.io/uncrm/uncrm` on any host that runs containers, s
    ```
 
 3. Point the host's health check at `GET /healthz`. It returns 200 while the process runs and does not query the database.
-4. Put HTTPS in front of uncrm. Auth providers send webhooks only to public HTTPS URLs. If your proxy terminates TLS, have it send `X-Forwarded-Proto: https`, so uncrm marks the session cookie `Secure`.
+4. Put HTTPS in front of uncrm, at a URL your auth provider can reach. If your proxy terminates TLS, have it send `X-Forwarded-Proto: https`, so uncrm marks the session cookie `Secure`.
 
 The container contract is short:
 
