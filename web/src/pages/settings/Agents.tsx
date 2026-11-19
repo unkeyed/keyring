@@ -51,7 +51,7 @@ export function Agents() {
         <CodeBlock label="Send a sign-up from any backend" code={signupCurl(location.origin).replace("$UNCRM_API_KEY", created?.key ?? "$UNCRM_API_KEY")} />
         <p className="text-xs text-muted">
           Every route is described in{" "}
-          <a href="/v1/openapi.yaml"className="text-accent hover:underline">
+          <a href="/v1/openapi.yaml" className="text-accent hover:underline">
             openapi.yaml
           </a>
           .
