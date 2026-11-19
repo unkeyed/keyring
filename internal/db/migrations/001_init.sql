@@ -7,7 +7,8 @@
 --
 -- Table ownership (the only package that writes each table):
 --   internal/crm   stages, companies, contacts, identities, contact_tags, notes,
---                  activities, enrichment_jobs, provider_connections
+--                  activities, enrichment_jobs, enrichment_halt,
+--                  provider_connections
 --   internal/auth  users, sessions, invites, api_keys
 
 -- Pipeline stages. Editable from Settings. Renames cascade to contacts.
@@ -134,6 +135,8 @@ CREATE INDEX activities_kind ON activities (kind, occurred_at DESC);
 --   running -> running            reclaim after lease_until passes (crashed worker)
 --   running -> done | pending | failed   finish, fenced by claims
 --   done | failed | skipped -> pending   manual re-enrich
+--   running -> pending (halted)  context.dev 401/402/403: failures unchanged,
+--                                and enrichment_halt pauses every claim
 -- 'skipped' is set at enqueue for subjects that cannot be enriched
 -- (a contact with a free-mail address).
 -- The state list is duplicated in crm.JobState; TestJobStatesMatchSchema
@@ -154,6 +157,16 @@ CREATE TABLE enrichment_jobs (
     CHECK ((state = 'running') = (lease_until IS NOT NULL))
 );
 CREATE INDEX enrichment_jobs_due ON enrichment_jobs (run_at) WHERE state IN ('pending', 'running');
+
+-- At most one row: why enrichment is paused for every replica, and until when.
+-- Written when context.dev rejects the key or the account (401, 402, 403).
+-- Settings shows it while until > now().
+CREATE TABLE enrichment_halt (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    reason    text NOT NULL,
+    until     timestamptz NOT NULL,
+    at        timestamptz NOT NULL DEFAULT now()
+);
 
 -- A connected sign-up provider. secret is the webhook signing secret or bearer
 -- token; it must be readable to verify signatures, so it is stored as given.

@@ -258,7 +258,15 @@ type ProviderStatus struct {
 // Status is the instance health summary for Settings and agents.
 type Status struct {
 	EnrichmentEnabled bool             `json:"enrichment_enabled"`
+	EnrichmentHalt    *EnrichmentHalt  `json:"enrichment_halt,omitempty"` // nil unless paused now
 	Jobs              map[JobState]int `json:"jobs"`
 	Contacts          int              `json:"contacts"`
 	Companies         int              `json:"companies"`
+}
+
+// EnrichmentHalt is why enrichment is paused (context.dev rejected the key or
+// the account) and until when. Settings shows it so the fix is obvious.
+type EnrichmentHalt struct {
+	Reason string    `json:"reason"`
+	Until  time.Time `json:"until"`
 }

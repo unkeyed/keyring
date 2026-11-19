@@ -51,10 +51,11 @@ func (c *Client) Company(ctx context.Context, domain crm.Domain) (crm.CompanyFac
 
 // classify turns a non-2xx response into *crm.EnrichError:
 //
-//	429, 402 USAGE_EXCEEDED -> Throttled, RetryAfter from Retry-After (402: 6h)
-//	408, 5xx                -> Retryable
-//	other 4xx               -> permanent (never retry-loop 4xx: context.dev
-//	                           disables free keys after repeated failures)
+//	429             -> EnrichThrottled, RetryAfter from Retry-After
+//	401, 402, 403   -> EnrichHalted (bad key, USAGE_EXCEEDED, disabled account)
+//	408, 5xx        -> EnrichRetryable
+//	other 4xx       -> EnrichPermanent (never retry-loop 4xx: context.dev
+//	                   disables free keys after repeated failures)
 func classify(resp *http.Response) error {
 	return errors.New("not implemented")
 }

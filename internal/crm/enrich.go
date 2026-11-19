@@ -39,16 +39,30 @@ type CompanyFacts struct {
 }
 
 // EnrichError is how an Enricher classifies a failed call. Any other error
-// (network, timeout) is treated as Retryable.
+// (network, timeout) is treated as EnrichRetryable.
 type EnrichError struct {
-	// Throttled: 429 or 402 quota. Retry at RetryAfter without spending
-	// the failure budget; the request was never served.
-	Throttled bool
-	// Retryable: 5xx or 408. Retry with backoff, spending one failure.
-	Retryable  bool
-	RetryAfter time.Duration
+	Kind       EnrichErrorKind
+	RetryAfter time.Duration // EnrichThrottled only
 	Msg        string
 }
+
+type EnrichErrorKind int
+
+const (
+	// EnrichRetryable: 5xx, 408 or network. Retry with backoff, spending one
+	// failure.
+	EnrichRetryable EnrichErrorKind = iota
+	// EnrichThrottled: 429. Retry at RetryAfter without spending the failure
+	// budget; the request was never served.
+	EnrichThrottled
+	// EnrichHalted: 401, 402 or 403. The key or the account is the problem,
+	// not this job, so the attempt is refunded and every worker pauses.
+	// Retrying would burn calls that cannot succeed, and repeated 4xx can get
+	// a free context.dev key disabled.
+	EnrichHalted
+	// EnrichPermanent: any other 4xx. This subject cannot be enriched.
+	EnrichPermanent
+)
 
 func (e *EnrichError) Error() string { return e.Msg }
 
@@ -63,6 +77,10 @@ func (e *EnrichError) Error() string { return e.Msg }
 //	   |                    +--- (a worker crashed or hung)
 //	   |
 //	   +--- Enrich() from done | failed | skipped
+//
+// finish(halted) also goes running -> pending, with failures unchanged and
+// run_at after haltPause, and it writes enrichment_halt, which stops every
+// replica's claims until it expires.
 //
 // skipped is written at enqueue for a free-mail contact and never claimed.
 // Every running -> * update is fenced by "WHERE state = 'running' AND
@@ -82,18 +100,20 @@ const (
 	maxFailures  = 5
 	leaseFor     = 3 * time.Minute // longer than contextdev's 90s request timeout
 	pollInterval = 5 * time.Second
+	haltPause    = 15 * time.Minute
 )
 
 // claimSQL takes one due job. A running job whose lease expired is due again,
 // which is the whole crash-recovery story. SKIP LOCKED keeps replicas from
-// waiting on each other.
+// waiting on each other. Nothing is due while an unexpired halt exists.
 const claimSQL = `
 UPDATE enrichment_jobs
    SET state = 'running', lease_until = now() + $1::interval, claims = claims + 1, updated_at = now()
  WHERE id = (
        SELECT id FROM enrichment_jobs
-        WHERE (state = 'pending' AND run_at <= now())
-           OR (state = 'running' AND lease_until < now())
+        WHERE ((state = 'pending' AND run_at <= now())
+           OR (state = 'running' AND lease_until < now()))
+          AND NOT EXISTS (SELECT 1 FROM enrichment_halt WHERE until > now())
         ORDER BY run_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1)
@@ -114,6 +134,7 @@ type settlement struct {
 	runAt    time.Time
 	failures int
 	lastErr  string
+	halt     time.Duration // non-zero only for EnrichHalted: pause every worker this long
 }
 
 // settle is the only place that decides where a running job goes next. Pure,
@@ -124,16 +145,18 @@ func settle(failures int, err error, now time.Time) settlement {
 	}
 	var ee *EnrichError
 	if !errors.As(err, &ee) {
-		ee = &EnrichError{Retryable: true, Msg: err.Error()}
+		ee = &EnrichError{Kind: EnrichRetryable, Msg: err.Error()}
 	}
 	switch {
-	case ee.Throttled:
+	case ee.Kind == EnrichThrottled:
 		wait := ee.RetryAfter
 		if wait <= 0 {
 			wait = time.Minute
 		}
 		return settlement{state: JobPending, runAt: now.Add(wait), failures: failures, lastErr: ee.Msg}
-	case ee.Retryable && failures+1 < maxFailures:
+	case ee.Kind == EnrichHalted:
+		return settlement{state: JobPending, runAt: now.Add(haltPause), failures: failures, lastErr: ee.Msg, halt: haltPause}
+	case ee.Kind == EnrichRetryable && failures+1 < maxFailures:
 		backoff := time.Minute << (2 * failures) // 1m, 4m, 16m, 64m
 		return settlement{state: JobPending, runAt: now.Add(backoff), failures: failures + 1, lastErr: ee.Msg}
 	default:
@@ -143,7 +166,8 @@ func settle(failures int, err error, now time.Time) settlement {
 
 // RunEnrichment claims and runs jobs until ctx is done. Every replica runs
 // one loop, so in-flight calls to the enricher equal the replica count.
-// With no enricher it blocks on ctx and touches nothing.
+// With no enricher it blocks on ctx and touches nothing. With one, it first
+// deletes enrichment_halt, because a restart is how a new key arrives.
 //
 //	for {
 //	    j, ok := claim()                 // claimSQL
@@ -156,7 +180,8 @@ func (s *Service) RunEnrichment(ctx context.Context) error {
 }
 
 // finish writes the settlement and, on success, the facts, in one
-// transaction. The fenced UPDATE runs first; zero rows means the lease was
+// transaction. A settlement with halt upserts enrichment_halt with the
+// error and now() + halt. The fenced UPDATE runs first; zero rows means the lease was
 // lost, so the facts are discarded. Facts are written under the
 // manual-values-win rule (package doc), and an enriched activity lists the
 // fields that actually changed. The raw response goes
