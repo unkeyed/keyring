@@ -1,0 +1,30 @@
+{
+  "name": "@uncrm/better-auth",
+  "version": "0.1.0",
+  "description": "Better Auth plugin that sends every sign-up to uncrm",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc"
+  },
+  "peerDependencies": {
+    "better-auth": "^1.7.0"
+  },
+  "devDependencies": {
+    "better-auth": "^1.7.0",
+    "typescript": "^5.9.0"
+  }
+}
