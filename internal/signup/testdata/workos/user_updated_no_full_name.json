@@ -1,0 +1,21 @@
+{
+  "event": "user.updated",
+  "id": "event_03G5KLW3C56P083X43JQXF4FP1",
+  "data": {
+    "object": "user",
+    "id": "user_01E4ZCR3C5A4QZ2Z2JQXGKZJ9E",
+    "email": "todd@example.com",
+    "first_name": "Todd",
+    "last_name": "Rundgren",
+    "email_verified": true,
+    "profile_picture_url": null,
+    "last_sign_in_at": "2023-11-19T10:00:00.000Z",
+    "locale": "en",
+    "external_id": null,
+    "metadata": {},
+    "created_at": "2023-11-18T09:18:13.120Z",
+    "updated_at": "2023-11-19T10:00:00.000Z"
+  },
+  "created_at": "2023-11-19T10:00:00.004Z",
+  "context": {}
+}
