@@ -201,7 +201,6 @@ func (k *unkeyKeys) hasKey(ctx context.Context, keyID string) (bool, error) {
 	return false, nil
 }
 
-// listKeys pages through apis.listKeys for the configured API.
 func (k *unkeyKeys) listKeys(ctx context.Context, fresh bool) ([]Key, error) {
 	type unkeyKey struct {
 		KeyID      string `json:"keyId"`

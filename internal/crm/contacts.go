@@ -229,7 +229,7 @@ func (s *Service) FindContactByEmail(ctx context.Context, email string) (Contact
 // UpdateContact applies a human or agent edit. Non-nil fields overwrite and
 // are added to manual_fields, so later sign-ups and enrichment leave them
 // alone. Stage and tags are never machine-written, so they need no entry.
-// An unknown Stage is ErrInvalid (foreign key violation 23503 mapped here).
+// An unknown Stage is ErrInvalid.
 // Writes one contact_updated activity whose data is the field diff; a patch
 // that changes nothing writes nothing.
 func (s *Service) UpdateContact(ctx context.Context, actor Actor, id ContactID, p ContactPatch) (Contact, error) {
@@ -412,7 +412,7 @@ func (s *Service) ResetContactField(ctx context.Context, actor Actor, id Contact
 // with them), keeps the earlier first_seen_at and later last_seen_at,
 // deletes drop, and writes a contacts_merged activity on keep. Drop's email
 // stays on its identities, so a later sign-up with it resolves to keep
-// (Ingest step 2c). keep == drop is ErrInvalid.
+// (see resolveContact). keep == drop is ErrInvalid.
 func (s *Service) MergeContacts(ctx context.Context, actor Actor, keep, drop ContactID) (Contact, error) {
 	if keep == drop {
 		return Contact{}, fmt.Errorf("%w: cannot merge a contact into itself", ErrInvalid)

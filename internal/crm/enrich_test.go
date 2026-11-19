@@ -82,7 +82,6 @@ func TestExpiredLeaseIsReclaimed(t *testing.T) {
 	if _, ok, err := s.claim(context.Background()); !ok || err != nil {
 		t.Fatalf("claim = %v, %v", ok, err)
 	}
-	// That worker dies here without finishing its claim.
 	drain(t, s)
 	if st := status(t, s); st.Jobs[JobRunning] != 1 || st.Jobs[JobDone] != 1 {
 		t.Fatalf("jobs = %v, want the crashed claim still leased and the other job done", st.Jobs)

@@ -49,8 +49,8 @@ const (
 	FieldCountry       Field = "country"
 )
 
-// Contact is one person. Display fields are plain columns. ManualFields
-// lists the ones a person or agent set, which machine writers leave alone.
+// Contact is one person. ManualFields lists the fields a person or agent
+// set, which machine writers leave alone.
 type Contact struct {
 	ID           ContactID   `json:"id"`
 	Email        Email       `json:"email"`
@@ -78,7 +78,6 @@ type CompanyRef struct {
 	Name   string    `json:"name"` // '' until enriched or edited; UIs show Domain then
 }
 
-// ContactDetail is everything a contact page or get_contact needs in one read.
 type ContactDetail struct {
 	Contact
 	Identities []Identity `json:"identities"`
@@ -197,10 +196,11 @@ type CompanyQuery struct {
 	Limit  int
 }
 
+// ActivityQuery filters ListActivity. Zero values mean "no filter".
 type ActivityQuery struct {
-	Kind      ActivityKind // optional
-	ContactID ContactID    // optional
-	Since     time.Time    // optional
+	Kind      ActivityKind
+	ContactID ContactID
+	Since     time.Time
 	Limit     int
 }
 
@@ -270,7 +270,7 @@ type Status struct {
 }
 
 // EnrichmentHalt is why enrichment is paused (context.dev rejected the key or
-// the account) and until when. Settings shows it so the fix is obvious.
+// the account) and until when.
 type EnrichmentHalt struct {
 	Reason string    `json:"reason"`
 	Until  time.Time `json:"until"`

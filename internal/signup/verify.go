@@ -12,9 +12,6 @@ import (
 	"time"
 )
 
-// The three signature schemes the v1 providers use. A new provider almost
-// always reuses one of these by name in its register call.
-
 const (
 	standardWebhooksTolerance = 5 * time.Minute
 	workosTolerance           = 3 * time.Minute

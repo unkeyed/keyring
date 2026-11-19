@@ -109,9 +109,9 @@ func (s *server) setup(w http.ResponseWriter, r *http.Request, _ crm.Actor) erro
 	return respond(w, http.StatusOK, map[string]bool{"has_users": len(users) > 0}, err)
 }
 
-// login body {"email", "password"}; sets the session cookie. The cookie
-// lives as long as browsers allow and the sessions table decides expiry, so
-// no route needs to re-issue it (see auth.Users).
+// login sets a session cookie that lives as long as browsers allow. The
+// sessions table decides expiry, so no route needs to re-issue the cookie
+// (see auth.Users).
 func (s *server) login(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
 	var b struct {
 		Email    string `json:"email"`
@@ -140,8 +140,6 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request, _ crm.Actor) err
 	return nil
 }
 
-// acceptInvite body {"token", "name", "password"}; creates the user and sets
-// the session cookie.
 func (s *server) acceptInvite(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
 	var b struct {
 		Token    string `json:"token"`

@@ -14,53 +14,23 @@ import (
 	"github.com/uncrm/uncrm/internal/signup"
 )
 
-// Ingest records one sign-up fact. The generic POST /v1/signups calls it
-// directly; ReceiveWebhook calls it after verifying a provider delivery.
+// Ingest records one sign-up fact in one transaction. The generic
+// POST /v1/signups calls it directly; ReceiveWebhook calls it after
+// verifying a provider delivery.
 //
-// Defaults for callers that know only an email (the generic endpoint):
-// Source "" becomes "api", ExternalID "" becomes the normalized email,
-// OccurredAt zero becomes now. So posting the same person twice records
-// one sign-up. A non-provider actor may not use a registered provider's
-// name as Source (ErrInvalid), so an API key cannot forge Clerk identities.
-//
-// One transaction, every statement idempotent:
-//
-//  1. Parse s.Email with ParseEmail. Empty or invalid on a non-Deleted
-//     sign-up is ErrInvalid (webhooks turn that into ignored).
-//  2. Resolve the contact, first match wins:
-//     a. identities (s.Source, s.ExternalID)  -- the same provider user
-//     b. contacts.email = email               -- another provider, same person
-//     c. identities.email = email             -- someone whose provider email changed
-//     d. INSERT contacts ... ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-//     RETURNING id, (xmax = 0) AS created
-//     (d) is also the race resolution: two providers delivering the same
-//     new person at once both land on one row.
-//     Deleted with no matching identity returns ErrNotFound (ignored upstream).
-//  3. Write name and avatar_url on contacts under the manual-values-win rule
-//     (package doc), but only when step 4's upsert applied, so a stale
-//     webhook cannot overwrite a newer one. first_seen_at = LEAST,
-//     last_seen_at = GREATEST.
-//  4. Upsert identities ON CONFLICT (provider, external_id) DO UPDATE ...
-//     WHERE identities.occurred_at <= EXCLUDED.occurred_at. contact_id is
-//     never updated, so ingest never moves an identity between contacts.
-//     Only MergeContacts does.
-//     Deleted sets deleted_at and moves occurred_at forward instead, so an
-//     update older than the delete is stale too.
-//  5. Company, also only when step 4 applied: if the email domain is not
-//     free-mail and 'company' is not in the contact's manual_fields, upsert
-//     companies ON CONFLICT (domain) and set contacts.company_id. A company
-//     this step creates gets its pending enrichment job alongside.
-//  6. When step 2 created the contact, INSERT its enrichment_jobs row with
-//     state 'skipped' for a free-mail address and 'pending' otherwise. An
-//     existing contact already has one, committed with the contact.
-//  7. Created and Deleted insert an activity with dedupe_key
-//     "signed_up:<source>:<external_id>" or "provider_deleted:<source>:<external_id>"
-//     ON CONFLICT (dedupe_key) DO NOTHING. Duplicate = no row inserted.
-//     Updated writes no activity; it only refreshes state.
+// A caller that knows only an email gets defaults: Source "api", ExternalID
+// the normalized email, OccurredAt now. So posting the same person twice
+// records one sign-up. A non-provider actor may not use a registered
+// provider's name as Source (ErrInvalid), so an API key cannot forge Clerk
+// identities.
 //
 // A provider retry, a dashboard replay, an Updated arriving before its
 // Created, and two providers racing on one email all converge to one
-// contact and at most one signed_up row per (source, external_id).
+// contact and at most one signed_up activity per (source, external_id),
+// because that pair is the activity's dedupe_key. Ingest never moves an
+// identity between contacts; only MergeContacts does. A Deleted moves the
+// identity's occurred_at forward, so an update older than the delete is
+// stale.
 func (s *Service) Ingest(ctx context.Context, actor Actor, su signup.Signup) (IngestResult, error) {
 	if su.Source == "" {
 		su.Source = "api"
@@ -101,7 +71,6 @@ func (s *Service) Ingest(ctx context.Context, actor Actor, su signup.Signup) (In
 	return res, err
 }
 
-// ingestSignup is steps 2 to 7 for Created and Updated.
 func ingestSignup(ctx context.Context, tx pgx.Tx, actor Actor, su signup.Signup, email Email) (IngestResult, error) {
 	id, created, err := resolveContact(ctx, tx, su.Source, su.ExternalID, email, su.OccurredAt)
 	if err != nil {
@@ -130,6 +99,8 @@ func ingestSignup(ctx context.Context, tx pgx.Tx, actor Actor, su signup.Signup,
 	}
 	c.firstSeen = minTime(c.firstSeen, su.OccurredAt)
 	c.lastSeen = maxTime(c.lastSeen, su.OccurredAt)
+	// The identity upsert skips a fact older than the stored one, so a stale
+	// webhook leaves the contact's fields and company alone too.
 	if applied {
 		observe(c.manual, FieldName, &c.name, strings.TrimSpace(su.Name))
 		observe(c.manual, fieldAvatarURL, &c.avatarURL, su.AvatarURL)
@@ -168,9 +139,12 @@ func ingestSignup(ctx context.Context, tx pgx.Tx, actor Actor, su signup.Signup,
 	return res, nil
 }
 
-// resolveContact is step 2: the ordered lookup, first match wins, then the
-// upsert that also settles two providers racing on one new email. The
-// returned contact row is locked for the rest of the transaction.
+// resolveContact finds the sign-up's contact, first match wins: the same
+// provider user, then a contact with this email from another provider, then
+// the contact of the newest identity with this email, which catches a person
+// whose provider email changed. Otherwise it inserts one, and ON CONFLICT
+// (email) settles two providers racing on one new person. The returned contact row is locked for the rest of the
+// transaction.
 func resolveContact(ctx context.Context, tx pgx.Tx, source, externalID string, email Email, at time.Time) (ContactID, bool, error) {
 	lookups := []struct {
 		sql  string
@@ -227,13 +201,6 @@ func ingestDeleted(ctx context.Context, tx pgx.Tx, actor Actor, su signup.Signup
 
 // ReceiveWebhook is the whole provider webhook path, so the HTTP handler
 // only copies the request into a Delivery.
-//
-//	provider := signup.Lookup(name)          -> ErrUnknownProvider
-//	secret   := provider_connections.secret  -> ErrNotConnected
-//	provider.Verify(secret, d)               -> signup.ErrBadSignature
-//	su := provider.Parse(d)                  -> signup.ErrIgnored returns nil
-//	su.Source = provider.Name
-//	s.Ingest(ctx, Actor{ActorProvider, name, provider.Title}, su)
 //
 // Every outcome updates provider_connections.last_delivery_at or
 // last_error/last_error_at, so the Settings page shows "last delivery 2m ago"

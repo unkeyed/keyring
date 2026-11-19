@@ -104,7 +104,6 @@ func (u *Users) SeedAdmin(ctx context.Context, email, password string) error {
 
 const pbkdf2Iterations = 600_000
 
-// hashPassword returns "pbkdf2-sha256$600000$<salt b64>$<hash b64>".
 func hashPassword(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -294,7 +293,6 @@ func SetSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
 	})
 }
 
-// ClearSessionCookie tells the browser to drop the session cookie.
 func ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: SessionCookie, Path: "/",

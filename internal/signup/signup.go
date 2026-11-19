@@ -100,7 +100,6 @@ func register(p Provider) {
 	registry[p.Name] = p
 }
 
-// Lookup returns the provider registered under name.
 func Lookup(name string) (Provider, bool) {
 	p, ok := registry[name]
 	return p, ok

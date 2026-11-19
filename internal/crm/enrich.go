@@ -178,13 +178,6 @@ func settle(failures int, err error, now time.Time) settlement {
 // one loop, so in-flight calls to the enricher equal the replica count.
 // With no enricher it blocks on ctx and touches nothing. With one, it first
 // deletes enrichment_halt, because a restart is how a new key arrives.
-//
-//	for {
-//	    j, ok := claim()                 // claimSQL
-//	    if !ok { sleep(pollInterval); continue }
-//	    facts, err := enricher.Person|Company(...)   // outside any transaction
-//	    finish(j, facts, settle(j.failures, err, now))
-//	}
 func (s *Service) RunEnrichment(ctx context.Context) error {
 	if s.enricher == nil {
 		<-ctx.Done()
@@ -209,9 +202,9 @@ func (s *Service) RunEnrichment(ctx context.Context) error {
 	}
 }
 
-// enrichOnce claims one due job, calls the enricher outside any
-// transaction and finishes the claim. It reports false when nothing was due.
-// On shutdown it leaves the claim running, and the lease returns it.
+// enrichOnce reports false when nothing was due. The enricher call runs
+// outside any transaction. On shutdown it leaves the claim running, and the
+// lease returns it.
 func (s *Service) enrichOnce(ctx context.Context) (bool, error) {
 	j, ok, err := s.claim(ctx)
 	if err != nil || !ok {
@@ -250,9 +243,7 @@ var enrichmentActor = Actor{Kind: ActorSystem, ID: "enrichment", Label: "context
 // error and now() + halt. The UPDATE is fenced by claims; zero rows means
 // the lease was lost, so the facts are discarded. When facts will be
 // written, the subject row is locked before the job row (lock order, see
-// the package doc). Facts are written under the manual-values-win rule,
-// and an enriched activity lists the fields that actually changed. The raw
-// response goes to enrichment_jobs.response.
+// the package doc).
 func (s *Service) finish(ctx context.Context, j job, person *PersonFacts, company *CompanyFacts, st settlement) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		var raw json.RawMessage

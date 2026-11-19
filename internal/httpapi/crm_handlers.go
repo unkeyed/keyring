@@ -115,7 +115,6 @@ func (s *server) updateContact(w http.ResponseWriter, r *http.Request, a crm.Act
 	return respond(w, http.StatusOK, c, err)
 }
 
-// resetContactField responds with the contact, like updateContact.
 func (s *server) resetContactField(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
 	id, err := pathID(r, "id")
 	if err != nil {

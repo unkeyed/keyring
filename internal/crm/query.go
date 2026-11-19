@@ -20,7 +20,6 @@ type where struct {
 	args  []any
 }
 
-// arg binds v and returns its placeholder.
 func (w *where) arg(v any) string {
 	w.args = append(w.args, v)
 	return "$" + strconv.Itoa(len(w.args))
@@ -82,7 +81,6 @@ func decodeCursor(s string) (time.Time, int64, error) {
 	return time.UnixMicro(micros), n, nil
 }
 
-// pgCode is the SQLSTATE of a Postgres error, or "".
 func pgCode(err error) string {
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) {

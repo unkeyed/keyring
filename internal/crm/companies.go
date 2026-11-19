@@ -111,7 +111,6 @@ func (s *Service) SearchCompanies(ctx context.Context, q CompanyQuery) (Page[Com
 	return pageOf(items, limit, func(c Company) string { return encodeCursor(c.CreatedAt, int64(c.ID)) }), nil
 }
 
-// GetCompany returns the company and its contacts.
 func (s *Service) GetCompany(ctx context.Context, id CompanyID) (CompanyDetail, error) {
 	c, err := s.company(ctx, id)
 	if err != nil {
