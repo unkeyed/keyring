@@ -464,11 +464,13 @@ func (s *Service) MergeContacts(ctx context.Context, actor Actor, keep, drop Con
 			`UPDATE activities SET contact_id = $1 WHERE contact_id = $2`,
 			`INSERT INTO contact_tags (contact_id, tag, created_at)
 			 SELECT $1, tag, created_at FROM contact_tags WHERE contact_id = $2 ON CONFLICT DO NOTHING`,
-			`DELETE FROM contacts WHERE id = $2`,
 		} {
 			if _, err := tx.Exec(ctx, sql, keep, drop); err != nil {
 				return err
 			}
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM contacts WHERE id = $1`, drop); err != nil {
+			return err
 		}
 		if err := writeContact(ctx, tx, k); err != nil {
 			return err
