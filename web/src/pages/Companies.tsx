@@ -78,12 +78,12 @@ export function Companies() {
         ) : rows.length === 0 ? (
           <div className="mx-auto mt-20 max-w-sm text-center">
             <p className="font-medium">{q ? "No companies match" : "No companies yet"}</p>
-            <p className="mt-1 text-[13px] text-muted">
+            <p className="mt-1 text-sm text-muted">
               {q ? "Try a domain like acme.com." : "Companies appear when someone signs up with a work email. Gmail and other free-mail addresses don't create one."}
             </p>
           </div>
         ) : (
-          <table className="w-full table-fixed border-collapse text-[13px]" aria-label="Companies">
+          <table className="w-full table-fixed border-collapse text-sm" aria-label="Companies">
             <thead className="sticky top-0 z-10 bg-surface">
               <tr className="border-b border-line text-left text-xs text-muted">
                 <th scope="col" className="w-[34%] py-2 pr-3 pl-5 font-medium">Company</th>

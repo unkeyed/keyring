@@ -85,7 +85,7 @@ function CompanyView({ id }: { id: CompanyID }) {
               <Avatar src={c.logo_url} label={label} size={56} square />
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-xl font-semibold tracking-tight">{label}</h2>
-                <a href={`https://${c.domain}`} target="_blank" rel="noreferrer noopener" className="mt-0.5 inline-flex items-center gap-1 text-[13px] text-muted hover:text-fg">
+                <a href={`https://${c.domain}`} target="_blank" rel="noreferrer noopener" className="mt-0.5 inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
                   {c.domain}
                   <Icon name="external" className="size-3" />
                 </a>
@@ -97,7 +97,7 @@ function CompanyView({ id }: { id: CompanyID }) {
                 </div>
               </div>
             </div>
-            {c.description && <p className="mt-5 text-[13px] leading-relaxed whitespace-pre-wrap text-muted">{c.description}</p>}
+            {c.description && <p className="mt-5 text-sm leading-relaxed whitespace-pre-wrap text-muted">{c.description}</p>}
             <div className="mt-3 space-y-2">
               <EnrichmentNote state={c.enrichment} />
               <ErrorNote error={enrich.error} />
@@ -107,21 +107,21 @@ function CompanyView({ id }: { id: CompanyID }) {
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-xs font-semibold tracking-wide text-muted uppercase">People {contacts.length > 0 && <span className="font-normal text-faint">{plural(c.contact_count, "contact")}</span>}</h3>
                 {c.contact_count > contacts.length && (
-                  <Link to={`/contacts?company=${c.id}`} className="text-xs text-accent hover:underline">
+                  <Link to={`/contacts?company=${c.id}`} className="text-xs text-fg underline underline-offset-2 hover:opacity-70">
                     See all in Contacts
                   </Link>
                 )}
               </div>
               {contacts.length === 0 ? (
-                <p className="text-[13px] text-faint">No contacts at this company.</p>
+                <p className="text-sm text-faint">No contacts at this company.</p>
               ) : (
-                <ul className="divide-y divide-line rounded-lg border border-line">
+                <ul className="divide-y divide-line rounded-surface border border-line">
                   {contacts.map((p) => (
                     <li key={p.id}>
                       <button type="button" onClick={() => void navigate(`/contacts/${p.id}`)} className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-subtle">
                         <Avatar src={p.avatar_url} label={contactLabel(p)} size={26} />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-medium">{contactLabel(p)}</span>
+                          <span className="block truncate text-sm font-medium">{contactLabel(p)}</span>
                           <span className="block truncate text-xs text-muted">{p.title || p.email}</span>
                         </span>
                         <Badge>{p.stage}</Badge>

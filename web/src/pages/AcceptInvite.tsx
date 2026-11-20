@@ -52,7 +52,7 @@ export function AcceptInvite() {
       </form>
       <p className="mt-5 text-xs text-muted">
         Already have an account?{" "}
-        <Link to="/login" className="text-accent hover:underline">
+        <Link to="/login" className="text-fg underline underline-offset-2 hover:opacity-70">
           Log in
         </Link>
       </p>

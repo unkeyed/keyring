@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Link } from "react-router";
 import { ApiError, type JobState } from "./api";
-import { absoluteTime, hue, initials, relativeTime } from "./format";
+import { absoluteTime, initials, relativeTime } from "./format";
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
 
@@ -18,6 +19,7 @@ const paths = {
   up: <path d="m18 15-6-6-6 6" />,
   down: <path d="m6 9 6 6 6-6" />,
   left: <path d="m15 18-6-6 6-6" />,
+  right: <path d="m9 18 6-6-6-6" />,
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></>,
   moon: <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />,
   monitor: <><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></>,
@@ -36,6 +38,8 @@ const paths = {
   mail: <><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></>,
   pencil: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
   login: <><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><path d="m10 17 5-5-5-5M15 12H3" /></>,
+  menu: <path d="M4 6h16M4 12h16M4 18h16" />,
+  filter: <path d="M3 5h18M7 12h10M10 19h4" />,
 };
 export type IconName = keyof typeof paths;
 
@@ -48,37 +52,41 @@ export function Icon({ name, className = "size-4" }: { name: IconName; className
 }
 
 const buttonStyles = {
-  primary: "bg-accent-strong text-white hover:bg-accent-hover border-transparent",
-  secondary: "bg-surface text-fg border-line-strong hover:bg-subtle",
-  ghost: "border-transparent text-muted hover:text-fg hover:bg-subtle",
-  danger: "bg-surface text-danger border-line-strong hover:bg-danger-soft",
+  primary:
+    "border-transparent bg-primary text-primary-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(0_0_0/0.08)] hover:bg-primary-hover disabled:bg-subtle disabled:text-faint disabled:shadow-none",
+  secondary: "border-line-strong bg-surface text-fg hover:border-line-hover hover:bg-subtle disabled:text-faint",
+  ghost: "border-transparent text-muted hover:bg-subtle hover:text-fg disabled:text-faint",
+  danger: "border-line-strong bg-surface text-danger hover:bg-danger-soft disabled:opacity-60",
 };
 
-export function Button({
-  variant = "secondary",
-  size = "md",
-  className,
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof buttonStyles; size?: "sm" | "md" }) {
+type ButtonLook = { variant?: keyof typeof buttonStyles; size?: "sm" | "md" };
+
+/** Button classes, for a <Link> that should look like a button. */
+export function buttonClass({ variant = "secondary", size = "md" }: ButtonLook = {}) {
+  return cx(
+    "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-control border font-medium whitespace-nowrap transition-colors disabled:pointer-events-none",
+    size === "sm" ? "h-7 px-2 text-xs" : "h-8 px-3 text-sm",
+    buttonStyles[variant],
+  );
+}
+
+export function Button({ variant, size, className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & ButtonLook) {
+  return <button type="button" {...props} className={cx(buttonClass({ variant, size }), className)} />;
+}
+
+export function Logo({ className = "size-6 text-xs" }: { className?: string }) {
   return (
-    <button
-      type="button"
-      {...props}
-      className={cx(
-        "inline-flex items-center justify-center gap-1.5 rounded-md border font-medium transition-colors disabled:pointer-events-none disabled:opacity-50",
-        size === "sm" ? "h-7 px-2 text-xs" : "h-8 px-3 text-[13px]",
-        buttonStyles[variant],
-        className,
-      )}
-    />
+    <span aria-hidden="true" className={cx("grid shrink-0 place-items-center rounded-control bg-primary font-bold text-primary-fg", className)}>
+      u
+    </span>
   );
 }
 
 const fieldBase =
-  "h-8 rounded-md border border-line-strong bg-surface px-2.5 text-[13px] text-fg placeholder:text-faint focus:border-accent focus:outline-none focus-visible:outline-none focus:ring-2 focus:ring-accent/25";
+  "h-8 min-w-0 rounded-control border border-line-strong bg-surface px-2.5 text-sm text-fg transition-colors placeholder:text-faint hover:border-line-hover focus:border-fg focus:ring-3 focus:ring-halo focus:outline-none focus-visible:outline-none disabled:opacity-60";
 export const inputClass = cx(fieldBase, "w-full");
 export const selectClass = cx(fieldBase, "pr-7");
-export const labelClass = "mb-1 block text-xs font-medium text-muted";
+export const labelClass = "mb-1.5 block text-xs font-medium text-muted";
 
 export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
@@ -147,7 +155,7 @@ export function CopyButton({ text, label = "Copy", className }: { text: string; 
 
 export function CopyField({ value, label }: { value: string; label?: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-1 rounded-md border border-line bg-subtle pl-2.5">
+    <div className="flex min-w-0 items-center gap-1 rounded-control border border-line bg-header pl-2.5">
       <code className="min-w-0 flex-1 truncate py-1.5 font-mono text-xs" title={value}>
         {value}
       </code>
@@ -164,16 +172,16 @@ export function CodeBlock({ code, label }: { code: string; label?: string }) {
   );
   if (!label) {
     return (
-      <div className="flex items-start rounded-md border border-line bg-subtle">
+      <div className="flex items-start rounded-surface border border-line bg-header">
         {pre}
-        <CopyButton text={code} className="m-1.5 shrink-0" />
+        <CopyButton text={code} className="m-1.5" />
       </div>
     );
   }
   return (
-    <div className="rounded-md border border-line bg-subtle">
-      <div className="flex items-center justify-between border-b border-line py-1 pr-1.5 pl-3 text-xs font-medium text-muted">
-        {label}
+    <div className="rounded-surface border border-line bg-header">
+      <div className="flex items-center justify-between gap-2 border-b border-line py-1 pr-1.5 pl-3 text-xs font-medium text-muted">
+        <span className="min-w-0 truncate">{label}</span>
         <CopyButton text={code} />
       </div>
       {pre}
@@ -181,9 +189,10 @@ export function CodeBlock({ code, label }: { code: string; label?: string }) {
   );
 }
 
+/** Initials on a neutral tile; a photo or logo replaces it when one loads. */
 export function Avatar({ src, label, size = 28, square }: { src?: string; label: string; size?: number; square?: boolean }) {
   const [failedSrc, setFailedSrc] = useState<string>();
-  const shape = square ? "rounded-md" : "rounded-full";
+  const shape = square ? "rounded-control" : "rounded-full";
   if (src && src !== failedSrc) {
     return (
       <img
@@ -194,17 +203,16 @@ export function Avatar({ src, label, size = 28, square }: { src?: string; label:
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={() => setFailedSrc(src)}
-        className={cx(shape, "shrink-0 bg-subtle object-cover")}
+        className={cx(shape, "shrink-0 bg-subtle object-cover ring-1 ring-line")}
         style={{ width: size, height: size }}
       />
     );
   }
-  const h = hue(label);
   return (
     <span
       aria-hidden="true"
-      className={cx(shape, "inline-flex shrink-0 items-center justify-center font-semibold text-white select-none")}
-      style={{ width: size, height: size, fontSize: size * 0.4, background: `oklch(0.62 0.12 ${h})` }}
+      className={cx(shape, "inline-flex shrink-0 items-center justify-center bg-subtle font-medium tracking-normal text-muted ring-1 ring-line ring-inset select-none")}
+      style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.38)) }}
     >
       {initials(label)}
     </span>
@@ -212,17 +220,18 @@ export function Avatar({ src, label, size = 28, square }: { src?: string; label:
 }
 
 const tones = {
-  neutral: "bg-subtle text-muted border-line",
-  accent: "bg-accent-soft text-accent border-transparent",
-  success: "bg-success-soft text-success border-transparent",
-  warn: "bg-warn-soft text-warn border-transparent",
-  danger: "bg-danger-soft text-danger border-transparent",
+  neutral: "bg-subtle text-muted",
+  outline: "border border-line-strong text-muted",
+  success: "bg-success-soft text-success",
+  warn: "bg-warn-soft text-warn",
+  danger: "bg-danger-soft text-danger",
+  info: "bg-info-soft text-info",
 };
 export type Tone = keyof typeof tones;
 
-export function Badge({ tone = "neutral", children, title }: { tone?: Tone; children: ReactNode; title?: string }) {
+export function Badge({ tone = "neutral", children, title, className }: { tone?: Tone; children: ReactNode; title?: string; className?: string }) {
   return (
-    <span title={title} className={cx("inline-flex h-5 items-center gap-1 rounded border px-1.5 text-[11px] font-medium whitespace-nowrap", tones[tone])}>
+    <span title={title} className={cx("inline-flex h-5 max-w-full items-center gap-1 rounded-control px-1.5 text-xs font-medium whitespace-nowrap", tones[tone], className)}>
       {children}
     </span>
   );
@@ -230,7 +239,7 @@ export function Badge({ tone = "neutral", children, title }: { tone?: Tone; chil
 
 export const enrichmentStates: Record<JobState, { label: string; tone: Tone; help: string }> = {
   pending: { label: "Queued", tone: "neutral", help: "Waiting for the enrichment worker." },
-  running: { label: "Enriching", tone: "accent", help: "context.dev is looking this up now." },
+  running: { label: "Enriching", tone: "info", help: "context.dev is looking this up now." },
   done: { label: "Enriched", tone: "success", help: "Filled in from context.dev." },
   failed: { label: "Enrichment failed", tone: "danger", help: "context.dev lookups failed after retries." },
   skipped: { label: "Not enriched", tone: "neutral", help: "Free-mail addresses are not enriched." },
@@ -255,7 +264,15 @@ export function RelativeTime({ iso, className }: { iso: string; className?: stri
 }
 
 export function Spinner({ className = "size-4" }: { className?: string }) {
-  return <span role="status" aria-label="Loading" className={cx("inline-block animate-spin rounded-full border-2 border-line-strong border-t-accent", className)} />;
+  return <span role="status" aria-label="Loading" className={cx("inline-block animate-spin rounded-full border-2 border-line-strong border-t-fg", className)} />;
+}
+
+export function PageSpinner() {
+  return (
+    <div className="grid h-40 place-items-center">
+      <Spinner />
+    </div>
+  );
 }
 
 export function errorMessage(err: unknown): string {
@@ -267,19 +284,19 @@ export function errorMessage(err: unknown): string {
 export function ErrorNote({ error }: { error: unknown }) {
   if (!error) return null;
   return (
-    <p role="alert" className="flex items-start gap-1.5 rounded-md bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
+    <p role="alert" className="flex items-start gap-1.5 rounded-control bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
       <Icon name="alert" className="mt-px size-3.5" />
-      {errorMessage(error)}
+      <span className="min-w-0 [overflow-wrap:anywhere]">{errorMessage(error)}</span>
     </p>
   );
 }
 
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="rounded border border-line-strong bg-surface px-1 font-mono text-[10px] text-muted">{children}</kbd>;
+  return <kbd className="inline-grid h-4 min-w-4 place-items-center rounded border border-line-strong bg-surface px-1 font-mono text-2xs text-muted">{children}</kbd>;
 }
 
-/** A modal on the native <dialog>, which traps focus and closes on Escape. */
-export function Dialog({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+/** Opens and closes a native <dialog> as a modal, which traps focus and closes on Escape. */
+export function useModal(open: boolean) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const d = ref.current;
@@ -287,19 +304,27 @@ export function Dialog({ open, onClose, title, children, wide }: { open: boolean
     if (open && !d.open) d.showModal();
     if (!open && d.open) d.close();
   }, [open]);
+  return ref;
+}
+
+export function Dialog({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+  const ref = useModal(open);
   return (
     <dialog
       ref={ref}
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
       aria-label={title}
-      className={cx("m-auto w-[calc(100%-2rem)] rounded-xl border border-line bg-surface p-0 text-fg shadow-2xl", wide ? "max-w-xl" : "max-w-md")}
+      className={cx(
+        "m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-hidden rounded-overlay border-0 bg-surface p-0 text-fg shadow-floating",
+        wide ? "max-w-xl" : "max-w-md",
+      )}
     >
       {open && (
-        <div className="p-5">
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <h2 className="text-[15px] font-semibold">{title}</h2>
-            <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+        <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
+          <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line py-2.5 pr-2.5 pl-4">
+            <h2 className="min-w-0 truncate text-base font-semibold">{title}</h2>
+            <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close" className="w-7 px-0">
               <Icon name="x" />
             </Button>
           </div>
@@ -310,15 +335,74 @@ export function Dialog({ open, onClose, title, children, wide }: { open: boolean
   );
 }
 
-export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <section className={cx("rounded-lg border border-line bg-surface", className)}>{children}</section>;
+export function DialogBody({ children }: { children: ReactNode }) {
+  return <div className="min-h-0 overflow-auto p-4">{children}</div>;
 }
 
-export function PageHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
+export function DialogFooter({ children }: { children: ReactNode }) {
+  return <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line bg-bg px-4 py-3">{children}</div>;
+}
+
+export function Card({ children, className }: { children: ReactNode; className?: string }) {
+  return <section className={cx("rounded-surface border border-line bg-surface", className)}>{children}</section>;
+}
+
+export function EmptyState({ icon, title, children, action }: { icon?: IconName; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-line px-5">
-      <h1 className="truncate text-[14px] font-semibold">{title}</h1>
-      <div className="flex items-center gap-2">{children}</div>
+    <div className="flex flex-col items-center gap-2 rounded-surface border border-dashed border-line-strong px-4 py-10 text-center">
+      {icon && <Icon name={icon} className="mb-1 size-5 text-faint" />}
+      <p className="text-base font-semibold">{title}</p>
+      {children && <p className="max-w-sm text-sm text-balance text-muted">{children}</p>}
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+/** Set by the app shell on phones, where the page header carries the menu button. */
+export const NavMenu = createContext<(() => void) | null>(null);
+
+export function PageHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
+  const openNav = useContext(NavMenu);
+  return (
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3 md:px-5">
+      {openNav && (
+        <Button variant="ghost" size="sm" onClick={openNav} aria-label="Open menu" className="-ml-1 w-8 px-0">
+          <Icon name="menu" />
+        </Button>
+      )}
+      <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
+      {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
     </header>
   );
 }
+
+/** "Contacts / Maya Okafor": the parent stays a link, the current page does not. */
+export function Crumbs({ parent, to, current }: { parent: string; to: string; current: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <Link to={to} className="shrink-0 font-normal text-muted transition-colors hover:text-fg">
+        {parent}
+      </Link>
+      <span className="text-faint" aria-hidden="true">
+        /
+      </span>
+      <span className="min-w-0 truncate" aria-current="page">
+        {current}
+      </span>
+    </span>
+  );
+}
+
+export function useMedia(query: string): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const m = matchMedia(query);
+      m.addEventListener("change", onChange);
+      return () => m.removeEventListener("change", onChange);
+    },
+    () => matchMedia(query).matches,
+  );
+}
+
+/** Tailwind's md breakpoint. Below it the app is laid out for a phone. */
+export const useWide = () => useMedia("(min-width: 48rem)");

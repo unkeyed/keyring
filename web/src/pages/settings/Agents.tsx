@@ -26,7 +26,7 @@ export function Agents() {
       </SettingsHeader>
 
       <section className="space-y-3">
-        <h3 className="text-[13px] font-semibold">1. Create a key for the agent</h3>
+        <h3 className="text-sm font-semibold">1. Create a key for the agent</h3>
         {created ? (
           <NewKey k={created} />
         ) : (
@@ -34,7 +34,7 @@ export function Agents() {
             <CreateKeyForm defaultName="Claude Code" onCreated={setCreated} />
             <p className="text-xs text-faint">
               The snippets below fill in with the new key. You can also manage keys under{" "}
-              <Link to="/settings/keys" className="text-accent hover:underline">
+              <Link to="/settings/keys" className="text-fg underline underline-offset-2 hover:opacity-70">
                 API keys
               </Link>
               .
@@ -44,14 +44,14 @@ export function Agents() {
       </section>
 
       <section className="mt-8 space-y-4">
-        <h3 className="text-[13px] font-semibold">2. Connect it</h3>
+        <h3 className="text-sm font-semibold">2. Connect it</h3>
         <CodeBlock label="Claude Code" code={s.claude} />
         <CodeBlock label="Cursor (.cursor/mcp.json)" code={s.cursor} />
         <CodeBlock label="REST (curl)" code={s.curl} />
         <CodeBlock label="Send a sign-up from any backend" code={signupCurl(location.origin).replace("$UNCRM_API_KEY", created?.key ?? "$UNCRM_API_KEY")} />
         <p className="text-xs text-muted">
           Every route is described in{" "}
-          <a href="/v1/openapi.yaml" className="text-accent hover:underline">
+          <a href="/v1/openapi.yaml" className="text-fg underline underline-offset-2 hover:opacity-70">
             openapi.yaml
           </a>
           .

@@ -2,19 +2,19 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router";
 import { api, ApiError } from "../api";
-import { Button, ErrorNote, Field, inputClass } from "../ui";
+import { Button, ErrorNote, Field, inputClass, Logo } from "../ui";
 
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children: ReactNode }) {
   return (
     <main className="grid min-h-full place-items-center bg-bg px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-2">
-          <span className="grid size-7 place-items-center rounded-md bg-accent-strong text-xs font-bold text-white">u</span>
-          <span className="text-[15px] font-semibold">uncrm</span>
+          <Logo className="size-7 text-sm" />
+          <span className="text-base font-semibold">uncrm</span>
         </div>
-        <div className="rounded-xl border border-line bg-surface p-6 shadow-sm">
-          <h1 className="text-[17px] font-semibold">{title}</h1>
-          {subtitle && <p className="mt-1 text-[13px] text-muted">{subtitle}</p>}
+        <div className="rounded-overlay border border-line bg-surface p-6 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_2px_4px_-2px_rgb(0_0_0/0.05)]">
+          <h1 className="text-lg font-semibold">{title}</h1>
+          {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
           <div className="mt-5">{children}</div>
         </div>
       </div>
@@ -66,7 +66,7 @@ export function Login() {
         </Button>
       </form>
       {setup.data?.has_users === false ? (
-        <p className="mt-5 rounded-md border border-line bg-subtle p-3 text-xs leading-relaxed text-muted">
+        <p className="mt-5 rounded-control border border-line bg-subtle p-3 text-xs leading-relaxed text-muted">
           No account exists yet. Set <code className="font-mono">ADMIN_EMAIL</code> and <code className="font-mono">ADMIN_PASSWORD</code> on this deployment
           and restart it, then log in with them.
         </p>

@@ -37,7 +37,7 @@ export function CreateKeyForm({ defaultName = "", onCreated }: { defaultName?: s
 
 export function NewKey({ k, onDone }: { k: CreatedKey; onDone?: () => void }) {
   return (
-    <div className="rounded-md border border-warn/40 bg-warn-soft p-3">
+    <div className="rounded-control border border-warn/40 bg-warn-soft p-3">
       <div className="mb-1.5 flex items-center justify-between gap-2 text-xs font-medium text-warn">
         <span>“{k.name}” created. Copy the key now; it is shown only once.</span>
         {onDone && (
@@ -77,9 +77,9 @@ export function ApiKeys() {
             <Spinner />
           </div>
         ) : list.data?.length === 0 ? (
-          <p className="p-4 text-[13px] text-faint">No keys yet.</p>
+          <p className="p-4 text-sm text-faint">No keys yet.</p>
         ) : (
-          <table className="w-full text-[13px]" aria-label="API keys">
+          <table className="w-full text-sm" aria-label="API keys">
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
                 <th scope="col" className="px-4 py-2 font-medium">Name</th>

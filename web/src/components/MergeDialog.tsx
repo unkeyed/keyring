@@ -38,10 +38,10 @@ function Pick({ exclude, onPick }: { exclude: Contact; onPick: (c: Contact) => v
       <ul className="mt-3 max-h-72 space-y-0.5 overflow-auto" aria-label="Matching contacts">
         {items.map((c) => (
           <li key={c.id}>
-            <button type="button" onClick={() => onPick(c)} className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-subtle">
+            <button type="button" onClick={() => onPick(c)} className="flex w-full items-center gap-2.5 rounded-control px-2 py-1.5 text-left hover:bg-subtle">
               <Avatar src={c.avatar_url} label={contactLabel(c)} size={24} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium">{contactLabel(c)}</span>
+                <span className="block truncate text-sm font-medium">{contactLabel(c)}</span>
                 <span className="block truncate text-xs text-muted">{c.email}</span>
               </span>
               {c.company && <span className="truncate text-xs text-faint">{companyLabel(c.company)}</span>}
@@ -54,7 +54,7 @@ function Pick({ exclude, onPick }: { exclude: Contact; onPick: (c: Contact) => v
           <Spinner />
         </div>
       )}
-      {results.isSuccess && !results.isFetching && items.length === 0 && <p className="py-4 text-center text-[13px] text-faint">No other contacts match.</p>}
+      {results.isSuccess && !results.isFetching && items.length === 0 && <p className="py-4 text-center text-sm text-faint">No other contacts match.</p>}
       <ErrorNote error={results.error} />
     </div>
   );
@@ -86,7 +86,7 @@ function Confirm({ current, other, onBack, onDone }: { current: Contact; other: 
         </Button>
         <Side c={keep} role="Kept" tone="success" />
       </div>
-      <p className="mt-4 text-[13px] leading-relaxed text-muted">
+      <p className="mt-4 text-sm leading-relaxed text-muted">
         <b className="text-fg">{drop.email}</b>&apos;s sources, notes, tags and activity move to <b className="text-fg">{keep.email}</b>. Empty fields on the kept
         contact are filled from the other one. This can&apos;t be undone.
       </p>
@@ -107,12 +107,12 @@ function Confirm({ current, other, onBack, onDone }: { current: Contact; other: 
 
 function Side({ c, role, tone }: { c: Contact; role: string; tone: "success" | "danger" }) {
   return (
-    <div className="min-w-0 rounded-lg border border-line p-3">
-      <div className={cx("mb-2 text-[11px] font-semibold tracking-wide uppercase", tone === "success" ? "text-success" : "text-danger")}>{role}</div>
+    <div className="min-w-0 rounded-surface border border-line p-3">
+      <div className={cx("mb-2 text-2xs font-semibold tracking-wide uppercase", tone === "success" ? "text-success" : "text-danger")}>{role}</div>
       <div className="flex items-center gap-2">
         <Avatar src={c.avatar_url} label={contactLabel(c)} size={28} />
         <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium">{contactLabel(c)}</div>
+          <div className="truncate text-sm font-medium">{contactLabel(c)}</div>
           <div className="truncate text-xs text-muted">{c.email}</div>
         </div>
       </div>

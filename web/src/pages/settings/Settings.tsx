@@ -33,7 +33,7 @@ export function Settings() {
               key={t.path}
               to={t.path}
               className={({ isActive }) =>
-                cx("flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium", isActive ? "bg-subtle text-fg" : "text-muted hover:bg-subtle hover:text-fg")
+                cx("flex h-8 items-center gap-2.5 rounded-control px-2.5 text-sm font-medium", isActive ? "bg-subtle text-fg" : "text-muted hover:bg-subtle hover:text-fg")
               }
             >
               <Icon name={t.icon} className="size-3.5" />
@@ -54,8 +54,8 @@ export function Settings() {
 export function SettingsHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="mb-6">
-      <h2 className="text-[17px] font-semibold tracking-tight">{title}</h2>
-      {children && <p className="mt-1 text-[13px] text-muted">{children}</p>}
+      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+      {children && <p className="mt-1 text-sm text-muted">{children}</p>}
     </div>
   );
 }

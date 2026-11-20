@@ -26,7 +26,7 @@ export function Providers() {
   );
 }
 
-type Health = { tone: "neutral" | "success" | "danger" | "accent"; text: ReactNode };
+type Health = { tone: "neutral" | "success" | "danger" | "info"; text: ReactNode };
 
 function health(p: ProviderStatus): Health {
   if (!p.connected) return { tone: "neutral", text: "Not connected" };
@@ -51,14 +51,14 @@ function health(p: ProviderStatus): Health {
       ),
     };
   }
-  return { tone: "accent", text: "Connected. Waiting for the first webhook…" };
+  return { tone: "info", text: "Connected. Waiting for the first webhook…" };
 }
 
 const healthStyles = {
   neutral: "text-muted",
   success: "text-success",
   danger: "text-danger bg-danger-soft",
-  accent: "text-accent",
+  info: "text-info",
 };
 
 function ProviderCard({ p }: { p: ProviderStatus }) {
@@ -99,7 +99,7 @@ function ProviderCard({ p }: { p: ProviderStatus }) {
     <Card>
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div className="flex items-center gap-2">
-          <h3 className="text-[14px] font-semibold">{p.title}</h3>
+          <h3 className="text-sm font-semibold">{p.title}</h3>
           {p.connected && <Badge tone="success">Connected</Badge>}
         </div>
         {p.connected && (
@@ -110,8 +110,8 @@ function ProviderCard({ p }: { p: ProviderStatus }) {
       </div>
 
       <div className="space-y-4 p-4">
-        <p className={`flex items-center gap-1.5 rounded-md text-xs ${healthStyles[h.tone]} ${h.tone === "danger" ? "px-2.5 py-1.5" : ""}`}>
-          {h.tone === "accent" && <span className="size-1.5 animate-pulse rounded-full bg-current" />}
+        <p className={`flex items-center gap-1.5 rounded-control text-xs ${healthStyles[h.tone]} ${h.tone === "danger" ? "px-2.5 py-1.5" : ""}`}>
+          {h.tone === "info" && <span className="size-1.5 animate-pulse rounded-full bg-current" />}
           {h.tone === "danger" && <Icon name="alert" className="size-3.5" />}
           {h.text}
         </p>
@@ -123,7 +123,7 @@ function ProviderCard({ p }: { p: ProviderStatus }) {
 
         {p.issue_secret ? (
           issued ? (
-            <div className="rounded-md border border-warn/40 bg-warn-soft p-3">
+            <div className="rounded-control border border-warn/40 bg-warn-soft p-3">
               <div className="mb-1.5 text-xs font-medium text-warn">Signing secret. Copy it now; it is shown only once.</div>
               <CopyField value={issued} />
             </div>

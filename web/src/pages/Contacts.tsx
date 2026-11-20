@@ -216,7 +216,7 @@ export function Contacts() {
             </Button>
           </div>
         ) : (
-          <table className="w-full table-fixed border-collapse text-[13px]" aria-label="Contacts">
+          <table className="w-full table-fixed border-collapse text-sm" aria-label="Contacts">
             <thead className="sticky top-0 z-10 bg-surface">
               <tr className="border-b border-line text-left text-xs text-muted">
                 <th scope="col" className="w-[34%] py-2 pr-3 pl-5 font-medium">Person</th>
@@ -256,7 +256,7 @@ function ContactRow({ c, index, selected, onOpen, onHover }: { c: Contact; index
       onMouseMove={selected ? undefined : onHover}
       className={cx("h-11 cursor-default border-b border-line", selected ? "bg-subtle" : "hover:bg-subtle/60")}
     >
-      <td className={cx("py-1.5 pr-3 pl-5", selected && "shadow-[inset_2px_0_0_var(--accent)]")}>
+      <td className={cx("py-1.5 pr-3 pl-5", selected && "shadow-[inset_2px_0_0_var(--fg)]")}>
         <div className="flex min-w-0 items-center gap-2.5">
           <Avatar src={c.avatar_url} label={label} size={26} />
           <div className="min-w-0">
@@ -274,7 +274,7 @@ function ContactRow({ c, index, selected, onOpen, onHover }: { c: Contact; index
       <td className="px-3">
         <div className="flex gap-1 overflow-hidden">
           {(c.tags ?? []).slice(0, 3).map((t) => (
-            <Badge key={t} tone="accent">
+            <Badge key={t} tone="outline">
               {t}
             </Badge>
           ))}
@@ -380,7 +380,7 @@ function Toolbar({
 function CompanyChip({ id, onRemove }: { id: CompanyID; onRemove: () => void }) {
   const company = useQuery({ queryKey: keys.company(id), queryFn: () => api.companies.get(id) });
   return (
-    <span className="inline-flex h-8 items-center gap-1 rounded-md border border-line-strong bg-subtle pr-1 pl-2.5 text-[13px]">
+    <span className="inline-flex h-8 items-center gap-1 rounded-control border border-line-strong bg-subtle pr-1 pl-2.5 text-sm">
       <Icon name="building" className="size-3.5 text-muted" />
       {company.data ? companyLabel(company.data) : "Company"}
       <Button size="sm" variant="ghost" aria-label="Remove company filter" onClick={onRemove}>

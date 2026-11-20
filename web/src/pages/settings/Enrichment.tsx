@@ -19,9 +19,9 @@ export function Enrichment() {
       {s && (
         <>
           {s.enrichment_halt ? (
-            <div className="flex items-start gap-3 rounded-lg border border-warn/40 bg-warn-soft p-4 text-warn">
+            <div className="flex items-start gap-3 rounded-surface border border-warn/40 bg-warn-soft p-4 text-warn">
               <Icon name="alert" className="mt-0.5 size-4" />
-              <div className="text-[13px]">
+              <div className="text-sm">
                 <div className="font-semibold">Paused: context.dev rejected the request</div>
                 <div className="mt-0.5">{s.enrichment_halt.reason}</div>
                 <div className="mt-2 text-xs opacity-80">
@@ -31,13 +31,13 @@ export function Enrichment() {
               </div>
             </div>
           ) : s.enrichment_enabled ? (
-            <div className="flex items-center gap-2 rounded-lg border border-line p-4 text-[13px]">
+            <div className="flex items-center gap-2 rounded-surface border border-line p-4 text-sm">
               <span className="size-2 rounded-full bg-success" />
               <span className="font-medium">On.</span>
               <span className="text-muted">New sign-ups are looked up within seconds.</span>
             </div>
           ) : (
-            <div className="flex items-center gap-2 rounded-lg border border-line p-4 text-[13px]">
+            <div className="flex items-center gap-2 rounded-surface border border-line p-4 text-sm">
               <span className="size-2 rounded-full bg-faint" />
               <span className="font-medium">Off.</span>
               <span className="text-muted">Records queue up and are enriched once a key is set.</span>
@@ -54,12 +54,12 @@ export function Enrichment() {
           </Card>
 
           {(!s.enrichment_enabled || s.enrichment_halt) && (
-            <section className="mt-8 space-y-3 text-[13px]">
+            <section className="mt-8 space-y-3 text-sm">
               <h3 className="font-semibold">{s.enrichment_enabled ? "Replace the key" : "Turn it on"}</h3>
               <ol className="list-decimal space-y-2 pl-5 text-muted">
                 <li>
                   Create an API key at{" "}
-                  <a href="https://context.dev" target="_blank" rel="noreferrer noopener" className="text-accent hover:underline">
+                  <a href="https://context.dev" target="_blank" rel="noreferrer noopener" className="text-fg underline underline-offset-2 hover:opacity-70">
                     context.dev
                   </a>
                   .

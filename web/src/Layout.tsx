@@ -69,8 +69,8 @@ function Sidebar({ label }: { label: string }) {
   return (
     <aside className="flex w-14 shrink-0 flex-col border-r border-line bg-bg lg:w-52">
       <div className="flex h-12 items-center gap-2 px-4">
-        <span className="grid size-6 place-items-center rounded-md bg-accent-strong text-[11px] font-bold text-white">u</span>
-        <span className="hidden text-[14px] font-semibold lg:inline">uncrm</span>
+        <span className="grid size-6 place-items-center rounded-control bg-primary text-xs font-bold text-primary-fg">u</span>
+        <span className="hidden text-sm font-semibold lg:inline">uncrm</span>
       </div>
       <nav aria-label="Main" className="flex flex-col gap-0.5 px-2 py-2">
         {nav.map((n) => (
@@ -80,7 +80,7 @@ function Sidebar({ label }: { label: string }) {
             title={n.label}
             className={({ isActive }) =>
               cx(
-                "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium",
+                "flex h-8 items-center gap-2.5 rounded-control px-2.5 text-sm font-medium",
                 isActive ? "bg-subtle text-fg" : "text-muted hover:bg-subtle hover:text-fg",
               )
             }
@@ -94,7 +94,7 @@ function Sidebar({ label }: { label: string }) {
       {halted && (
         <Link
           to="/settings/enrichment"
-          className="mx-2 mt-2 flex items-start gap-2 rounded-md bg-warn-soft p-2 text-xs text-warn"
+          className="mx-2 mt-2 flex items-start gap-2 rounded-control bg-warn-soft p-2 text-xs text-warn"
           title={halted.reason}
         >
           <Icon name="alert" className="mt-px size-3.5" />
@@ -103,7 +103,7 @@ function Sidebar({ label }: { label: string }) {
       )}
 
       <div className="mt-auto border-t border-line p-2">
-        <div className="mb-2 hidden items-center rounded-md border border-line p-0.5 lg:flex" role="radiogroup" aria-label="Theme">
+        <div className="mb-2 hidden items-center rounded-control border border-line p-0.5 lg:flex" role="radiogroup" aria-label="Theme">
           {themes.map((t) => (
             <button
               key={t.mode}
@@ -136,9 +136,9 @@ function Sidebar({ label }: { label: string }) {
 export function NotFound() {
   return (
     <div className="mx-auto mt-24 max-w-sm text-center">
-      <p className="text-[15px] font-semibold">Nothing here</p>
+      <p className="text-base font-semibold">Nothing here</p>
       <p className="mt-1 text-muted">That page does not exist.</p>
-      <Link to="/contacts" className="mt-4 inline-block text-accent hover:underline">
+      <Link to="/contacts" className="mt-4 inline-block text-fg underline underline-offset-2 hover:opacity-70">
         Go to contacts
       </Link>
     </div>

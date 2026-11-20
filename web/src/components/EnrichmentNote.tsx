@@ -15,7 +15,7 @@ export function EnrichmentNote({ state }: { state: JobState }) {
 
   if (s.enrichment_halt) {
     return (
-      <p className="flex items-start gap-1.5 rounded-md bg-warn-soft px-2.5 py-1.5 text-xs text-warn">
+      <p className="flex items-start gap-1.5 rounded-control bg-warn-soft px-2.5 py-1.5 text-xs text-warn">
         <Icon name="alert" className="mt-px size-3.5" />
         <span>
           Enrichment is paused: {s.enrichment_halt.reason}. It retries <RelativeTime iso={s.enrichment_halt.until} />.{" "}
@@ -28,11 +28,11 @@ export function EnrichmentNote({ state }: { state: JobState }) {
   }
   if (!s.enrichment_enabled && state === "pending") {
     return (
-      <p className="flex items-start gap-1.5 rounded-md bg-subtle px-2.5 py-1.5 text-xs text-muted">
+      <p className="flex items-start gap-1.5 rounded-control bg-subtle px-2.5 py-1.5 text-xs text-muted">
         <Icon name="sparkles" className="mt-px size-3.5" />
         <span>
           Enrichment is off, so this stays queued.{" "}
-          <Link to="/settings/enrichment" className="text-accent hover:underline">
+          <Link to="/settings/enrichment" className="text-fg underline underline-offset-2 hover:opacity-70">
             Turn it on
           </Link>
         </span>

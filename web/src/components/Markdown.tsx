@@ -37,7 +37,7 @@ export function Markdown({ source }: { source: string }) {
       blocks.push(<p key={blocks.length}>{inline(para.join(" "))}</p>);
     }
   }
-  return <div className="space-y-2.5 text-[13px] leading-relaxed text-muted [&_b]:text-fg">{blocks}</div>;
+  return <div className="space-y-2.5 text-sm leading-relaxed text-muted [&_b]:text-fg">{blocks}</div>;
 }
 
 const token = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/g;
@@ -46,7 +46,7 @@ function inline(text: string): ReactNode[] {
   return text.split(token).map((part, i) => {
     if (part.startsWith("`") && part.endsWith("`") && part.length > 1) {
       return (
-        <code key={i} className="rounded bg-subtle px-1 py-px font-mono text-[12px] break-all text-fg">
+        <code key={i} className="rounded bg-subtle px-1 py-px font-mono text-xs break-all text-fg">
           {part.slice(1, -1)}
         </code>
       );
@@ -55,7 +55,7 @@ function inline(text: string): ReactNode[] {
     const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part);
     if (link && /^https?:\/\//.test(link[2])) {
       return (
-        <a key={i} href={link[2]} target="_blank" rel="noreferrer noopener" className="text-accent hover:underline">
+        <a key={i} href={link[2]} target="_blank" rel="noreferrer noopener" className="text-fg underline underline-offset-2 hover:opacity-70">
           {link[1]}
         </a>
       );

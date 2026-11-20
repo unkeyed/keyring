@@ -12,12 +12,12 @@ export function Team() {
       <SettingsHeader title="Team">Invite teammates with a one-time link. Everyone on the team can see and edit every contact.</SettingsHeader>
       <Invite />
 
-      <h3 className="mt-10 mb-3 text-[13px] font-semibold">Your account</h3>
+      <h3 className="mt-10 mb-3 text-sm font-semibold">Your account</h3>
       <Card className="p-4">
         {me.data && (
           <div className="mb-5 flex items-center gap-3">
             <Avatar label={me.data.label} size={32} />
-            <div className="text-[13px] font-medium">{me.data.label}</div>
+            <div className="text-sm font-medium">{me.data.label}</div>
           </div>
         )}
         <ChangePassword />
@@ -50,7 +50,7 @@ function Invite() {
       </form>
       <ErrorNote error={invite.error} />
       {link && (
-        <div className="rounded-md border border-line bg-subtle p-3">
+        <div className="rounded-control border border-line bg-subtle p-3">
           <div className="mb-1.5 text-xs text-muted">
             Send this link to <b className="text-fg">{link.email}</b>. It works once and expires in 7 days.
           </div>

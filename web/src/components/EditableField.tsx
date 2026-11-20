@@ -65,7 +65,7 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
       <label htmlFor={id} className="flex h-7 items-center gap-1 text-xs text-muted">
         {label}
         {pinned && (
-          <span title="Edited by a person. Sign-ups and enrichment won't overwrite it." className="text-accent">
+          <span title="Edited by a person. Sign-ups and enrichment won't overwrite it." className="text-faint">
             <Icon name="pin" className="size-3" />
             <span className="sr-only">(pinned)</span>
           </span>
@@ -95,7 +95,7 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
               type="button"
               onClick={() => setDraft(value)}
               className={cx(
-                "min-h-7 min-w-0 flex-1 rounded-md px-1.5 py-1 text-left text-[13px] hover:bg-subtle",
+                "min-h-7 min-w-0 flex-1 rounded-control px-1.5 py-1 text-left text-sm hover:bg-subtle",
                 multiline ? "whitespace-pre-wrap" : "truncate",
                 !value && "text-faint",
               )}
@@ -103,7 +103,7 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
               {value || placeholder}
             </button>
             {href && value && (
-              <a href={value} target="_blank" rel="noreferrer noopener" className="grid size-7 place-items-center rounded-md text-faint hover:bg-subtle hover:text-fg" aria-label={`Open ${label}`}>
+              <a href={value} target="_blank" rel="noreferrer noopener" className="grid size-7 place-items-center rounded-control text-faint hover:bg-subtle hover:text-fg" aria-label={`Open ${label}`}>
                 <Icon name="external" className="size-3.5" />
               </a>
             )}

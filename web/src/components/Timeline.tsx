@@ -90,7 +90,7 @@ function Entry({ a }: { a: Activity }) {
       <span className="z-[1] grid size-6 shrink-0 place-items-center rounded-full border border-line bg-surface text-muted">
         <Icon name={k?.icon ?? "alert"} className="size-3" />
       </span>
-      <p className="min-w-0 flex-1 pt-0.5 text-[13px] leading-5">
+      <p className="min-w-0 flex-1 pt-0.5 text-sm leading-5">
         {k?.byline !== false && (
           <>
             <span className="font-medium">{a.actor.label || a.actor.id}</span>
@@ -105,7 +105,7 @@ function Entry({ a }: { a: Activity }) {
 }
 
 export function Timeline({ items }: { items: Activity[] }) {
-  if (items.length === 0) return <p className="text-[13px] text-faint">Nothing yet.</p>;
+  if (items.length === 0) return <p className="text-sm text-faint">Nothing yet.</p>;
   return (
     <ol className="relative space-y-4 before:absolute before:top-2 before:bottom-2 before:left-[11px] before:w-px before:bg-line">
       {items.map((a) => (

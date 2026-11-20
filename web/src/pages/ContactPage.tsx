@@ -109,7 +109,7 @@ function ContactView({ id }: { id: ContactID }) {
               <Avatar src={c.avatar_url} label={label} size={56} />
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-xl font-semibold tracking-tight">{label}</h2>
-                <p className="mt-0.5 truncate text-[13px] text-muted">
+                <p className="mt-0.5 truncate text-sm text-muted">
                   {c.title}
                   {c.title && c.company && " at "}
                   {c.company && (
@@ -118,7 +118,7 @@ function ContactView({ id }: { id: ContactID }) {
                     </Link>
                   )}
                 </p>
-                <div className="mt-1 flex items-center gap-1 text-[13px]">
+                <div className="mt-1 flex items-center gap-1 text-sm">
                   <a href={`mailto:${c.email}`} className="text-muted hover:text-fg">
                     {c.email}
                   </a>
@@ -178,12 +178,12 @@ function ContactView({ id }: { id: ContactID }) {
           <h3 className="mt-6 mb-2 px-1 text-xs font-semibold tracking-wide text-muted uppercase">Sources</h3>
           <ul className="space-y-2 px-1">
             {(c.identities ?? []).map((i) => (
-              <li key={`${i.provider}/${i.external_id}`} className="rounded-md border border-line bg-surface p-2.5">
+              <li key={`${i.provider}/${i.external_id}`} className="rounded-control border border-line bg-surface p-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13px] font-medium">{i.provider}</span>
+                  <span className="text-sm font-medium">{i.provider}</span>
                   {i.deleted_at ? <Badge tone="danger">Deleted</Badge> : i.email_verified ? <Badge tone="success">Verified</Badge> : <Badge>Unverified</Badge>}
                 </div>
-                <div className="mt-1 truncate font-mono text-[11px] text-faint" title={i.external_id}>
+                <div className="mt-1 truncate font-mono text-2xs text-faint" title={i.external_id}>
                   {i.external_id}
                 </div>
                 <div className="mt-1 flex justify-between gap-2 text-xs text-muted">
@@ -221,13 +221,13 @@ function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) 
       <h3 className="mt-6 mb-2 px-1 text-xs font-semibold tracking-wide text-muted uppercase">Tags</h3>
       <div className="flex flex-wrap items-center gap-1.5 px-1">
         {tags.map((t) => (
-          <span key={t} className="inline-flex h-6 items-center gap-0.5 rounded bg-accent-soft pr-0.5 pl-2 text-xs font-medium text-accent">
+          <span key={t} className="inline-flex h-6 items-center gap-0.5 rounded-control border border-line-strong pr-0.5 pl-2 text-xs font-medium text-muted">
             {t}
             <button
               type="button"
               aria-label={`Remove tag ${t}`}
               onClick={() => change.mutate({ remove_tags: [t] })}
-              className="grid size-5 place-items-center rounded hover:bg-accent/15"
+              className="grid size-5 place-items-center rounded hover:bg-subtle"
             >
               <Icon name="x" className="size-3" />
             </button>
@@ -275,7 +275,7 @@ function Notes({ contactId, notes }: { contactId: ContactID; notes: Note[] }) {
   return (
     <section className="mt-9">
       <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted uppercase">Notes {notes.length > 0 && <span className="font-normal text-faint">{notes.length}</span>}</h3>
-      <form onSubmit={submit} className="rounded-lg border border-line-strong bg-surface focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
+      <form onSubmit={submit} className="rounded-surface border border-line-strong bg-surface focus-within:border-fg focus-within:ring-3 focus-within:ring-halo">
         <textarea
           aria-label="New note"
           placeholder="Write a note…"
@@ -285,7 +285,7 @@ function Notes({ contactId, notes }: { contactId: ContactID; notes: Note[] }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e);
           }}
-          className="block w-full resize-y rounded-t-lg bg-transparent px-3 py-2 text-[13px] placeholder:text-faint focus:outline-none"
+          className="block w-full resize-y rounded-t-lg bg-transparent px-3 py-2 text-sm placeholder:text-faint focus:outline-none"
         />
         <div className="flex items-center justify-end gap-2 px-2 pb-2">
           <span className="text-xs text-faint">⌘↵ to save</span>
@@ -299,8 +299,8 @@ function Notes({ contactId, notes }: { contactId: ContactID; notes: Note[] }) {
       </div>
       <ul className="mt-3 space-y-2">
         {notes.map((n) => (
-          <li key={n.id} className="group rounded-lg border border-line px-3 py-2.5">
-            <p className="text-[13px] whitespace-pre-wrap">{n.body}</p>
+          <li key={n.id} className="group rounded-surface border border-line px-3 py-2.5">
+            <p className="text-sm whitespace-pre-wrap">{n.body}</p>
             <div className="mt-1.5 flex items-center gap-2 text-xs text-faint">
               <span>{n.author.label}</span>
               <RelativeTime iso={n.created_at} />
