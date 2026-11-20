@@ -10,7 +10,7 @@ You need Go 1.26, Node.js 24, and Docker.
 make dev
 ```
 
-`make dev` starts Postgres in Docker on port 5432 and runs the Go server on <http://localhost:8080>, with the admin `admin@example.com` and the password `uncrm-dev-password`.
+`make dev` starts Postgres in Docker on port 5432 and runs the Go server on <http://localhost:8080>. On an empty database it prints a setup link. Open it and register a passkey to create your account.
 
 The Go binary embeds the web UI from `web/dist`. To work on the UI, run Vite in a second terminal:
 
@@ -43,7 +43,7 @@ docker compose up -d --build --wait
 make e2e
 ```
 
-They use `BASE_URL` (default `http://localhost:8080`), `E2E_ADMIN_EMAIL`, and `E2E_ADMIN_PASSWORD` (defaults match `docker-compose.yml`).
+On a fresh stack, pass the token from the setup link that uncrm prints: `make e2e E2E_SETUP_TOKEN=<token>`. The suite creates its account with a software passkey and saves the passkey, so later runs need no token. `e2e/doc.go` lists the other variables.
 
 ## Follow the house rules
 

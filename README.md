@@ -14,7 +14,11 @@ You need Docker with Compose v2.
    docker compose up -d --build --wait
    ```
 
-   Open <http://localhost:8080> and log in as `admin@example.com` with the password `uncrm-dev-password`. To log in with your own email and password instead, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in your shell or in a `.env` file before the first `docker compose up`. The password needs at least 12 characters.
+   uncrm has no default login. Print the one-time setup link, open it, and register a passkey:
+
+   ```sh
+   docker compose logs app | grep -A2 'Open this link'
+   ```
 
 2. Open **Settings > Providers**, pick your auth provider, and follow the steps on the page. uncrm shows the webhook URL to paste into your provider, and the provider's guide is linked under [Connect your auth](#connect-your-auth). A provider cannot reach `localhost`, so on your laptop put a tunnel in front of port 8080, for example `cloudflared tunnel --url http://localhost:8080`, and use the tunnel's URL.
 
@@ -31,7 +35,7 @@ To run uncrm on a server, read [Self-host uncrm](docs/self-hosting.md) or [Deplo
 - A timeline per contact with sign-ups, notes, edits, and enrichment.
 - Stages, tags, Markdown notes, and a merge for duplicate contacts.
 - Values that a person or an agent sets stay set. Webhooks and enrichment never overwrite them.
-- Team logins with one-time invite links.
+- Team sign-in with passkeys, Google, GitHub, or any OIDC provider, two-factor codes, and one-time invite links. No default password, and a password is never enough alone. See [Sign-in](docs/sign-in.md).
 - A REST API and an MCP server that use the same API keys.
 - One container that you can run as several replicas against one database.
 

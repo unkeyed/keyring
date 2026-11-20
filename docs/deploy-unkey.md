@@ -31,8 +31,8 @@ Unkey stores variables per environment. Set these on the **production** environm
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | The connection URL from step 1. Sensitive. |
-| `ADMIN_EMAIL` | Your email. uncrm creates this user on its first start. |
-| `ADMIN_PASSWORD` | A password of at least 12 characters. Sensitive. |
+| `PUBLIC_URL` | Your deployment's URL from step 6, such as `https://uncrm-acme.unkey.app`. Set it after the first deploy and redeploy. |
+| `SETUP_TOKEN` | 32 or more random characters, for example from `openssl rand -hex 32`. Sensitive. You open the setup link with it in step 6. |
 | `CONTEXT_DEV_API_KEY` | Optional. Your [context.dev](https://context.dev) key, which turns on enrichment. Sensitive. |
 | `UNKEY_ROOT_KEY` | Optional. See [Store API keys in Unkey](#store-api-keys-in-unkey). Sensitive. |
 | `UNKEY_API_ID` | Optional. Set it together with `UNKEY_ROOT_KEY`. |
@@ -94,11 +94,11 @@ curl -X POST https://api.unkey.com/v2/environments.updateSettings \
 
 Redeploy after you add the health check.
 
-## 6. Log in
+## 6. Create the first account
 
-Open your deployment's URL. Unkey shows it on the deployment page. It has the form `https://<project>-<workspace>.unkey.app`, or `https://<project>-<app>-<workspace>.unkey.app` when the app slug is not `default`.
+Find your deployment's URL. Unkey shows it on the deployment page. It has the form `https://<project>-<workspace>.unkey.app`, or `https://<project>-<app>-<workspace>.unkey.app` when the app slug is not `default`. If `PUBLIC_URL` is not that URL yet, set it and redeploy, because passkeys only work at the URL in `PUBLIC_URL`.
 
-Log in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+Open `<PUBLIC_URL>/setup/<SETUP_TOKEN>`. Enter your name and email and register a passkey. You are the first user, and the link stops working. The deployment logs print the same link. [Sign-in](sign-in.md) explains how to add Google, GitHub, or your own identity provider.
 
 If the page does not load, open the deployment's logs. uncrm logs the name of any missing or invalid variable and exits, for example `DATABASE_URL is required`.
 
