@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: uncrm
       POSTGRES_DB: uncrm
     ports:
-      - "${UNCRM_DB_PORT:-5432}:5432"
+      - "127.0.0.1:${UNCRM_DB_PORT:-5432}:5432"
     volumes:
       - db:/var/lib/postgresql/data
     healthcheck:
@@ -19,11 +19,21 @@ services:
     build: .
     environment:
       DATABASE_URL: postgres://uncrm:uncrm@db:5432/uncrm?sslmode=disable
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-uncrm-dev-password}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:${UNCRM_PORT:-8080}}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
+      PASSWORD_LOGIN: ${PASSWORD_LOGIN:-false}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_NAME: ${OIDC_NAME:-}
       CONTEXT_DEV_API_KEY: ${CONTEXT_DEV_API_KEY:-}
     ports:
-      - "${UNCRM_PORT:-8080}:8080"
+      - "127.0.0.1:${UNCRM_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy

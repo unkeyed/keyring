@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,13 +25,26 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/uncrm/uncrm/internal/authtest"
 )
 
 var (
-	baseURL       = strings.TrimRight(envOr("BASE_URL", "http://localhost:8080"), "/")
-	adminEmail    = envOr("E2E_ADMIN_EMAIL", "admin@example.com")
-	adminPassword = envOr("E2E_ADMIN_PASSWORD", "uncrm-dev-password")
+	baseURL    = strings.TrimRight(envOr("BASE_URL", "http://localhost:8080"), "/")
+	publicURL  = strings.TrimRight(envOr("E2E_PUBLIC_URL", baseURL), "/")
+	setupToken = os.Getenv("E2E_SETUP_TOKEN")
+	adminEmail = envOr("E2E_ADMIN_EMAIL", "e2e-admin@uncrm-e2e.test")
 )
+
+// passkeyFile keeps the suite's passkey between runs, since the setup link
+// that created it works once.
+func passkeyFile() string {
+	if f := os.Getenv("E2E_PASSKEY_FILE"); f != "" {
+		return f
+	}
+	name := strings.NewReplacer(":", "_", "/", "_").Replace(strings.TrimPrefix(strings.TrimPrefix(baseURL, "http://"), "https://"))
+	return filepath.Join(os.TempDir(), "uncrm-e2e-passkey-"+name+".json")
+}
 
 func TestHealthz(t *testing.T) {
 	res := do(t, request{method: "GET", path: "/healthz"})
@@ -189,8 +203,8 @@ var (
 	setupErr  error
 )
 
-// bootstrap logs in as the seeded admin, creates an API key and connects
-// Clerk with a fresh secret, once per test binary.
+// bootstrap signs in, creates an API key and connects Clerk with a fresh
+// secret, once per test binary.
 func bootstrap(t *testing.T) instance {
 	t.Helper()
 	setupOnce.Do(func() { setup, setupErr = connect() })
@@ -201,21 +215,9 @@ func bootstrap(t *testing.T) instance {
 }
 
 func connect() (instance, error) {
-	login, err := send(request{method: "POST", path: "/auth/login", body: map[string]string{"email": adminEmail, "password": adminPassword}})
+	session, err := signIn()
 	if err != nil {
 		return instance{}, err
-	}
-	if err := login.check(http.StatusOK, http.StatusNoContent); err != nil {
-		return instance{}, err
-	}
-	var session string
-	for _, c := range login.Cookies() {
-		if c.Name == "uncrm_session" {
-			session = c.Value
-		}
-	}
-	if session == "" {
-		return instance{}, fmt.Errorf("POST /auth/login set no uncrm_session cookie")
 	}
 
 	created, err := send(request{method: "POST", path: "/v1/keys", session: session, body: map[string]string{"name": "e2e " + unique()}})
@@ -242,6 +244,122 @@ func connect() (instance, error) {
 		return instance{}, err
 	}
 	return instance{apiKey: key.Key, clerkSecret: secret}, nil
+}
+
+type ceremony struct {
+	Handle  string          `json:"handle"`
+	Options json.RawMessage `json:"options"`
+}
+
+// signIn returns a session for the suite's own account. The first run on an
+// instance creates that account through the setup link in E2E_SETUP_TOKEN
+// with a software passkey and saves the passkey; later runs sign in with it,
+// and fall back to the setup link when the instance no longer knows it.
+func signIn() (string, error) {
+	if raw, err := os.ReadFile(passkeyFile()); err == nil {
+		var pk authtest.Passkey
+		if err := json.Unmarshal(raw, &pk); err != nil {
+			return "", fmt.Errorf("read %s: %w", passkeyFile(), err)
+		}
+		session, err := passkeySignIn(&pk)
+		if err == nil || setupToken == "" {
+			return session, err
+		}
+	}
+	if setupToken == "" {
+		return "", fmt.Errorf("no saved passkey at %s and no E2E_SETUP_TOKEN: set it to the token of the setup link uncrm logged at start", passkeyFile())
+	}
+	var begun ceremony
+	if err := call(request{method: "POST", path: "/auth/signup/passkey/begin",
+		body: map[string]string{"setup_token": setupToken, "email": adminEmail, "name": "E2E"}}, &begun); err != nil {
+		return "", err
+	}
+	pk, cred, err := authtest.NewPasskey(publicURL, begun.Options)
+	if err != nil {
+		return "", err
+	}
+	res, err := send(request{method: "POST", path: "/auth/signup/passkey/finish", body: map[string]any{"handle": begun.Handle, "credential": cred}})
+	if err != nil {
+		return "", err
+	}
+	if err := res.check(http.StatusOK); err != nil {
+		return "", err
+	}
+	if err := savePasskey(pk); err != nil {
+		return "", err
+	}
+	return sessionCookie(res)
+}
+
+func passkeySignIn(pk *authtest.Passkey) (string, error) {
+	var begun ceremony
+	if err := call(request{method: "POST", path: "/auth/passkey/begin"}, &begun); err != nil {
+		return "", err
+	}
+	cred, err := pk.Sign(begun.Options)
+	if err != nil {
+		return "", err
+	}
+	res, err := send(request{method: "POST", path: "/auth/passkey/finish", body: map[string]any{"handle": begun.Handle, "credential": cred}})
+	if err != nil {
+		return "", err
+	}
+	if err := res.check(http.StatusOK); err != nil {
+		return "", err
+	}
+	if err := savePasskey(pk); err != nil {
+		return "", err
+	}
+	return sessionCookie(res)
+}
+
+func savePasskey(pk *authtest.Passkey) error {
+	raw, err := json.Marshal(pk)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(passkeyFile(), raw, 0o600)
+}
+
+func sessionCookie(res response) (string, error) {
+	for _, c := range res.Cookies() {
+		if c.Name == "uncrm_session" && c.Value != "" {
+			return c.Value, nil
+		}
+	}
+	return "", fmt.Errorf("%s %s set no uncrm_session cookie", res.req.method, res.req.path)
+}
+
+func call(r request, out any) error {
+	res, err := send(r)
+	if err != nil {
+		return err
+	}
+	if err := res.check(http.StatusOK); err != nil {
+		return err
+	}
+	return json.Unmarshal(res.body, out)
+}
+
+func TestPasswordAloneIsRefused(t *testing.T) {
+	bootstrap(t)
+	res := do(t, request{method: "POST", path: "/auth/password", body: map[string]string{"email": adminEmail, "password": "a-guessed-password"}})
+	for _, c := range res.Cookies() {
+		if c.Name == "uncrm_session" && c.Value != "" {
+			t.Fatal("POST /auth/password set a session cookie")
+		}
+	}
+	res.expect(t, http.StatusNotFound, http.StatusUnauthorized, http.StatusTooManyRequests)
+}
+
+func TestSetupLinkIsSpent(t *testing.T) {
+	bootstrap(t)
+	if setupToken == "" {
+		t.Skip("E2E_SETUP_TOKEN is not set")
+	}
+	do(t, request{method: "GET", path: "/auth/setup/" + setupToken}).expect(t, http.StatusNotFound)
+	do(t, request{method: "POST", path: "/auth/signup/passkey/begin",
+		body: map[string]string{"setup_token": setupToken, "email": "intruder@uncrm-e2e.test"}}).expect(t, http.StatusNotFound)
 }
 
 type contact struct {

@@ -1,12 +1,13 @@
 DATABASE_URL ?= postgres://uncrm:uncrm@localhost:5432/uncrm?sslmode=disable
 BASE_URL ?= http://localhost:8080
 GO_TEST_SKIP ?=
+E2E_SETUP_TOKEN ?=
 
 .PHONY: dev test lint build web e2e
 
 dev:
 	docker compose up -d --wait db
-	DATABASE_URL='$(DATABASE_URL)' ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=uncrm-dev-password go run ./cmd/uncrm
+	DATABASE_URL='$(DATABASE_URL)' go run ./cmd/uncrm
 
 test:
 	go test -skip '$(GO_TEST_SKIP)' ./...
@@ -23,4 +24,4 @@ build: web
 	CGO_ENABLED=0 go build -o bin/uncrm ./cmd/uncrm
 
 e2e:
-	BASE_URL='$(BASE_URL)' go test -tags e2e -count=1 -v ./e2e/
+	BASE_URL='$(BASE_URL)' E2E_SETUP_TOKEN='$(E2E_SETUP_TOKEN)' go test -tags e2e -count=1 -v ./e2e/
