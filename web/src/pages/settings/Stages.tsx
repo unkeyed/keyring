@@ -65,7 +65,7 @@ function Editor({ initial }: { initial: Stage[] }) {
         <ol aria-label="Stages">
           {rows.map((r, i) => (
             <li key={r.key} className="flex items-center gap-2 border-b border-line px-3 py-2 last:border-0">
-              <span className="w-5 text-right text-xs text-faint tabular-nums">{i + 1}</span>
+              <span className="w-5 shrink-0 text-right text-xs text-faint tabular-nums">{i + 1}</span>
               <div className="min-w-0 flex-1">
                 <input
                   aria-label={`Stage ${i + 1} name`}
@@ -88,7 +88,7 @@ function Editor({ initial }: { initial: Stage[] }) {
           ))}
         </ol>
         <form onSubmit={add} className="flex gap-2 border-t border-line px-3 py-2">
-          <span className="w-5" />
+          <span className="w-5 shrink-0" />
           <input aria-label="New stage" placeholder="Add a stage" value={draft} onChange={(e) => setDraft(e.target.value)} className={inputClass} />
           <Button type="submit" size="md" disabled={!draft.trim()}>
             Add
