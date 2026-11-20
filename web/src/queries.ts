@@ -13,6 +13,7 @@ export const keys = {
   providers: ["providers"] as const,
   status: ["status"] as const,
   keys: ["keys"] as const,
+  users: ["users"] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: api.me.get, staleTime: Infinity });
