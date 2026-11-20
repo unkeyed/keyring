@@ -183,7 +183,9 @@ function ConfirmBody({ a, providers, onConfirmed }: { a: AccountData; providers:
     onSuccess: done,
   });
   const withCode = useMutation({ mutationFn: () => api.account.reauthCode(code.replace(/\s/g, "")), onSuccess: done });
-  const linked = providers.filter((p) => a.identities.some((i) => i.provider === p.id));
+  // A provider may let someone back in without asking anything, so the server
+  // accepts it only from people who have no passkey and no authenticator app.
+  const linked = a.passkeys.length > 0 || a.totp ? [] : providers.filter((p) => a.identities.some((i) => i.provider === p.id));
   const hasMethod = a.passkeys.length > 0 || a.totp || linked.length > 0;
   const submit = (e: FormEvent) => {
     e.preventDefault();

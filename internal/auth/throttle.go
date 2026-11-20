@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Throttling counts failed attempts per key in login_failures, so every
@@ -34,8 +36,44 @@ func freeFor(key string) int {
 	return freeAttempts[kind]
 }
 
-func (u *Users) throttled(ctx context.Context, keys ...string) error {
-	rows, err := u.db.Query(ctx, `
+// guarded runs check as one attempt on keys. Advisory locks per key make
+// concurrent attempts on a key take turns, so a burst of guesses cannot all
+// read the count from before any of them failed. check runs in the same
+// transaction, so an attempt holds one connection however many queue. A
+// check error that failed reports true counts against every key; success
+// clears onSuccess.
+func (u *Users) guarded(ctx context.Context, keys, onSuccess []string, failed func(error) bool, check func(tx pgx.Tx) error) error {
+	tx, err := u.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.throttle:' || k)) FROM (SELECT unnest($1::text[]) AS k ORDER BY 1) s`, keys); err != nil {
+		return err
+	}
+	if err := throttled(ctx, tx, keys); err != nil {
+		return err
+	}
+	checkErr := check(tx)
+	switch {
+	case checkErr == nil:
+		err = clearKeys(ctx, tx, onSuccess)
+	case failed(checkErr):
+		err = fail(ctx, tx, keys)
+	default:
+		return checkErr
+	}
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	return checkErr
+}
+
+func throttled(ctx context.Context, db dbtx, keys []string) error {
+	rows, err := db.Query(ctx, `
 		SELECT key, failures, extract(epoch FROM now() - last_failed_at)::float8
 		FROM login_failures WHERE key = ANY($1)`, keys)
 	if err != nil {
@@ -61,8 +99,8 @@ func (u *Users) throttled(ctx context.Context, keys ...string) error {
 	return nil
 }
 
-func (u *Users) fail(ctx context.Context, keys ...string) error {
-	if _, err := u.db.Exec(ctx, `
+func fail(ctx context.Context, db dbtx, keys []string) error {
+	if _, err := db.Exec(ctx, `
 		INSERT INTO login_failures (key, failures, last_failed_at) SELECT k, 1, now() FROM unnest($1::text[]) k
 		ON CONFLICT (key) DO UPDATE SET
 			failures = CASE WHEN login_failures.last_failed_at < now() - make_interval(secs => $2)
@@ -70,13 +108,13 @@ func (u *Users) fail(ctx context.Context, keys ...string) error {
 			last_failed_at = now()`, keys, loginFailureWindow.Seconds()); err != nil {
 		return err
 	}
-	_, err := u.db.Exec(ctx, `DELETE FROM login_failures WHERE last_failed_at < now() - interval '1 day'`)
+	_, err := db.Exec(ctx, `DELETE FROM login_failures WHERE last_failed_at < now() - interval '1 day'`)
 	return err
 }
 
-// clear forgets keys after a success. Callers never clear an IP key, so one
-// valid account cannot reset the count for guesses against others.
-func (u *Users) clear(ctx context.Context, keys ...string) error {
-	_, err := u.db.Exec(ctx, `DELETE FROM login_failures WHERE key = ANY($1)`, keys)
+// clearKeys forgets keys after a success. Callers never clear an IP key, so
+// one valid account cannot reset the count for guesses against others.
+func clearKeys(ctx context.Context, db dbtx, keys []string) error {
+	_, err := db.Exec(ctx, `DELETE FROM login_failures WHERE key = ANY($1)`, keys)
 	return err
 }

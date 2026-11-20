@@ -47,7 +47,9 @@ type ExternalIdentity struct {
 }
 
 type provider interface {
-	authCodeURL(ctx context.Context, state, nonce, verifier string) (string, error)
+	// authCodeURL asks the provider to check the person again when reauth
+	// is set, where the provider supports it.
+	authCodeURL(ctx context.Context, state, nonce, verifier string, reauth bool) (string, error)
 	identify(ctx context.Context, code, nonce, verifier string) (ExternalIdentity, error)
 }
 
@@ -93,12 +95,16 @@ func (p *oidcProvider) discover(ctx context.Context) (*oidc.Provider, oauth2.Con
 	return p.discovered, p.conf, nil
 }
 
-func (p *oidcProvider) authCodeURL(ctx context.Context, state, nonce, verifier string) (string, error) {
+func (p *oidcProvider) authCodeURL(ctx context.Context, state, nonce, verifier string, reauth bool) (string, error) {
 	_, conf, err := p.discover(ctx)
 	if err != nil {
 		return "", err
 	}
-	return conf.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), nil
+	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)}
+	if reauth {
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "login"), oauth2.SetAuthURLParam("max_age", "0"))
+	}
+	return conf.AuthCodeURL(state, opts...), nil
 }
 
 // flexBool reads a claim that some issuers send as "true" instead of true.
@@ -169,7 +175,7 @@ type githubProvider struct {
 	api  string
 }
 
-func (p *githubProvider) authCodeURL(_ context.Context, state, _, verifier string) (string, error) {
+func (p *githubProvider) authCodeURL(_ context.Context, state, _, verifier string, _ bool) (string, error) {
 	return p.conf.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)), nil
 }
 
@@ -250,15 +256,23 @@ type OAuthStart struct {
 	Next     string
 }
 
-// SafeNext keeps a post-login redirect on this origin.
+// SafeNext keeps a post-login redirect on this origin. Browsers drop tabs and newlines from URLs and read a backslash as a
+// slash, so "/\t/evil.com" would leave the site; any such character fails.
 func SafeNext(next string) string {
-	if strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") && !strings.HasPrefix(next, "/\\") {
-		return next
+	u, err := url.Parse(next)
+	if err != nil || u.Scheme != "" || u.Host != "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") ||
+		strings.ContainsFunc(next, func(r rune) bool { return r < 0x20 || r == 0x7f || r == '\\' }) {
+		return "/"
 	}
-	return "/"
+	return next
 }
 
-var errNoProvider = fmt.Errorf("%w: that sign-in provider is not configured", crm.ErrNotFound)
+var (
+	errNoProvider = fmt.Errorf("%w: that sign-in provider is not configured", crm.ErrNotFound)
+	// A provider may sign someone in again without asking anything, so it
+	// cannot vouch for a person who has a passkey or an authenticator app.
+	errStrongerReauth = fmt.Errorf("%w: confirm it's you with your passkey or authenticator code instead", crm.ErrInvalid)
+)
 
 func (u *Users) StartOAuth(ctx context.Context, s OAuthStart, cur *Current) (redirect, state string, err error) {
 	p, ok := u.providers[s.Provider]
@@ -268,17 +282,29 @@ func (u *Users) StartOAuth(ctx context.Context, s OAuthStart, cur *Current) (red
 	st := oauthState{Provider: s.Provider, Intent: s.Intent, Nonce: newToken(), Verifier: oauth2.GenerateVerifier(), Next: SafeNext(s.Next)}
 	switch s.Intent {
 	case IntentLogin:
-	case IntentLink, IntentReauth:
+	case IntentLink:
 		if cur == nil {
 			return "", "", ErrUnauthorized
 		}
-		if s.Intent == IntentLink && !cur.Recent {
+		if !cur.Recent {
 			return "", "", ErrReauth
+		}
+		st.UserID = cur.UserID
+	case IntentReauth:
+		if cur == nil {
+			return "", "", ErrUnauthorized
+		}
+		f, err := u.factorsOf(ctx, cur.UserID)
+		if err != nil {
+			return "", "", err
+		}
+		if f.passkey || f.totp {
+			return "", "", errStrongerReauth
 		}
 		st.UserID = cur.UserID
 	case IntentSetup:
 		st.TokenHash = hashToken(s.Token)
-		if err := checkSetup(ctx, u.db, st.TokenHash); err != nil {
+		if err := u.checkSetup(ctx, u.db, st.TokenHash); err != nil {
 			return "", "", err
 		}
 	case IntentInvite:
@@ -293,7 +319,7 @@ func (u *Users) StartOAuth(ctx context.Context, s OAuthStart, cur *Current) (red
 	if err != nil {
 		return "", "", err
 	}
-	redirect, err = p.authCodeURL(ctx, state, st.Nonce, st.Verifier)
+	redirect, err = p.authCodeURL(ctx, state, st.Nonce, st.Verifier, s.Intent == IntentReauth)
 	return redirect, state, err
 }
 
@@ -358,11 +384,11 @@ func (u *Users) FinishOAuth(ctx context.Context, cb OAuthCallback, cur *Current,
 		}
 		return OAuthResult{SignIn: in, Redirect: "/"}, nil
 	}
-	userID, err := u.socialUser(ctx, ident)
+	userID, link, err := u.socialUser(ctx, ident)
 	if err != nil {
 		return fail, err
 	}
-	in, err := u.afterFirstFactor(ctx, userID, cb.Provider, c)
+	in, err := u.afterFirstFactor(ctx, userID, cb.Provider, link, c)
 	if err != nil {
 		return fail, err
 	}
@@ -383,6 +409,7 @@ func (u *Users) providerName(id string) string {
 
 var (
 	errUnverifiedEmail = fmt.Errorf("%w: your provider has not verified your email address, so it cannot be matched to a teammate", crm.ErrInvalid)
+	errNotWorkspace    = fmt.Errorf("%w: sign in with your Google Workspace account for this address", crm.ErrInvalid)
 	errStranger        = fmt.Errorf("%w: there is no uncrm account for this email. Ask a teammate for an invite", crm.ErrInvalid)
 )
 
@@ -408,6 +435,8 @@ func decideSocial(f socialFacts, allowed []string) (socialAction, error) {
 		return socialSignIn, nil
 	case !f.ident.EmailVerified || f.ident.Email == "":
 		return 0, errUnverifiedEmail
+	case f.emailUser != 0 && !workspaceMatches(f.ident, allowed):
+		return 0, errNotWorkspace
 	case f.emailUser != 0:
 		return socialLink, nil
 	case f.invited:
@@ -420,15 +449,23 @@ func decideSocial(f socialFacts, allowed []string) (socialAction, error) {
 
 func domainAllowed(id ExternalIdentity, allowed []string) bool {
 	_, domain, _ := strings.Cut(id.Email, "@")
-	if !slices.Contains(allowed, domain) {
-		return false
-	}
-	return id.Provider != "google" || id.HostedDomain == domain
+	return slices.Contains(allowed, domain) && workspaceMatches(id, allowed)
 }
 
-func (u *Users) socialUser(ctx context.Context, ident ExternalIdentity) (int64, error) {
-	var id int64
-	err := pgx.BeginFunc(ctx, u.db, func(tx pgx.Tx) error {
+// workspaceMatches is false for a Google account with an address at an
+// allowed domain that is not that domain's Workspace account: a personal
+// Google account can carry a company address as verified long after the
+// company gave the address to someone else.
+func workspaceMatches(id ExternalIdentity, allowed []string) bool {
+	_, domain, _ := strings.Cut(id.Email, "@")
+	return id.Provider != "google" || !slices.Contains(allowed, domain) || id.HostedDomain == domain
+}
+
+// socialUser finds or creates the user a provider sign-in is for. A login
+// matched by email comes back as link, to be linked once any second factor
+// passes.
+func (u *Users) socialUser(ctx context.Context, ident ExternalIdentity) (id int64, link *ExternalIdentity, err error) {
+	err = pgx.BeginFunc(ctx, u.db, func(tx pgx.Tx) error {
 		f := socialFacts{ident: ident}
 		err := tx.QueryRow(ctx, `
 			UPDATE user_identities SET last_used_at = now(), email = $3 WHERE provider = $1 AND subject = $2 RETURNING user_id`,
@@ -454,7 +491,8 @@ func (u *Users) socialUser(ctx context.Context, ident ExternalIdentity) (int64, 
 			id = f.linkedUser
 			return nil
 		case socialLink:
-			id = f.emailUser
+			id, link = f.emailUser, &ident
+			return nil
 		case socialAcceptInvite:
 			if _, err := claimPendingInvite(ctx, tx, ident.Email); err != nil {
 				return err
@@ -467,7 +505,7 @@ func (u *Users) socialUser(ctx context.Context, ident ExternalIdentity) (int64, 
 		}
 		return u.insertIdentity(ctx, tx, id, ident)
 	})
-	return id, err
+	return id, link, err
 }
 
 func (u *Users) joinWithIdentity(ctx context.Context, st oauthState, ident ExternalIdentity, c Client) (SignIn, error) {
@@ -479,7 +517,7 @@ func (u *Users) joinWithIdentity(ctx context.Context, st oauthState, ident Exter
 		var id int64
 		var err error
 		if st.Intent == IntentSetup {
-			id, err = claimSetup(ctx, tx, st.TokenHash, ident.Email, ident.Name, nil)
+			id, err = u.claimSetup(ctx, tx, st.TokenHash, ident.Email, ident.Name, nil)
 		} else {
 			var email string
 			if email, err = claimInvite(ctx, tx, st.TokenHash); err == nil {

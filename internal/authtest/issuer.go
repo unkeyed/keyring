@@ -224,7 +224,7 @@ func randomBytes(n int) []byte {
 	return b
 }
 
-func Follow(authorizeURL string) (*url.URL, error) {
+func CallbackFor(authorizeURL string) (*url.URL, error) {
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Get(authorizeURL)
 	if err != nil {

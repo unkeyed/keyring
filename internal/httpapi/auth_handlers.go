@@ -179,6 +179,12 @@ func publicMessage(err error) string {
 	return "sign-in failed on the server; try again"
 }
 
+// errCrossSiteStart refuses a link or reauth flow that another site
+// started. The provider may answer without asking anything, so a page that
+// sends a signed-in browser here could otherwise mark a stolen session as
+// recently signed in, or link the wrong account.
+var errCrossSiteStart = fmt.Errorf("%w: start this from your account settings", crm.ErrInvalid)
+
 func (s *server) oauthStart(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
 	q := r.URL.Query()
 	start := auth.OAuthStart{Provider: r.PathValue("provider"), Intent: cmp.Or(q.Get("intent"), auth.IntentLogin), Token: q.Get("token"), Next: q.Get("next")}
@@ -186,6 +192,10 @@ func (s *server) oauthStart(w http.ResponseWriter, r *http.Request, _ crm.Actor)
 	switch start.Intent {
 	case auth.IntentLink, auth.IntentReauth:
 		back = "/settings/account"
+		if r.Header.Get("Sec-Fetch-Site") != "same-origin" {
+			http.Redirect(w, r, withError(back, errCrossSiteStart), http.StatusSeeOther)
+			return nil
+		}
 	case auth.IntentSetup:
 		back = "/setup/" + url.PathEscape(start.Token)
 		returnTo = back

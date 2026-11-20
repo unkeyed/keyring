@@ -531,6 +531,20 @@ func TestOAuthSignInSetsCookiesAndRedirects(t *testing.T) {
 		return u.String()
 	}
 
+	crossSite, err := http.NewRequest("GET", c.base+"/auth/oauth/oidc/start?intent=reauth", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossSite.Header.Set("Sec-Fetch-Site", "cross-site")
+	refused, err := browser.Do(crossSite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused.Body.Close()
+	if loc := refused.Header.Get("Location"); !strings.HasPrefix(loc, "/settings/account?error=") {
+		t.Fatalf("a reauth flow started by another site redirected to %q, want an error on the account page", loc)
+	}
+
 	iss.SetNext(authtest.Identity{Subject: "mallory", Email: "mallory@evil.com", EmailVerified: true})
 	res := get(c.base + "/auth/oauth/oidc/start?next=/contacts")
 	res = get(res.Header.Get("Location"))

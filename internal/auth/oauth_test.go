@@ -28,6 +28,9 @@ func TestDecideSocial(t *testing.T) {
 		{"google needs a matching hd", socialFacts{ident: ExternalIdentity{Provider: "google", Email: "eve@acme.com", EmailVerified: true}}, 0, errStranger},
 		{"google with hd joins", socialFacts{ident: ExternalIdentity{Provider: "google", Email: "eve@acme.com", EmailVerified: true, HostedDomain: "acme.com"}}, socialJoinDomain, nil},
 		{"stranger is refused", socialFacts{ident: verified("mallory@evil.com")}, 0, errStranger},
+		{"personal google account with a company address", socialFacts{ident: ExternalIdentity{Provider: "google", Email: "ada@acme.com", EmailVerified: true}, emailUser: 3}, 0, errNotWorkspace},
+		{"google workspace account links", socialFacts{ident: ExternalIdentity{Provider: "google", Email: "ada@acme.com", EmailVerified: true, HostedDomain: "acme.com"}, emailUser: 3}, socialLink, nil},
+		{"personal google account outside the allowed domains links", socialFacts{ident: ExternalIdentity{Provider: "google", Email: "ada@gmail.com", EmailVerified: true}, emailUser: 3}, socialLink, nil},
 	} {
 		got, err := decideSocial(c.facts, allowed)
 		if got != c.want || !errors.Is(err, c.err) {
@@ -110,7 +113,7 @@ func TestSocialSignInAsksForTheAuthenticatorCode(t *testing.T) {
 	defer iss.Close()
 	f := socialFixture(t, iss)
 	_, cookie := f.firstUser("ada@example.com")
-	f.enrolTOTP(cookie)
+	_, codes := f.enrolTOTP(cookie)
 
 	iss.SetNext(authtest.Identity{Subject: "ada", Email: "ada@example.com", EmailVerified: true})
 	res, err := f.oauth("oidc", IntentLogin, "", nil)
@@ -120,6 +123,65 @@ func TestSocialSignInAsksForTheAuthenticatorCode(t *testing.T) {
 	}
 	if got := strings.Join(res.SignIn.SecondFactors, ","); got != "totp,recovery_code" {
 		t.Fatalf("second factors %q, want totp,recovery_code", got)
+	}
+	if n := f.count(`SELECT count(*) FROM user_identities`); n != 0 {
+		t.Fatal("the provider login was linked before the second factor passed")
+	}
+	if _, err := f.users.SecondFactorCode(f.ctx, res.SignIn.Pending, "000000", browser); !errors.Is(err, errBadCode) {
+		t.Fatalf("wrong code: %v", err)
+	}
+	if n := f.count(`SELECT count(*) FROM user_identities`); n != 0 {
+		t.Fatal("a failed code left the provider login linked")
+	}
+	if _, err := f.users.SecondFactorCode(f.ctx, res.SignIn.Pending, codes[0], browser); err != nil {
+		t.Fatalf("recovery code: %v", err)
+	}
+	if n := f.count(`SELECT count(*) FROM user_identities`); n != 1 {
+		t.Fatalf("%d provider logins linked after the second factor passed, want 1", n)
+	}
+}
+
+func TestSafeNext(t *testing.T) {
+	for next, want := range map[string]string{
+		"/contacts":           "/contacts",
+		"/contacts?q=ada#top": "/contacts?q=ada#top",
+		"":                    "/",
+		"contacts":            "/",
+		"//evil.com":          "/",
+		"/\\evil.com":         "/",
+		"/\t/evil.com":        "/",
+		"/\n/evil.com":        "/",
+		"/%09/evil.com":       "/%09/evil.com",
+		"https://evil.com":    "/",
+		"/ok\\..":             "/",
+	} {
+		if got := SafeNext(next); got != want {
+			t.Errorf("SafeNext(%q) = %q, want %q", next, got, want)
+		}
+	}
+}
+
+func TestProviderReauthOnlyWithoutStrongerFactors(t *testing.T) {
+	t.Parallel()
+	iss := authtest.NewIssuer()
+	defer iss.Close()
+	f := socialFixture(t, iss)
+	token, err := f.users.PrepareSetup(f.ctx, "")
+	f.must(err)
+	iss.SetNext(authtest.Identity{Subject: "ada", Email: "ada@example.com", EmailVerified: true})
+	res, err := f.oauth("oidc", IntentSetup, token, nil)
+	f.must(err)
+	cookie := res.SignIn.Session
+	cur := f.current(cookie)
+	to, _, err := f.users.StartOAuth(f.ctx, OAuthStart{Provider: "oidc", Intent: IntentReauth}, &cur)
+	f.must(err)
+	if !strings.Contains(to, "prompt=login") || !strings.Contains(to, "max_age=0") {
+		t.Fatalf("reauth URL %q does not ask the provider to check the person again", to)
+	}
+	f.enrolTOTP(cookie)
+	cur = f.current(cookie)
+	if _, _, err := f.users.StartOAuth(f.ctx, OAuthStart{Provider: "oidc", Intent: IntentReauth}, &cur); !errors.Is(err, errStrongerReauth) {
+		t.Fatalf("provider reauth with an authenticator app enrolled: %v, want errStrongerReauth", err)
 	}
 }
 
@@ -133,7 +195,7 @@ func TestOAuthStateIsBoundAndSingleUse(t *testing.T) {
 
 	to, state, err := f.users.StartOAuth(f.ctx, OAuthStart{Provider: "oidc", Intent: IntentLogin}, nil)
 	f.must(err)
-	cb, err := authtest.Follow(to)
+	cb, err := authtest.CallbackFor(to)
 	f.must(err)
 	q := cb.Query()
 	attempt := OAuthCallback{Provider: "oidc", State: q.Get("state"), CookieState: "another-browser", Code: q.Get("code")}

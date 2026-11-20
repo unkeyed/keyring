@@ -23,13 +23,18 @@ const MinSetupTokenLen = 32
 var errSetupClosed = fmt.Errorf("%w: this setup link is invalid, or setup is already done; sign in instead", crm.ErrNotFound)
 
 func (u *Users) SetupOpen(ctx context.Context) (bool, error) {
-	return setupOpen(ctx, u.db)
+	return u.setupOpen(ctx, u.db)
 }
 
-func setupOpen(ctx context.Context, db dbtx) (bool, error) {
+// setupOpen counts the sign-in methods changeMethods counts, so removing a
+// provider's variables or PASSWORD_LOGIN cannot lock everyone out without
+// a setup link.
+func (u *Users) setupOpen(ctx context.Context, db dbtx) (bool, error) {
 	var open bool
 	err := db.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM passkeys)
-		AND NOT EXISTS (SELECT 1 FROM user_identities) AND NOT EXISTS (SELECT 1 FROM totp)`).Scan(&open)
+		AND NOT EXISTS (SELECT 1 FROM user_identities WHERE provider = ANY($1))
+		AND NOT ($2 AND EXISTS (SELECT 1 FROM users JOIN totp ON totp.user_id = users.id WHERE users.password_hash IS NOT NULL))`,
+		u.providerIDs(), u.cfg.PasswordLogin).Scan(&open)
 	return open, err
 }
 
@@ -42,7 +47,7 @@ func (u *Users) PrepareSetup(ctx context.Context, fixed string) (string, error) 
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.setup'))`); err != nil {
 			return err
 		}
-		open, err := setupOpen(ctx, tx)
+		open, err := u.setupOpen(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -62,10 +67,10 @@ func (u *Users) SetupURL(token string) string {
 }
 
 func (u *Users) CheckSetupToken(ctx context.Context, token string) error {
-	return checkSetup(ctx, u.db, hashToken(token))
+	return u.checkSetup(ctx, u.db, hashToken(token))
 }
 
-func checkSetup(ctx context.Context, db dbtx, tokenHash []byte) error {
+func (u *Users) checkSetup(ctx context.Context, db dbtx, tokenHash []byte) error {
 	var ok bool
 	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM setup_tokens WHERE token_hash = $1)`, tokenHash).Scan(&ok); err != nil {
 		return err
@@ -73,7 +78,7 @@ func checkSetup(ctx context.Context, db dbtx, tokenHash []byte) error {
 	if !ok {
 		return errSetupClosed
 	}
-	open, err := setupOpen(ctx, db)
+	open, err := u.setupOpen(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -87,11 +92,11 @@ func checkSetup(ctx context.Context, db dbtx, tokenHash []byte) error {
 // existing account with email, or a new one. handle, when set, becomes the
 // user's WebAuthn handle for the passkey being registered with it. The
 // caller must give the user a sign-in method in the same transaction.
-func claimSetup(ctx context.Context, tx pgx.Tx, tokenHash []byte, email, name string, handle []byte) (int64, error) {
+func (u *Users) claimSetup(ctx context.Context, tx pgx.Tx, tokenHash []byte, email, name string, handle []byte) (int64, error) {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.setup'))`); err != nil {
 		return 0, err
 	}
-	if err := checkSetup(ctx, tx, tokenHash); err != nil {
+	if err := u.checkSetup(ctx, tx, tokenHash); err != nil {
 		return 0, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM setup_tokens`); err != nil {

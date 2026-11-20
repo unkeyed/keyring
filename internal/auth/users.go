@@ -185,30 +185,27 @@ func (u *Users) PasswordLogin(ctx context.Context, email, password string, c Cli
 		return SignIn{}, ErrPasswordLoginOff
 	}
 	email = normalizeEmail(email)
-	keys := []string{"email:" + email, c.ipKey()}
-	if err := u.throttled(ctx, keys...); err != nil {
-		return SignIn{}, err
-	}
+	key := "email:" + email
 	var id int64
-	var stored *string
-	err := u.db.QueryRow(ctx, `SELECT id, password_hash FROM users WHERE email = $1`, email).Scan(&id, &stored)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return SignIn{}, err
-	}
-	hash := dummyHash()
-	if stored != nil {
-		hash = *stored
-	}
-	if !verifyPassword(hash, password) || stored == nil {
-		if err := u.fail(ctx, keys...); err != nil {
-			return SignIn{}, err
+	err := u.guarded(ctx, []string{key, c.ipKey()}, []string{key}, func(err error) bool { return errors.Is(err, errBadLogin) }, func(tx pgx.Tx) error {
+		var stored *string
+		err := tx.QueryRow(ctx, `SELECT id, password_hash FROM users WHERE email = $1`, email).Scan(&id, &stored)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
 		}
-		return SignIn{}, errBadLogin
-	}
-	if err := u.clear(ctx, keys[0]); err != nil {
+		hash := dummyHash()
+		if stored != nil {
+			hash = *stored
+		}
+		if !verifyPassword(hash, password) || stored == nil {
+			return errBadLogin
+		}
+		return nil
+	})
+	if err != nil {
 		return SignIn{}, err
 	}
-	return u.afterFirstFactor(ctx, id, MethodPassword, c)
+	return u.afterFirstFactor(ctx, id, MethodPassword, nil, c)
 }
 
 // Invite returns a one-time token valid for 7 days. The UI builds the link.

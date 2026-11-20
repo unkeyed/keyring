@@ -220,26 +220,20 @@ func replaceRecoveryCodes(ctx context.Context, tx pgx.Tx, userID int64) ([]strin
 }
 
 func (u *Users) useCode(ctx context.Context, userID int64, code string, c Client) (string, error) {
-	keys := []string{fmt.Sprintf("user:%d", userID), c.ipKey()}
-	if err := u.throttled(ctx, keys...); err != nil {
-		return "", err
-	}
-	method, err := u.checkCode(ctx, userID, strings.TrimSpace(code))
-	if errors.Is(err, errBadCode) {
-		if err := u.fail(ctx, keys...); err != nil {
-			return "", err
-		}
-	}
-	if err != nil {
-		return "", err
-	}
-	return method, u.clear(ctx, keys[0])
+	user := fmt.Sprintf("user:%d", userID)
+	var method string
+	err := u.guarded(ctx, []string{user, c.ipKey()}, []string{user}, func(err error) bool { return errors.Is(err, errBadCode) }, func(tx pgx.Tx) error {
+		var err error
+		method, err = checkCode(ctx, tx, userID, strings.TrimSpace(code))
+		return err
+	})
+	return method, err
 }
 
-func (u *Users) checkCode(ctx context.Context, userID int64, code string) (string, error) {
+func checkCode(ctx context.Context, db dbtx, userID int64, code string) (string, error) {
 	if len(code) == 6 {
 		var secret string
-		err := u.db.QueryRow(ctx, `SELECT secret FROM totp WHERE user_id = $1`, userID).Scan(&secret)
+		err := db.QueryRow(ctx, `SELECT secret FROM totp WHERE user_id = $1`, userID).Scan(&secret)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", errBadCode
 		}
@@ -250,7 +244,7 @@ func (u *Users) checkCode(ctx context.Context, userID int64, code string) (strin
 		if step == 0 {
 			return "", errBadCode
 		}
-		tag, err := u.db.Exec(ctx, `UPDATE totp SET last_step = $2 WHERE user_id = $1 AND last_step < $2`, userID, step)
+		tag, err := db.Exec(ctx, `UPDATE totp SET last_step = $2 WHERE user_id = $1 AND last_step < $2`, userID, step)
 		if err != nil {
 			return "", err
 		}
@@ -259,7 +253,7 @@ func (u *Users) checkCode(ctx context.Context, userID int64, code string) (strin
 		}
 		return MethodTOTP, nil
 	}
-	tag, err := u.db.Exec(ctx, `DELETE FROM recovery_codes WHERE user_id = $1 AND code_hash = $2`,
+	tag, err := db.Exec(ctx, `DELETE FROM recovery_codes WHERE user_id = $1 AND code_hash = $2`,
 		userID, hashToken(normalizeRecoveryCode(code)))
 	if err != nil {
 		return "", err

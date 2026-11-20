@@ -165,7 +165,7 @@ func (f *fixture) oauth(provider, intent, token string, cur *Current) (OAuthResu
 	if err != nil {
 		return OAuthResult{}, err
 	}
-	cb, err := authtest.Follow(to)
+	cb, err := authtest.CallbackFor(to)
 	f.must(err)
 	q := cb.Query()
 	return f.users.FinishOAuth(f.ctx, OAuthCallback{Provider: provider, State: q.Get("state"), CookieState: state, Code: q.Get("code")}, cur, browser)

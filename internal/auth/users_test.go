@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -310,6 +311,58 @@ func TestThrottlePerEmailAcrossReplicas(t *testing.T) {
 	}
 	if _, err := replicaA.PasswordLogin(f.ctx, "nobody@example.com", "whatever-password", Client{IP: "203.0.113.10"}); !errors.As(err, &throttled) {
 		t.Fatalf("unknown email after 5 failures: %v, want *ThrottledError like a real account", err)
+	}
+}
+
+func TestThrottleHoldsUnderConcurrentGuesses(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	_, cookie := f.firstUser("ada@example.com")
+	f.must(f.users.SetPassword(f.ctx, f.current(cookie), "correct-horse-battery"))
+	replica := f.replica()
+	results := make(chan error, 20)
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Go(func() {
+			_, err := []*Users{f.users, replica}[i%2].PasswordLogin(f.ctx, "ada@example.com", "wrong-password-123", Client{IP: fmt.Sprintf("198.51.100.%d", i)})
+			results <- err
+		})
+	}
+	wg.Wait()
+	close(results)
+	var wrong, throttled int
+	for err := range results {
+		var te *ThrottledError
+		switch {
+		case errors.Is(err, ErrUnauthorized):
+			wrong++
+		case errors.As(err, &te):
+			throttled++
+		default:
+			t.Fatalf("unexpected result %v", err)
+		}
+	}
+	if wrong > freeAttempts["email"]+1 {
+		t.Fatalf("20 concurrent guesses got %d password checks, want at most %d; the rest must wait", wrong, freeAttempts["email"]+1)
+	}
+}
+
+func TestSetupReopensWhenNoMethodIsUsable(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, func(c *Config) { c.PasswordLogin = false })
+	hash, err := hashPassword("legacy-password-123")
+	f.must(err)
+	f.exec(`INSERT INTO users (email, password_hash) VALUES ('ada@example.com', $1)`, hash)
+	f.exec(`INSERT INTO user_identities (provider, subject, user_id, email) SELECT 'github', '7', id, email FROM users`)
+	f.exec(`INSERT INTO totp (user_id, secret) SELECT id, 'JBSWY3DPEHPK3PXP' FROM users`)
+	if open, err := f.users.SetupOpen(f.ctx); err != nil || !open {
+		t.Fatalf("a GitHub login with GitHub unconfigured and a password with PASSWORD_LOGIN off: setup open = %v, %v; want true", open, err)
+	}
+	withGitHub := newFixture(t, func(c *Config) { c.Providers = []ProviderConfig{{ID: "github", Name: "GitHub"}} })
+	withGitHub.exec(`INSERT INTO users (email) VALUES ('ada@example.com')`)
+	withGitHub.exec(`INSERT INTO user_identities (provider, subject, user_id, email) SELECT 'github', '7', id, email FROM users`)
+	if open, err := withGitHub.users.SetupOpen(withGitHub.ctx); err != nil || open {
+		t.Fatalf("a GitHub login with GitHub configured: setup open = %v, %v; want false", open, err)
 	}
 }
 

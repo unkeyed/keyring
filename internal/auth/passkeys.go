@@ -76,10 +76,17 @@ func (p *passkeyUser) WebAuthnDisplayName() string {
 
 var errNoPasskeyUser = fmt.Errorf("%w: this passkey is not registered on this uncrm", crm.ErrInvalid)
 
-func loadPasskeyUser(ctx context.Context, db dbtx, id int64, handle []byte) (*passkeyUser, error) {
+func passkeyUserByID(ctx context.Context, db dbtx, id int64) (*passkeyUser, error) {
+	return loadPasskeyUser(ctx, db, db.QueryRow(ctx, `SELECT id, webauthn_handle, email, name FROM users WHERE id = $1`, id))
+}
+
+func passkeyUserByHandle(ctx context.Context, db dbtx, handle []byte) (*passkeyUser, error) {
+	return loadPasskeyUser(ctx, db, db.QueryRow(ctx, `SELECT id, webauthn_handle, email, name FROM users WHERE webauthn_handle = $1`, handle))
+}
+
+func loadPasskeyUser(ctx context.Context, db dbtx, user pgx.Row) (*passkeyUser, error) {
 	p := &passkeyUser{}
-	err := db.QueryRow(ctx, `SELECT id, webauthn_handle, email, name FROM users WHERE id = $1 OR ($1 = 0 AND webauthn_handle = $2)`,
-		id, handle).Scan(&p.id, &p.handle, &p.email, &p.name)
+	err := user.Scan(&p.id, &p.handle, &p.email, &p.name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNoPasskeyUser
 	}
@@ -145,13 +152,13 @@ func (u *Users) finishAssertion(ctx context.Context, want purpose, handle string
 	if c.UserID == 0 {
 		var wu webauthn.User
 		wu, cred, err = u.webauthn.ValidatePasskeyLogin(func(_, userHandle []byte) (webauthn.User, error) {
-			return loadPasskeyUser(ctx, u.db, 0, userHandle)
+			return passkeyUserByHandle(ctx, u.db, userHandle)
 		}, c.Session, parsed)
 		if err == nil {
 			user = wu.(*passkeyUser)
 		}
 	} else {
-		if user, err = loadPasskeyUser(ctx, u.db, c.UserID, nil); err != nil {
+		if user, err = passkeyUserByID(ctx, u.db, c.UserID); err != nil {
 			return c, nil, err
 		}
 		cred, err = u.webauthn.ValidateLogin(user, c.Session, parsed)
@@ -189,7 +196,7 @@ func (u *Users) BeginSecondFactorPasskey(ctx context.Context, pending string) (s
 	if err := peekChallenge(ctx, u.db, kindSecondFactor, pending, &p); err != nil {
 		return "", nil, err
 	}
-	user, err := loadPasskeyUser(ctx, u.db, p.UserID, nil)
+	user, err := passkeyUserByID(ctx, u.db, p.UserID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -212,7 +219,7 @@ func (u *Users) FinishSecondFactorPasskey(ctx context.Context, pending, handle s
 }
 
 func (u *Users) BeginReauthPasskey(ctx context.Context, cur Current) (string, *protocol.CredentialAssertion, error) {
-	user, err := loadPasskeyUser(ctx, u.db, cur.UserID, nil)
+	user, err := passkeyUserByID(ctx, u.db, cur.UserID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -291,7 +298,7 @@ func (u *Users) BeginAddPasskey(ctx context.Context, cur Current) (string, *prot
 	if !cur.Recent {
 		return "", nil, ErrReauth
 	}
-	user, err := loadPasskeyUser(ctx, u.db, cur.UserID, nil)
+	user, err := passkeyUserByID(ctx, u.db, cur.UserID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -333,7 +340,7 @@ func (u *Users) BeginPasskeySignup(ctx context.Context, s Signup) (string, *prot
 		if err := checkEmail(n.Email); err != nil {
 			return "", nil, err
 		}
-		if err := checkSetup(ctx, u.db, n.TokenHash); err != nil {
+		if err := u.checkSetup(ctx, u.db, n.TokenHash); err != nil {
 			return "", nil, err
 		}
 	case s.InviteToken != "" && s.SetupToken == "":
@@ -360,7 +367,7 @@ func (u *Users) FinishPasskeySignup(ctx context.Context, handle string, credenti
 		var id int64
 		var err error
 		if n.Via == "setup" {
-			id, err = claimSetup(ctx, tx, n.TokenHash, n.Email, n.Name, n.Handle)
+			id, err = u.claimSetup(ctx, tx, n.TokenHash, n.Email, n.Name, n.Handle)
 		} else {
 			if _, err = claimInvite(ctx, tx, n.TokenHash); err == nil {
 				id, err = createUser(ctx, tx, n.Email, n.Name, n.Handle)

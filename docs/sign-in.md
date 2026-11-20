@@ -30,7 +30,7 @@ A provider sign-in never creates an account for a stranger. uncrm applies these 
 
 1. A provider account already linked to a teammate signs in that teammate.
 2. Otherwise the provider must have verified the email address. For OIDC and Google that is the `email_verified` claim. For GitHub it is the primary address, and only when GitHub marks it verified.
-3. A teammate with that email gets the provider account linked and is signed in.
+3. A teammate with that email gets the provider account linked and is signed in. If the teammate has an authenticator app, the link is made only after the code passes. For a Google account whose address is at a domain in `ALLOWED_EMAIL_DOMAINS`, the `hd` claim must name that domain here too.
 4. A pending invite for that email is accepted.
 5. An address at a domain in `ALLOWED_EMAIL_DOMAINS` joins the team. For Google, the Workspace domain in the `hd` claim must match too, so a personal Google account with that address does not qualify.
 6. Anyone else is turned away with a message to ask for an invite.
@@ -69,27 +69,27 @@ With `PASSWORD_LOGIN=true`, a person who has a passkey or an authenticator app c
 
 ## Change sign-in methods
 
-Adding or removing a passkey, the authenticator app, a password, or a provider login needs a sign-in within the last 15 minutes. After that, **Settings > Account** asks the person to confirm with a passkey, an app code, or a linked provider.
+Adding or removing a passkey, the authenticator app, a password, or a provider login needs a sign-in within the last 15 minutes. After that, **Settings > Account** asks the person to confirm with a passkey or an app code. A person with neither confirms through a linked provider, which uncrm asks to check them again (`prompt=login`). Linking and confirming through a provider work only when started from uncrm's own pages.
 
 uncrm refuses to remove a person's last way to sign in. A passkey and a linked login at a configured provider each count. A password counts only with an authenticator app and `PASSWORD_LOGIN=true`.
 
-When a person changes or removes a password, turns off the app, or removes a passkey or a provider login, uncrm ends their other sessions.
+When a person changes or removes a password, turns the app on or off, or removes a passkey or a provider login, uncrm ends their other sessions. Adding a passkey or linking a provider login does not.
 
 ## Sessions
 
 **Settings > Account** lists each signed-in browser with its device, how it signed in, when it signed in, and when it was last used. A person can sign out any of them.
 
-A session ends after 30 days without use. Removing a teammate in **Settings > Team** deletes their sessions, passkeys, and provider logins. The last person on the team cannot be removed.
+A session ends after 30 days without use. Removing a teammate in **Settings > Team** deletes their sessions, passkeys, and provider logins. The last person on the team cannot be removed. With `ALLOWED_EMAIL_DOMAINS` set, a removed person whose address is at one of those domains can join again through a provider, so take them out of your identity provider too.
 
 ## Failed attempts
 
-uncrm counts failed passwords per email, failed codes per person, and both per client IP address, in Postgres, so every replica sees the same count. An email or a person gets 5 failures, and an IP address gets 30, before each further failure doubles the wait, from 1 second up to 15 minutes. An hour without failures resets the count. uncrm answers `429` with `Retry-After` while a wait runs. IPv6 addresses count per `/64`.
+uncrm counts failed passwords per email, failed codes per person, and both per client IP address, in Postgres, so every replica sees the same count. Attempts on one email, person, or address take turns, so a burst of parallel guesses gets no more tries than one at a time. An email or a person gets 5 failures, and an IP address gets 30, before each further failure doubles the wait, from 1 second up to 15 minutes. An hour without failures resets the count. uncrm answers `429` with `Retry-After` while a wait runs. IPv6 addresses count per `/64`.
 
 uncrm takes the client IP from the TCP connection. Behind a proxy, every request comes from the proxy, so set `CLIENT_IP_HEADER` to the header your proxy writes, for example `X-Forwarded-For`. uncrm reads the last address in that header, which is the one your nearest proxy added. Set it only when a proxy always overwrites or appends to that header, or clients can pick their own address.
 
 ## The setup link
 
-While nobody can sign in, each start of uncrm prints a setup link to its log:
+While nobody can sign in, each start of uncrm prints a setup link to its log. A provider login counts only while its provider is configured, and a password only with `PASSWORD_LOGIN=true`:
 
 ```text
   uncrm has no account that can sign in yet. Open this link to create the first one:
