@@ -31,6 +31,7 @@ Unkey stores variables per environment. Set these on the **production** environm
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | The connection URL from step 1. Sensitive. |
+| `MIGRATION_DATABASE_URL` | Only if the role in `DATABASE_URL` cannot create tables, as with PlanetScale Postgres's read/write role: a URL for a role that can. Sensitive. See [Configuration](configuration.md#migration_database_url). |
 | `PUBLIC_URL` | Your deployment's URL from step 6, such as `https://keyring-acme.unkey.app`. Set it after the first deploy and redeploy. |
 | `SETUP_TOKEN` | 32 or more random characters, for example from `openssl rand -hex 32`. Sensitive. You open the setup link with it in step 6. |
 | `CONTEXT_DEV_API_KEY` | Optional. Your [context.dev](https://context.dev) key, which turns on enrichment. Sensitive. |

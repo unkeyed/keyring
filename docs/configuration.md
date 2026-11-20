@@ -5,6 +5,7 @@ Keyring reads its configuration from environment variables when it starts. `cmd/
 | Variable | Required | Default | What it does |
 |---|---|---|---|
 | `DATABASE_URL` | Yes | none | The Postgres connection URL, for example `postgres://user:pass@host:5432/keyring`. |
+| `MIGRATION_DATABASE_URL` | No | `DATABASE_URL` | A connection URL for a role that can create tables. Keyring applies migrations through it, so `DATABASE_URL` can be a role that only reads and writes data. |
 | `PORT` | No | `8080` | The port the HTTP server listens on. |
 | `PUBLIC_URL` | No | `http://localhost:$PORT` | The URL people open Keyring at, such as `https://crm.example.com`. Passkeys, provider callbacks and MCP sign-in depend on it. |
 | `SETUP_TOKEN` | No | random | The token of the setup link, at least 32 characters. See [The setup link](sign-in.md#the-setup-link). |
@@ -40,6 +41,14 @@ Keyring exits with an error that names the variable when one of these rules fail
 Any Postgres that accepts a connection URL works: a local container, Neon, Supabase, RDS, or another managed service. Keyring needs no extensions.
 
 On start, Keyring applies its migrations from `internal/db/migrations`. Each migration runs in its own transaction under a Postgres advisory lock, so several replicas can start at the same time.
+
+## `MIGRATION_DATABASE_URL`
+
+Some providers, such as PlanetScale Postgres, give you a role that can only read and write data, and a separate admin role that can create tables. Set `DATABASE_URL` to the read/write role and `MIGRATION_DATABASE_URL` to the admin role. Keyring opens the admin connection at start, applies the migrations, closes it, and then serves every request through `DATABASE_URL`.
+
+The read/write role needs `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the tables the admin role creates. Granting it the `pg_read_all_data` and `pg_write_all_data` roles covers that, including tables added by later migrations.
+
+When it is unset, Keyring migrates through `DATABASE_URL`, so that role needs the right to create tables.
 
 ## `PORT`
 

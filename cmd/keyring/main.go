@@ -35,6 +35,7 @@ var version = "dev" // set by -ldflags at build
 // Only DATABASE_URL is required.
 type config struct {
 	DB            *pgxpool.Config  // DATABASE_URL, required
+	MigrateDB     *pgxpool.Config  // MIGRATION_DATABASE_URL, optional: migrations run as this role instead of DATABASE_URL's
 	Port          string           // PORT, default 8080 (Unkey sets it)
 	ContextDevKey string           // CONTEXT_DEV_API_KEY, optional: enrichment off without it
 	Unkey         auth.UnkeyConfig // UNKEY_ROOT_KEY + UNKEY_API_ID, both or neither
@@ -61,6 +62,11 @@ func loadConfig() (config, error) {
 		return c, errors.New("DATABASE_URL is not a Postgres connection string; want postgres://user:pass@host:5432/keyring")
 	}
 	c.DB = db
+	if url := os.Getenv("MIGRATION_DATABASE_URL"); url != "" {
+		if c.MigrateDB, err = pgxpool.ParseConfig(url); err != nil {
+			return c, errors.New("MIGRATION_DATABASE_URL is not a Postgres connection string; want postgres://user:pass@host:5432/keyring")
+		}
+	}
 	if c.Port == "" {
 		c.Port = "8080"
 	}
@@ -141,6 +147,26 @@ func loadAuthConfig(port string) (auth.Config, error) {
 	return c, nil
 }
 
+// migrate applies the migrations as MIGRATION_DATABASE_URL's role when it
+// is set, so DATABASE_URL can be a role without DDL rights.
+func migrate(ctx context.Context, pool *pgxpool.Pool, migrateDB *pgxpool.Config) error {
+	if migrateDB == nil {
+		if err := db.Migrate(ctx, pool); err != nil {
+			return fmt.Errorf("migrate the database at DATABASE_URL: %w", err)
+		}
+		return nil
+	}
+	migratePool, err := pgxpool.NewWithConfig(ctx, migrateDB)
+	if err != nil {
+		return err
+	}
+	defer migratePool.Close()
+	if err := db.Migrate(ctx, migratePool); err != nil {
+		return fmt.Errorf("migrate the database at MIGRATION_DATABASE_URL: %w", err)
+	}
+	return nil
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(log)
@@ -171,8 +197,8 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
-	if err := db.Migrate(ctx, pool); err != nil {
-		return fmt.Errorf("migrate the database at DATABASE_URL: %w", err)
+	if err := migrate(ctx, pool, cfg.MigrateDB); err != nil {
+		return err
 	}
 
 	var enricher crm.Enricher
