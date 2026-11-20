@@ -107,23 +107,37 @@ func loadAuthConfig(port string) (auth.Config, error) {
 		}
 	}
 	c.ClientIPHeader = os.Getenv("CLIENT_IP_HEADER")
-	for _, p := range []struct{ id, name, env, issuer string }{
-		{"google", "Google", "GOOGLE", "https://accounts.google.com"},
-		{"github", "GitHub", "GITHUB", ""},
-		{"oidc", cmp.Or(os.Getenv("OIDC_NAME"), "SSO"), "OIDC", os.Getenv("OIDC_ISSUER")},
+	for _, p := range []struct {
+		cfg  auth.ProviderConfig
+		vars string
+	}{
+		{auth.ProviderConfig{ID: "google", Name: "Google", Issuer: "https://accounts.google.com",
+			ClientID: os.Getenv("GOOGLE_CLIENT_ID"), ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET")},
+			"GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET"},
+		{auth.ProviderConfig{ID: "github", Name: "GitHub",
+			ClientID: os.Getenv("GITHUB_CLIENT_ID"), ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET")},
+			"GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET"},
+		{auth.ProviderConfig{ID: "oidc", Name: cmp.Or(os.Getenv("OIDC_NAME"), "SSO"), Issuer: os.Getenv("OIDC_ISSUER"),
+			ClientID: os.Getenv("OIDC_CLIENT_ID"), ClientSecret: os.Getenv("OIDC_CLIENT_SECRET")},
+			"OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET"},
 	} {
-		id, secret := os.Getenv(p.env+"_CLIENT_ID"), os.Getenv(p.env+"_CLIENT_SECRET")
-		oidc := p.id == "oidc"
-		if id == "" && secret == "" && (!oidc || p.issuer == "") {
+		required := []string{p.cfg.ClientID, p.cfg.ClientSecret}
+		if p.cfg.ID == "oidc" {
+			required = append(required, p.cfg.Issuer)
+		}
+		missing := 0
+		for _, v := range required {
+			if v == "" {
+				missing++
+			}
+		}
+		if missing == len(required) {
 			continue
 		}
-		if id == "" || secret == "" || (oidc && p.issuer == "") {
-			if oidc {
-				return c, errors.New("set all of OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET, or none")
-			}
-			return c, fmt.Errorf("set both %s_CLIENT_ID and %s_CLIENT_SECRET, or neither", p.env, p.env)
+		if missing > 0 {
+			return c, fmt.Errorf("set all of %s, or none", p.vars)
 		}
-		c.Providers = append(c.Providers, auth.ProviderConfig{ID: p.id, Name: p.name, ClientID: id, ClientSecret: secret, Issuer: p.issuer})
+		c.Providers = append(c.Providers, p.cfg)
 	}
 	return c, nil
 }
