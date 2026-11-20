@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type CreatedKey } from "../../api";
 import { keys } from "../../queries";
-import { Button, Card, ConfirmButton, CopyField, ErrorNote, Icon, inputClass, RelativeTime, Spinner } from "../../ui";
+import { Button, Card, ConfirmButton, CopyField, EmptyState, ErrorNote, Icon, inputClass, PageSpinner, RelativeTime } from "../../ui";
 import { SettingsHeader } from "./Settings";
 
 /** The plaintext key comes back once, to `onCreated`. */
@@ -23,9 +23,9 @@ export function CreateKeyForm({ defaultName = "", onCreated }: { defaultName?: s
   };
   return (
     <form onSubmit={submit} className="space-y-2">
-      <div className="flex gap-2">
-        <input aria-label="Key name" placeholder="What will use it? e.g. Claude Code, signup backend" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-        <Button type="submit" variant="primary" disabled={!name.trim() || create.isPending} className="shrink-0">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input aria-label="Key name" placeholder="What will use it? Like Claude Code or a signup backend" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+        <Button type="submit" variant="primary" disabled={!name.trim() || create.isPending}>
           <Icon name="plus" className="size-3.5" />
           Create key
         </Button>
@@ -37,11 +37,13 @@ export function CreateKeyForm({ defaultName = "", onCreated }: { defaultName?: s
 
 export function NewKey({ k, onDone }: { k: CreatedKey; onDone?: () => void }) {
   return (
-    <div className="rounded-control border border-warn/40 bg-warn-soft p-3">
-      <div className="mb-1.5 flex items-center justify-between gap-2 text-xs font-medium text-warn">
-        <span>“{k.name}” created. Copy the key now; it is shown only once.</span>
+    <div className="rounded-surface border border-line-strong bg-surface p-3">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="min-w-0 text-sm">
+          <span className="font-medium [overflow-wrap:anywhere]">“{k.name}” created.</span> <span className="text-muted">Copy the key now. It is shown only once.</span>
+        </div>
         {onDone && (
-          <Button size="sm" variant="ghost" onClick={onDone}>
+          <Button size="sm" variant="ghost" onClick={onDone} className="-my-1">
             Done
           </Button>
         )}
@@ -71,47 +73,42 @@ export function ApiKeys() {
         {created && <NewKey k={created} onDone={() => setCreated(null)} />}
       </div>
 
-      <Card className="mt-6">
+      <div className="mt-6">
         {list.isPending ? (
-          <div className="p-4">
-            <Spinner />
-          </div>
+          <PageSpinner />
         ) : list.data?.length === 0 ? (
-          <p className="p-4 text-sm text-faint">No keys yet.</p>
+          <EmptyState icon="key" title="No keys yet">
+            Create one above for each agent or backend, so you can revoke them one at a time.
+          </EmptyState>
         ) : (
-          <table className="w-full text-sm" aria-label="API keys">
-            <thead>
-              <tr className="border-b border-line text-left text-xs text-muted">
-                <th scope="col" className="px-4 py-2 font-medium">Name</th>
-                <th scope="col" className="px-3 py-2 font-medium">Key</th>
-                <th scope="col" className="px-3 py-2 font-medium">Created</th>
-                <th scope="col" className="px-3 py-2 font-medium">Last used</th>
-                <th scope="col" className="px-4 py-2">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+          <Card>
+            <ul aria-label="API keys" className="divide-y divide-line">
               {list.data?.map((k) => (
-                <tr key={k.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-2 font-medium">{k.name}</td>
-                  <td className="px-3 py-2 font-mono text-xs text-muted">{k.prefix}…</td>
-                  <td className="px-3 py-2 text-muted">
-                    <RelativeTime iso={k.created_at} />
-                  </td>
-                  <td className="px-3 py-2 text-muted">{k.last_used_at ? <RelativeTime iso={k.last_used_at} /> : <span className="text-faint">Never</span>}</td>
-                  <td className="px-4 py-2 text-right">
-                    <ConfirmButton label={`Revoke ${k.name}`} confirmLabel="Revoke?" onConfirm={() => revoke.mutate(k.id)} disabled={revoke.isPending}>
-                      Revoke
-                    </ConfirmButton>
-                  </td>
-                </tr>
+                <li key={k.id} className="flex items-center gap-3 px-4 py-3">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-control bg-subtle text-muted">
+                    <Icon name="key" className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                      <span className="min-w-0 truncate font-medium" title={k.name}>
+                        {k.name}
+                      </span>
+                      <code className="font-mono text-xs text-muted">{k.prefix}…</code>
+                    </div>
+                    <div className="text-xs text-muted">
+                      Created <RelativeTime iso={k.created_at} /> · {k.last_used_at ? <>used <RelativeTime iso={k.last_used_at} /></> : "never used"}
+                    </div>
+                  </div>
+                  <ConfirmButton label={`Revoke ${k.name}`} confirmLabel="Revoke?" onConfirm={() => revoke.mutate(k.id)} disabled={revoke.isPending}>
+                    Revoke
+                  </ConfirmButton>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+          </Card>
         )}
-      </Card>
-      <div className="mt-2">
+      </div>
+      <div className="mt-2 empty:hidden">
         <ErrorNote error={list.error ?? revoke.error} />
       </div>
     </>
