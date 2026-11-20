@@ -1,5 +1,5 @@
-import { useRef, useState, type KeyboardEvent } from "react";
-import { Button, cx, errorMessage, Icon, inputClass } from "../ui";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Button, cx, errorMessage, Icon } from "../ui";
 
 interface Props {
   label: string;
@@ -9,12 +9,25 @@ interface Props {
   onSave: (value: string) => Promise<unknown>;
   onReset: () => Promise<unknown>;
   multiline?: boolean;
+  /** Shown when the value is empty. */
   placeholder?: string;
+  /** Shown in the empty input while editing. */
+  editPlaceholder?: string;
   href?: boolean;
+  /** How the stored value reads, as "Portugal" for "PT". Editing shows the stored value. */
+  format?: (value: string) => string;
+  /** Content above the value, as the company a domain belongs to. */
+  lead?: ReactNode;
 }
 
+/**
+ * Read and edit mode share one box: same height, padding and border width,
+ * so starting an edit never moves the text or resizes the row.
+ */
+const box = "w-full min-w-0 rounded-control border px-1.5 py-[3px] text-left text-sm";
+
 /** A property row that edits in place: click, type, Enter saves, Escape cancels. */
-export function EditableField({ label, value, pinned, onSave, onReset, multiline, placeholder = "Empty", href }: Props) {
+export function EditableField({ label, value, pinned, onSave, onReset, multiline, placeholder = "Empty", editPlaceholder, href, format, lead }: Props) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -59,9 +72,11 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
   };
 
   const id = `field-${label.toLowerCase().replace(/\W+/g, "-")}`;
+  const editing = draft !== null;
+  const shown = value && format ? format(value) : value;
 
   return (
-    <div className="group grid grid-cols-[6.5rem_1fr] items-start gap-2 py-1">
+    <div className="group grid grid-cols-[6rem_minmax(0,1fr)] items-start gap-x-2 py-0.5">
       <label htmlFor={id} className="flex h-7 items-center gap-1 text-xs text-muted">
         {label}
         {pinned && (
@@ -72,56 +87,76 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
         )}
       </label>
       <div className="min-w-0">
-        {draft !== null ? (
-          multiline ? (
-            <textarea
-              id={id}
-              autoFocus
-              rows={4}
-              value={draft}
-              disabled={busy}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKeyDown}
-              onBlur={commit}
-              className={cx(inputClass, "h-auto py-1.5")}
-            />
+        {lead}
+        <div className="flex items-start gap-0.5">
+          {editing ? (
+            multiline ? (
+              <textarea
+                id={id}
+                autoFocus
+                rows={3}
+                value={draft}
+                disabled={busy}
+                placeholder={editPlaceholder}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={onKeyDown}
+                onBlur={commit}
+                className={cx(box, "field-sizing-content min-h-7 resize-none border-fg bg-surface placeholder:text-faint focus:outline-none")}
+              />
+            ) : (
+              <input
+                id={id}
+                autoFocus
+                value={draft}
+                disabled={busy}
+                placeholder={editPlaceholder}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={onKeyDown}
+                onBlur={commit}
+                className={cx(box, "h-7 border-fg bg-surface placeholder:text-faint focus:outline-none")}
+              />
+            )
           ) : (
-            <input id={id} autoFocus value={draft} disabled={busy} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} onBlur={commit} className={inputClass} />
-          )
-        ) : (
-          <div className="flex min-h-7 items-start gap-1">
             <button
               id={id}
               type="button"
+              title={multiline ? undefined : shown}
               onClick={() => setDraft(value)}
               className={cx(
-                "min-h-7 min-w-0 flex-1 rounded-control px-1.5 py-1 text-left text-sm hover:bg-subtle",
-                multiline ? "whitespace-pre-wrap" : "truncate",
-                !value && "text-faint",
+                box,
+                "min-h-7 border-transparent transition-colors hover:bg-subtle",
+                multiline ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "truncate",
+                !value ? "text-faint" : lead ? "text-muted" : "text-fg",
               )}
             >
-              {value || placeholder}
+              {shown || placeholder}
             </button>
-            {href && value && (
-              <a href={value} target="_blank" rel="noreferrer noopener" className="grid size-7 place-items-center rounded-control text-faint hover:bg-subtle hover:text-fg" aria-label={`Open ${label}`}>
-                <Icon name="external" className="size-3.5" />
-              </a>
-            )}
-            {pinned && (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => void run(onReset)}
-                title="Reset: let sign-ups and enrichment fill this again"
-                aria-label={`Reset ${label} to automatic`}
-                className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-              >
-                <Icon name="reset" className="size-3.5" />
-              </Button>
-            )}
-          </div>
-        )}
+          )}
+          {href && value && (
+            <a
+              href={value}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={cx("grid size-7 shrink-0 place-items-center rounded-control text-faint hover:bg-subtle hover:text-fg", editing && "invisible")}
+              aria-label={`Open ${label}`}
+            >
+              <Icon name="external" className="size-3.5" />
+            </a>
+          )}
+          {pinned && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void run(onReset)}
+              title="Reset: let sign-ups and enrichment fill this again"
+              aria-label={`Reset ${label} to automatic`}
+              className={cx("w-7 px-0 group-focus-within:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100", editing && "invisible")}
+            >
+              <Icon name="reset" className="size-3.5" />
+            </Button>
+          )}
+        </div>
         {error && (
           <p role="alert" className="mt-1 px-1.5 text-xs text-danger">
             {error}
