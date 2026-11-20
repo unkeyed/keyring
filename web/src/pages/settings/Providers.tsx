@@ -81,7 +81,6 @@ function HealthLine({ h }: { h: Health }) {
   );
 }
 
-/** A connected provider shows everything; one that is not stays a single row until the user opens its setup. */
 function ProviderCard({ p }: { p: ProviderStatus }) {
   const qc = useQueryClient();
   const [issued, setIssued] = useState<string | null>(null);

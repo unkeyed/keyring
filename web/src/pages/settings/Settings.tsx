@@ -67,7 +67,6 @@ export function SettingsHeader({ title, children }: { title: string; children?: 
   );
 }
 
-/** A heading inside a settings section. */
 export function SettingsSubhead({ children, className }: { children: ReactNode; className?: string }) {
   return <h3 className={cx("mb-3 text-sm font-semibold", className)}>{children}</h3>;
 }

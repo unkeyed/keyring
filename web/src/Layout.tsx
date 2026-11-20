@@ -61,7 +61,6 @@ export function Layout() {
   );
 }
 
-/** On a phone the navigation slides in from the left, over the page. */
 function MenuSheet({ open, onClose, label }: { open: boolean; onClose: () => void; label: string }) {
   const ref = useModal(open);
   return (

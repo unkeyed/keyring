@@ -61,7 +61,6 @@ const buttonStyles = {
 
 type ButtonLook = { variant?: keyof typeof buttonStyles; size?: "sm" | "md" };
 
-/** Button classes, for a <Link> that should look like a button. */
 export function buttonClass({ variant = "secondary", size = "md" }: ButtonLook = {}) {
   return cx(
     "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-control border font-medium whitespace-nowrap transition-colors disabled:pointer-events-none",
@@ -189,7 +188,6 @@ export function CodeBlock({ code, label }: { code: string; label?: string }) {
   );
 }
 
-/** Initials on a neutral tile; a photo or logo replaces it when one loads. */
 export function Avatar({ src, label, size = 28, square }: { src?: string; label: string; size?: number; square?: boolean }) {
   const [failedSrc, setFailedSrc] = useState<string>();
   const shape = square ? "rounded-control" : "rounded-full";
@@ -383,7 +381,6 @@ export function PageHeader({ title, children }: { title: ReactNode; children?: R
   );
 }
 
-/** "Contacts / Maya Okafor": the parent stays a link, the current page does not. */
 export function Crumbs({ parent, to, current }: { parent: string; to: string; current: string }) {
   return (
     <span className="flex min-w-0 items-center gap-2">

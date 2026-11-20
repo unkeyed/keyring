@@ -314,7 +314,6 @@ function ContactRow({ c, index, selected, onOpen, onHover }: { c: Contact; index
   );
 }
 
-/** A phone row: who, their email, where they work and their stage. */
 function ContactItem({ c, index, onOpen }: { c: Contact; index: number; onOpen: () => void }) {
   const label = contactLabel(c);
   return (
