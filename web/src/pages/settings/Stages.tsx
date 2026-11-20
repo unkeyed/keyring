@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Stage } from "../../api";
 import { keys, useStages } from "../../queries";
-import { Button, Card, cx, ErrorNote, Icon, inputClass, Spinner } from "../../ui";
+import { Button, Card, ErrorNote, Icon, inputClass, Spinner } from "../../ui";
 import { SettingsHeader } from "./Settings";
 
 /** A row remembers the name it was loaded with, so a rename can carry contacts along. */
@@ -66,20 +66,22 @@ function Editor({ initial }: { initial: Stage[] }) {
           {rows.map((r, i) => (
             <li key={r.key} className="flex items-center gap-2 border-b border-line px-3 py-2 last:border-0">
               <span className="w-5 text-right text-xs text-faint tabular-nums">{i + 1}</span>
-              <input
-                aria-label={`Stage ${i + 1} name`}
-                value={r.name}
-                onChange={(e) => setRows(rows.map((x) => (x.key === r.key ? { ...x, name: e.target.value } : x)))}
-                className={cx(inputClass, "flex-1")}
-              />
-              {r.original && r.original !== r.name.trim() && <span className="text-xs text-faint">was {r.original}</span>}
-              <Button size="sm" variant="ghost" aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => move(i, -1)}>
+              <div className="min-w-0 flex-1">
+                <input
+                  aria-label={`Stage ${i + 1} name`}
+                  value={r.name}
+                  onChange={(e) => setRows(rows.map((x) => (x.key === r.key ? { ...x, name: e.target.value } : x)))}
+                  className={inputClass}
+                />
+                {r.original && r.original !== r.name.trim() && <div className="mt-1 truncate px-1 text-xs text-faint">was {r.original}</div>}
+              </div>
+              <Button size="sm" variant="ghost" aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => move(i, -1)} className="w-7 px-0">
                 <Icon name="up" className="size-3.5" />
               </Button>
-              <Button size="sm" variant="ghost" aria-label={`Move ${r.name} down`} disabled={i === rows.length - 1} onClick={() => move(i, 1)}>
+              <Button size="sm" variant="ghost" aria-label={`Move ${r.name} down`} disabled={i === rows.length - 1} onClick={() => move(i, 1)} className="w-7 px-0">
                 <Icon name="down" className="size-3.5" />
               </Button>
-              <Button size="sm" variant="ghost" aria-label={`Remove ${r.name}`} disabled={rows.length === 1} onClick={() => setRows(rows.filter((x) => x.key !== r.key))}>
+              <Button size="sm" variant="ghost" aria-label={`Remove ${r.name}`} disabled={rows.length === 1} onClick={() => setRows(rows.filter((x) => x.key !== r.key))} className="w-7 px-0">
                 <Icon name="trash" className="size-3.5" />
               </Button>
             </li>

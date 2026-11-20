@@ -4,7 +4,7 @@ import type { CreatedKey } from "../../api";
 import { CodeBlock } from "../../ui";
 import { signupCurl } from "../Onboarding";
 import { CreateKeyForm, NewKey } from "./ApiKeys";
-import { SettingsHeader } from "./Settings";
+import { SettingsHeader, SettingsSubhead } from "./Settings";
 
 export function snippets(origin: string, key: string) {
   return {
@@ -26,7 +26,7 @@ export function Agents() {
       </SettingsHeader>
 
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold">1. Create a key for the agent</h3>
+        <SettingsSubhead className="mb-0">1. Create a key for the agent</SettingsSubhead>
         {created ? (
           <NewKey k={created} />
         ) : (
@@ -44,7 +44,7 @@ export function Agents() {
       </section>
 
       <section className="mt-8 space-y-4">
-        <h3 className="text-sm font-semibold">2. Connect it</h3>
+        <SettingsSubhead className="mb-0">2. Connect it</SettingsSubhead>
         <CodeBlock label="Claude Code" code={s.claude} />
         <CodeBlock label="Cursor (.cursor/mcp.json)" code={s.cursor} />
         <CodeBlock label="REST (curl)" code={s.curl} />

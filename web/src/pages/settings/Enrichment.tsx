@@ -1,7 +1,7 @@
 import { jobStates } from "../../api";
 import { useStatus } from "../../queries";
-import { Card, CodeBlock, enrichmentStates, ErrorNote, Icon, RelativeTime, Spinner } from "../../ui";
-import { SettingsHeader } from "./Settings";
+import { CodeBlock, cx, enrichmentStates, ErrorNote, Icon, PageSpinner, RelativeTime } from "../../ui";
+import { SettingsHeader, SettingsSubhead } from "./Settings";
 
 export function Enrichment() {
   const status = useStatus({ poll: true });
@@ -13,7 +13,7 @@ export function Enrichment() {
         uncrm looks up people and companies on context.dev: job titles, locations, company logos, sizes and industries. Free-mail addresses like Gmail are
         skipped. Fields a person edited are never overwritten.
       </SettingsHeader>
-      {status.isPending && <Spinner />}
+      {status.isPending && <PageSpinner />}
       <ErrorNote error={status.error} />
 
       {s && (
@@ -21,7 +21,7 @@ export function Enrichment() {
           {s.enrichment_halt ? (
             <div className="flex items-start gap-3 rounded-surface border border-warn/40 bg-warn-soft p-4 text-warn">
               <Icon name="alert" className="mt-0.5 size-4" />
-              <div className="text-sm">
+              <div className="min-w-0 text-sm [overflow-wrap:anywhere]">
                 <div className="font-semibold">Paused: context.dev rejected the request</div>
                 <div className="mt-0.5">{s.enrichment_halt.reason}</div>
                 <div className="mt-2 text-xs opacity-80">
@@ -30,32 +30,28 @@ export function Enrichment() {
                 </div>
               </div>
             </div>
-          ) : s.enrichment_enabled ? (
-            <div className="flex items-center gap-2 rounded-surface border border-line p-4 text-sm">
-              <span className="size-2 rounded-full bg-success" />
-              <span className="font-medium">On.</span>
-              <span className="text-muted">New sign-ups are looked up within seconds.</span>
-            </div>
           ) : (
-            <div className="flex items-center gap-2 rounded-surface border border-line p-4 text-sm">
-              <span className="size-2 rounded-full bg-faint" />
-              <span className="font-medium">Off.</span>
-              <span className="text-muted">Records queue up and are enriched once a key is set.</span>
+            <div className="flex items-center gap-2 rounded-surface border border-line bg-surface p-4 text-sm">
+              <span className={cx("size-2 shrink-0 rounded-full", s.enrichment_enabled ? "bg-success" : "bg-faint")} />
+              <span className="font-medium">{s.enrichment_enabled ? "On." : "Off."}</span>
+              <span className="text-muted">{s.enrichment_enabled ? "New sign-ups are looked up within seconds." : "Records queue up and are enriched once a key is set."}</span>
             </div>
           )}
 
-          <Card className="mt-4 grid grid-cols-5 divide-x divide-line">
+          <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-surface border border-line bg-line sm:grid-cols-5">
             {jobStates.map((j) => (
-              <div key={j} className="px-4 py-3">
-                <div className="text-xs text-muted">{enrichmentStates[j].label}</div>
+              <div key={j} className="bg-surface px-4 py-3 last:col-span-2 sm:last:col-span-1">
+                <div className="truncate text-xs text-muted" title={enrichmentStates[j].help}>
+                  {enrichmentStates[j].label}
+                </div>
                 <div className="mt-0.5 text-lg font-semibold tabular-nums">{(s.jobs?.[j] ?? 0).toLocaleString()}</div>
               </div>
             ))}
-          </Card>
+          </div>
 
           {(!s.enrichment_enabled || s.enrichment_halt) && (
             <section className="mt-8 space-y-3 text-sm">
-              <h3 className="font-semibold">{s.enrichment_enabled ? "Replace the key" : "Turn it on"}</h3>
+              <SettingsSubhead className="mb-0">{s.enrichment_enabled ? "Replace the key" : "Turn it on"}</SettingsSubhead>
               <ol className="list-decimal space-y-2 pl-5 text-muted">
                 <li>
                   Create an API key at{" "}
