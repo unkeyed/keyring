@@ -174,7 +174,7 @@ function ContactView({ id }: { id: ContactID }) {
                 lead={
                   f.field === "company" &&
                   c.company && (
-                    <Link to={`/companies/${c.company.id}`} className="flex h-7 items-center gap-1.5 rounded-control px-1.5 text-sm font-medium hover:bg-subtle">
+                    <Link to={`/companies/${c.company.id}`} className="flex h-7 items-center gap-1.5 rounded-control px-[7px] text-sm font-medium hover:bg-subtle">
                       <span className="truncate">{companyLabel(c.company)}</span>
                       <Icon name="right" className="size-3.5 text-faint" />
                     </Link>
