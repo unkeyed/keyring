@@ -6,19 +6,38 @@ import { companyLabel, contactLabel } from "../format";
 import { keys, useStages, useStatus, useTags } from "../queries";
 import { EditableField } from "../components/EditableField";
 import { MergeDialog } from "../components/MergeDialog";
+import { RecordLayout, SectionTitle } from "../components/RecordLayout";
 import { Timeline } from "../components/Timeline";
 import { NotFound } from "../Layout";
-import { Avatar, Badge, Button, ConfirmButton, CopyButton, cx, EnrichmentBadge, ErrorNote, Icon, inputClass, PageHeader, RelativeTime, selectClass, Spinner } from "../ui";
+import {
+  Avatar,
+  Badge,
+  Button,
+  ConfirmButton,
+  CopyButton,
+  Crumbs,
+  cx,
+  EnrichmentBadge,
+  ErrorNote,
+  Icon,
+  inputClass,
+  PageHeader,
+  PageSpinner,
+  RelativeTime,
+  selectClass,
+} from "../ui";
+
+const missing = { title: "Contact not found", body: "It may have been merged into another contact, or the link is wrong.", parent: { label: "Contacts", to: "/contacts" } };
 
 export function ContactPage() {
   const id = parseID<ContactID>(useParams().id);
-  return id ? <ContactView key={id} id={id} /> : <NotFound />;
+  return id ? <ContactView key={id} id={id} /> : <NotFound {...missing} />;
 }
 
 const fields: { field: ContactField; label: string; multiline?: boolean; href?: boolean }[] = [
   { field: "name", label: "Name" },
   { field: "title", label: "Title" },
-  { field: "company", label: "Company domain" },
+  { field: "company", label: "Company" },
   { field: "location", label: "Location" },
   { field: "linkedin_url", label: "LinkedIn", href: true },
   { field: "bio", label: "Bio", multiline: true },
@@ -58,16 +77,10 @@ function ContactView({ id }: { id: ContactID }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [navigate]);
 
-  if (contact.isPending) {
-    return (
-      <div className="grid h-40 place-items-center">
-        <Spinner />
-      </div>
-    );
-  }
+  if (contact.isPending) return <PageSpinner />;
   if (contact.isError) {
     return contact.error instanceof ApiError && contact.error.status === 404 ? (
-      <NotFound />
+      <NotFound {...missing} />
     ) : (
       <div className="p-5">
         <ErrorNote error={contact.error} />
@@ -82,55 +95,49 @@ function ContactView({ id }: { id: ContactID }) {
 
   return (
     <>
-      <PageHeader
-        title={
-          <span className="flex items-center gap-1.5">
-            <Link to="/contacts" className="font-normal text-muted hover:text-fg">
-              Contacts
-            </Link>
-            <span className="text-faint">/</span>
-            {label}
-          </span>
-        }
-      >
+      <PageHeader title={<Crumbs parent="Contacts" to="/contacts" current={label} />}>
         {canEnrich && (
-        <Button size="sm" onClick={() => enrich.mutate()} disabled={enrich.isPending || c.enrichment === "running"} title="Look this person up on context.dev again">
-          <Icon name="refresh" className={cx("size-3.5", enrich.isPending && "animate-spin")} />
-          Re-enrich
-        </Button>
+          <Button size="sm" onClick={() => enrich.mutate()} disabled={enrich.isPending || c.enrichment === "running"} title="Look this person up on context.dev again" aria-label="Re-enrich">
+            <Icon name="refresh" className={cx("size-3.5", enrich.isPending && "animate-spin")} />
+            <span className="hidden sm:inline">Re-enrich</span>
+          </Button>
         )}
-        <Button size="sm" onClick={() => setMerging(true)}>
+        <Button size="sm" onClick={() => setMerging(true)} aria-label="Merge with another contact" title="Merge with another contact">
           <Icon name="merge" className="size-3.5" />
-          Merge…
+          <span className="hidden sm:inline">Merge…</span>
         </Button>
       </PageHeader>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-auto">
-          <div className="mx-auto max-w-3xl px-8 py-7">
+      <RecordLayout
+        head={
+          <>
             <div className="flex items-start gap-4">
-              <Avatar src={c.avatar_url} label={label} size={56} />
+              <Avatar src={c.avatar_url} label={label} size={52} />
               <div className="min-w-0 flex-1">
-                <h2 className="truncate text-xl font-semibold tracking-tight">{label}</h2>
-                <p className="mt-0.5 truncate text-sm text-muted">
-                  {c.title}
-                  {c.title && c.company && " at "}
-                  {c.company && (
-                    <Link to={`/companies/${c.company.id}`} className="text-fg hover:underline">
-                      {companyLabel(c.company)}
-                    </Link>
-                  )}
-                </p>
-                <div className="mt-1 flex items-center gap-1 text-sm">
-                  <a href={`mailto:${c.email}`} className="text-muted hover:text-fg">
+                <h2 className="truncate text-xl font-semibold" title={label}>
+                  {label}
+                </h2>
+                {(c.title || c.company) && (
+                  <p className="truncate text-sm text-muted">
+                    {c.title}
+                    {c.title && c.company && " at "}
+                    {c.company && (
+                      <Link to={`/companies/${c.company.id}`} className="text-fg hover:underline">
+                        {companyLabel(c.company)}
+                      </Link>
+                    )}
+                  </p>
+                )}
+                <div className="mt-0.5 flex min-w-0 items-center gap-1 text-sm">
+                  <a href={`mailto:${c.email}`} className="min-w-0 truncate text-muted hover:text-fg" title={c.email}>
                     {c.email}
                   </a>
-                  <CopyButton text={c.email} label="Copy" />
+                  <CopyButton text={c.email} label="Copy" className="-my-1" />
                 </div>
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-3">
+            <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
               <label className="flex items-center gap-2 text-xs text-muted">
                 Stage
                 <select className={selectClass} value={c.stage} disabled={stage.isPending} onChange={(e) => stage.mutate(e.target.value)}>
@@ -146,58 +153,70 @@ function ContactView({ id }: { id: ContactID }) {
                 First seen <RelativeTime iso={c.first_seen_at} />, last seen <RelativeTime iso={c.last_seen_at} />
               </span>
             </div>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 empty:hidden">
               <ErrorNote error={stage.error ?? enrich.error} />
             </div>
-
-            <Notes contactId={id} notes={c.notes ?? []} />
-
-            <section className="mt-9">
-              <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted uppercase">Activity</h3>
-              <Timeline items={c.activity ?? []} />
-            </section>
-          </div>
-        </div>
-
-        <aside className="w-80 shrink-0 overflow-auto border-l border-line bg-bg/40 px-4 py-5">
-          <h3 className="mb-1 px-1 text-xs font-semibold tracking-wide text-muted uppercase">Details</h3>
-          {fields.map((f) => (
-            <EditableField
-              key={f.field}
-              label={f.label}
-              value={fieldValue(c, f.field)}
-              pinned={pinned.has(f.field)}
-              multiline={f.multiline}
-              href={f.href}
-              placeholder={f.field === "company" ? "No company" : "Empty"}
-              onSave={(v) => update(fieldPatch(f.field, v))}
-              onReset={async () => settle(await api.contacts.resetField(id, f.field))}
-            />
-          ))}
-
-          <Tags tags={c.tags ?? []} onChange={update} />
-
-          <h3 className="mt-6 mb-2 px-1 text-xs font-semibold tracking-wide text-muted uppercase">Sources</h3>
-          <ul className="space-y-2 px-1">
-            {(c.identities ?? []).map((i) => (
-              <li key={`${i.provider}/${i.external_id}`} className="rounded-control border border-line bg-surface p-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium">{i.provider}</span>
-                  {i.deleted_at ? <Badge tone="danger">Deleted</Badge> : i.email_verified ? <Badge tone="success">Verified</Badge> : <Badge>Unverified</Badge>}
-                </div>
-                <div className="mt-1 truncate font-mono text-2xs text-faint" title={i.external_id}>
-                  {i.external_id}
-                </div>
-                <div className="mt-1 flex justify-between gap-2 text-xs text-muted">
-                  <span className="truncate">{i.email}</span>
-                  <RelativeTime iso={i.occurred_at} className="shrink-0" />
-                </div>
-              </li>
+          </>
+        }
+        details={
+          <>
+            <SectionTitle>Details</SectionTitle>
+            {fields.map((f) => (
+              <EditableField
+                key={f.field}
+                label={f.label}
+                value={fieldValue(c, f.field)}
+                pinned={pinned.has(f.field)}
+                multiline={f.multiline}
+                href={f.href}
+                placeholder={f.field === "company" ? "No company" : "Empty"}
+                editPlaceholder={f.field === "company" ? "Company domain, like acme.com" : undefined}
+                lead={
+                  f.field === "company" &&
+                  c.company && (
+                    <Link to={`/companies/${c.company.id}`} className="flex h-7 items-center gap-1.5 rounded-control px-1.5 text-sm font-medium hover:bg-subtle">
+                      <span className="truncate">{companyLabel(c.company)}</span>
+                      <Icon name="right" className="size-3.5 text-faint" />
+                    </Link>
+                  )
+                }
+                onSave={(v) => update(fieldPatch(f.field, v))}
+                onReset={async () => settle(await api.contacts.resetField(id, f.field))}
+              />
             ))}
-            {(c.identities ?? []).length === 0 && <li className="text-xs text-faint">Added through the API.</li>}
-          </ul>
-        </aside>
-      </div>
+
+            <Tags tags={c.tags ?? []} onChange={update} />
+
+            <SectionTitle className="mt-6">Sources</SectionTitle>
+            <ul className="space-y-2">
+              {(c.identities ?? []).map((i) => (
+                <li key={`${i.provider}/${i.external_id}`} className="rounded-surface border border-line bg-surface p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{i.provider}</span>
+                    {i.deleted_at ? <Badge tone="danger">Deleted</Badge> : i.email_verified ? <Badge tone="success">Verified</Badge> : <Badge>Unverified</Badge>}
+                  </div>
+                  <div className="mt-1 truncate font-mono text-2xs text-faint" title={i.external_id}>
+                    {i.external_id}
+                  </div>
+                  <div className="mt-1 flex justify-between gap-2 text-xs text-muted">
+                    <span className="truncate" title={i.email}>
+                      {i.email}
+                    </span>
+                    <RelativeTime iso={i.occurred_at} className="shrink-0" />
+                  </div>
+                </li>
+              ))}
+              {(c.identities ?? []).length === 0 && <li className="text-xs text-faint">Added through the API.</li>}
+            </ul>
+          </>
+        }
+      >
+        <Notes contactId={id} notes={c.notes ?? []} />
+        <section className="mt-9">
+          <SectionTitle>Activity</SectionTitle>
+          <Timeline items={c.activity ?? []} />
+        </section>
+      </RecordLayout>
 
       <MergeDialog open={merging} onClose={() => setMerging(false)} contact={c} />
     </>
@@ -220,17 +239,12 @@ function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) 
 
   return (
     <>
-      <h3 className="mt-6 mb-2 px-1 text-xs font-semibold tracking-wide text-muted uppercase">Tags</h3>
-      <div className="flex flex-wrap items-center gap-1.5 px-1">
+      <SectionTitle className="mt-6">Tags</SectionTitle>
+      <div className="flex flex-wrap items-center gap-1.5">
         {tags.map((t) => (
-          <span key={t} className="inline-flex h-6 items-center gap-0.5 rounded-control border border-line-strong pr-0.5 pl-2 text-xs font-medium text-muted">
-            {t}
-            <button
-              type="button"
-              aria-label={`Remove tag ${t}`}
-              onClick={() => change.mutate({ remove_tags: [t] })}
-              className="grid size-5 place-items-center rounded hover:bg-subtle"
-            >
+          <span key={t} className="inline-flex h-6 max-w-full items-center gap-0.5 rounded-control border border-line-strong pr-0.5 pl-2 text-xs font-medium text-muted">
+            <span className="truncate">{t}</span>
+            <button type="button" aria-label={`Remove tag ${t}`} onClick={() => change.mutate({ remove_tags: [t] })} className="grid size-5 shrink-0 place-items-center rounded hover:bg-subtle hover:text-fg">
               <Icon name="x" className="size-3" />
             </button>
           </span>
@@ -242,14 +256,14 @@ function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) 
             list="tag-options"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            className={cx(inputClass, "h-6 border-transparent bg-transparent px-1.5 text-xs hover:border-line")}
+            className={cx(inputClass, "h-6 border-transparent bg-transparent px-1.5 text-xs hover:border-line-strong")}
           />
           <datalist id="tag-options">
             {all.data?.filter((t) => !tags.includes(t.tag)).map((t) => <option key={t.tag} value={t.tag} />)}
           </datalist>
         </form>
       </div>
-      <div className="mt-1 px-1">
+      <div className="mt-1 empty:hidden">
         <ErrorNote error={change.error} />
       </div>
     </>
@@ -275,9 +289,11 @@ function Notes({ contactId, notes }: { contactId: ContactID; notes: Note[] }) {
   };
 
   return (
-    <section className="mt-9">
-      <h3 className="mb-3 text-xs font-semibold tracking-wide text-muted uppercase">Notes {notes.length > 0 && <span className="font-normal text-faint">{notes.length}</span>}</h3>
-      <form onSubmit={submit} className="rounded-surface border border-line-strong bg-surface focus-within:border-fg focus-within:ring-3 focus-within:ring-halo">
+    <section>
+      <SectionTitle>
+        Notes {notes.length > 0 && <span className="text-faint">{notes.length}</span>}
+      </SectionTitle>
+      <form onSubmit={submit} className="rounded-surface border border-line-strong bg-surface transition-colors focus-within:border-fg focus-within:ring-3 focus-within:ring-halo">
         <textarea
           aria-label="New note"
           placeholder="Write a note…"
@@ -287,29 +303,29 @@ function Notes({ contactId, notes }: { contactId: ContactID; notes: Note[] }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e);
           }}
-          className="block w-full resize-y rounded-t-lg bg-transparent px-3 py-2 text-sm placeholder:text-faint focus:outline-none"
+          className="block w-full resize-y rounded-t-surface bg-transparent px-3 py-2 text-sm placeholder:text-faint focus:outline-none"
         />
-        <div className="flex items-center justify-end gap-2 px-2 pb-2">
-          <span className="text-xs text-faint">⌘↵ to save</span>
+        <div className="flex items-center justify-end gap-3 px-2 pb-2">
+          <span className="hidden text-xs text-faint sm:inline">⌘↵ to save</span>
           <Button type="submit" size="sm" variant="primary" disabled={!body.trim() || add.isPending}>
             Add note
           </Button>
         </div>
       </form>
-      <div className="mt-2">
+      <div className="mt-2 empty:hidden">
         <ErrorNote error={add.error ?? remove.error} />
       </div>
       <ul className="mt-3 space-y-2">
         {notes.map((n) => (
-          <li key={n.id} className="group rounded-surface border border-line px-3 py-2.5">
-            <p className="text-sm whitespace-pre-wrap">{n.body}</p>
+          <li key={n.id} className="group rounded-surface border border-line bg-surface px-3 py-2.5">
+            <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{n.body}</p>
             <div className="mt-1.5 flex items-center gap-2 text-xs text-faint">
-              <span>{n.author.label}</span>
-              <RelativeTime iso={n.created_at} />
+              <span className="min-w-0 truncate">{n.author.label}</span>
+              <RelativeTime iso={n.created_at} className="shrink-0" />
               <ConfirmButton
                 label="Delete note"
                 confirmLabel="Delete note?"
-                className="ml-auto opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+                className="-my-1 ml-auto group-focus-within:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
                 onConfirm={() => remove.mutate(n)}
               >
                 <Icon name="trash" className="size-3.5" />

@@ -90,7 +90,7 @@ function Entry({ a }: { a: Activity }) {
       <span className="z-[1] grid size-6 shrink-0 place-items-center rounded-full border border-line bg-surface text-muted">
         <Icon name={k?.icon ?? "alert"} className="size-3" />
       </span>
-      <p className="min-w-0 flex-1 pt-0.5 text-sm leading-5">
+      <p className="min-w-0 flex-1 pt-0.5 text-sm leading-5 [overflow-wrap:anywhere]">
         {k?.byline !== false && (
           <>
             <span className="font-medium">{a.actor.label || a.actor.id}</span>
