@@ -78,11 +78,13 @@ func (s *Service) ListActivity(ctx context.Context, q ActivityQuery) (Page[Activ
 // Status summarizes the instance for Settings and agents.
 func (s *Service) Status(ctx context.Context) (Status, error) {
 	st := Status{
-		EnrichmentEnabled: s.enricher != nil,
-		Jobs:              map[JobState]int{JobPending: 0, JobRunning: 0, JobDone: 0, JobFailed: 0, JobSkipped: 0},
+		EnrichmentEnabled:    s.enricher != nil,
+		EnrichmentDailyLimit: s.dailyLimit,
+		Jobs:                 map[JobState]int{JobPending: 0, JobRunning: 0, JobDone: 0, JobFailed: 0, JobSkipped: 0},
 	}
-	err := s.db.QueryRow(ctx, `SELECT (SELECT count(*) FROM contacts), (SELECT count(*) FROM companies)`).
-		Scan(&st.Contacts, &st.Companies)
+	err := s.db.QueryRow(ctx, `SELECT (SELECT count(*) FROM contacts), (SELECT count(*) FROM companies),
+		COALESCE((SELECT calls FROM enrichment_usage WHERE day = (now() AT TIME ZONE 'UTC')::date), 0)`).
+		Scan(&st.Contacts, &st.Companies, &st.EnrichmentCallsToday)
 	if err != nil {
 		return st, err
 	}

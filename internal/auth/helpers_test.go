@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"github.com/unkeyed/keyring/internal/secretbox"
 	"net/url"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ type fixture struct {
 func newFixture(t *testing.T, mod ...func(*Config)) *fixture {
 	t.Helper()
 	u, _ := url.Parse(testOrigin)
-	cfg := Config{PublicURL: u, PasswordLogin: true}
+	cfg := Config{PublicURL: u, PasswordLogin: true, Secrets: secretbox.ForTest()}
 	for _, m := range mod {
 		m(&cfg)
 	}

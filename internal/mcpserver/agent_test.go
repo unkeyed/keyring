@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"github.com/unkeyed/keyring/internal/secretbox"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -23,7 +24,7 @@ func session(t *testing.T) (*mcp.ClientSession, *crm.Service, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
 	pool := testdb.New(t)
-	svc := crm.New(pool, nil)
+	svc := crm.New(pool, nil, secretbox.ForTest())
 	srv := httptest.NewServer(Handler(svc, auth.NewKeyStore(pool, auth.UnkeyConfig{}), app, "test"))
 	t.Cleanup(srv.Close)
 	cs, err := connect(ctx, srv.URL, app.token)

@@ -36,9 +36,10 @@ cd web && npm run build   # TypeScript check and production build
 
 `make test` needs Postgres. `make dev` starts it, or run `docker compose up -d --wait db`. Each test gets its own freshly migrated database, which it drops afterwards. If Postgres is unreachable, the tests fail instead of skipping. To use another server, set `TEST_DATABASE_URL` to a role that can create databases.
 
-The end-to-end tests drive a running Keyring over HTTP:
+The end-to-end tests drive a running Keyring over HTTP. The stack needs an `ENCRYPTION_KEY` in `.env` (`make dev` keeps its own in `.keyring-dev-key`):
 
 ```sh
+grep -q ENCRYPTION_KEY .env 2>/dev/null || echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
 docker compose up -d --build --wait
 make e2e
 ```

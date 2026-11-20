@@ -14,11 +14,9 @@ export function Setup() {
   const { token = "" } = useParams();
   const check = useQuery({
     queryKey: keys.setup(token),
-    queryFn: async () => {
-      await api.auth.checkSetup(token);
-      return true;
-    },
+    queryFn: () => api.auth.checkSetup(token),
   });
+  const recovery = check.data?.recovery ?? false;
   const options = useAuthOptions();
   const signIn = useSignIn();
   const [name, setName] = useState("");
@@ -42,10 +40,11 @@ export function Setup() {
   }
   if (check.isError || used(create.error)) {
     return (
-      <AuthShell title="This setup link no longer works">
+      <AuthShell title="This link no longer works">
         {used(check.error) || used(create.error) ? (
           <p className="text-sm text-muted">
-            It was already used, or it is not the latest one. If nobody can sign in yet, restart Keyring and open the new link from the server log.
+            It was already used, it expired, or it is not the latest one. If nobody can sign in yet, restart Keyring and open the new link from the server
+            log. If you lost your passkey, ask whoever runs Keyring for a new recovery link.
           </p>
         ) : (
           <ErrorNote error={check.error} />
@@ -56,6 +55,23 @@ export function Setup() {
   }
 
   const providers = options.data?.providers ?? [];
+  if (recovery) {
+    return (
+      <AuthShell title="Recover your account" subtitle="Register a new passkey for your account. This signs you out everywhere else.">
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Your account's email">
+            <input className={inputClass} type="email" autoComplete="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
+          </Field>
+          <ErrorNote error={create.error} />
+          <Button type="submit" variant="primary" className="w-full" disabled={create.isPending}>
+            <Icon name="key" className="size-3.5" />
+            {create.isPending ? "Waiting for your passkey…" : "Register a new passkey"}
+          </Button>
+        </form>
+        <p className="mt-3 text-xs text-muted">Once you are in, remove the passkey you lost under Settings &gt; Account.</p>
+      </AuthShell>
+    );
+  }
   return (
     <AuthShell title="Set up Keyring" subtitle="Create the first account. You sign in with a passkey, so there is no password to choose.">
       <form onSubmit={submit} className="space-y-3">

@@ -50,7 +50,7 @@ export function Agents() {
           <NewKey k={created} />
         ) : (
           <>
-            <CreateKeyForm defaultName="Signup backend" onCreated={setCreated} />
+            <CreateKeyForm defaultName="Signup backend" defaultDays={0} allowReadOnly={false} onCreated={setCreated} />
             <p className="text-xs text-faint">
               The snippets below fill in with the new key. You can also manage keys under{" "}
               <Link to="/settings/keys" className="text-fg underline underline-offset-2 hover:opacity-70">

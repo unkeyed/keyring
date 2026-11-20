@@ -6,6 +6,8 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+
+	"github.com/unkeyed/keyring/internal/secretbox"
 )
 
 type Config struct {
@@ -22,6 +24,8 @@ type Config struct {
 	// sets to the client's address. Empty means use the TCP peer address.
 	ClientIPHeader string
 	Providers      []ProviderConfig
+	// Secrets seals TOTP seeds at rest. Required.
+	Secrets *secretbox.Box
 }
 
 type ProviderConfig struct {

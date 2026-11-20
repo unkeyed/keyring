@@ -39,6 +39,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/unkeyed/keyring/internal/secretbox"
 )
 
 // Errors every transport maps to a status code or tool error. Wrap them with
@@ -48,19 +50,21 @@ var (
 	ErrInvalid         = errors.New("invalid input")
 	ErrConflict        = errors.New("conflict") // the thing to create already exists
 	ErrUnknownProvider = errors.New("unknown provider")
-	ErrNotConnected    = errors.New("provider not connected")
 )
 
 type Service struct {
 	db       *pgxpool.Pool
-	enricher Enricher // nil when CONTEXT_DEV_API_KEY is unset
-	now      func() time.Time
+	enricher Enricher       // nil when CONTEXT_DEV_API_KEY is unset
+	secrets  *secretbox.Box // seals provider_connections.secret
+	// dailyLimit caps enricher calls per UTC day; 0 means none.
+	dailyLimit int
+	now        func() time.Time
 }
 
 // New returns the service. enricher may be nil: jobs then stay pending and
 // run once a key is configured and the container restarts.
-func New(db *pgxpool.Pool, enricher Enricher) *Service {
-	return &Service{db: db, enricher: enricher, now: time.Now}
+func New(db *pgxpool.Pool, enricher Enricher, secrets *secretbox.Box) *Service {
+	return &Service{db: db, enricher: enricher, secrets: secrets, now: time.Now}
 }
 
 // observe is write rule 2 for one column: it sets *col to the machine value

@@ -306,7 +306,7 @@ func (u *Users) StartOAuth(ctx context.Context, s OAuthStart, cur *Current) (red
 		st.UserID = cur.UserID
 	case IntentSetup:
 		st.TokenHash = hashToken(s.Token)
-		if err := u.checkSetup(ctx, u.db, st.TokenHash); err != nil {
+		if _, err := u.checkSetup(ctx, u.db, st.TokenHash); err != nil {
 			return "", "", err
 		}
 	case IntentInvite:

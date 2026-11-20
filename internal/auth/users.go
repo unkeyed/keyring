@@ -93,6 +93,9 @@ type User struct {
 }
 
 func NewUsers(db *pgxpool.Pool, cfg Config) (*Users, error) {
+	if cfg.Secrets == nil {
+		return nil, errors.New("auth: Config.Secrets is required to seal TOTP seeds")
+	}
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:          cfg.PublicURL.Hostname(),
 		RPDisplayName: "Keyring",

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/unkeyed/keyring/internal/secretbox"
 	"io"
 	"log/slog"
 	"net/http"
@@ -150,7 +151,7 @@ func serve(t *testing.T, srv *httptest.Server, publicURL string, mod ...func(*au
 	t.Helper()
 	pool := testdb.New(t)
 	u, _ := url.Parse(publicURL)
-	cfg := auth.Config{PublicURL: u}
+	cfg := auth.Config{PublicURL: u, Secrets: secretbox.ForTest()}
 	for _, m := range mod {
 		m(&cfg)
 	}
@@ -163,7 +164,7 @@ func serve(t *testing.T, srv *httptest.Server, publicURL string, mod ...func(*au
 		t.Fatal(err)
 	}
 	authn := &auth.Authenticator{Keys: auth.NewKeyStore(pool, auth.UnkeyConfig{}), Users: users, OAuth: auth.NewOAuthServer(pool, u)}
-	svc := crm.New(pool, nil)
+	svc := crm.New(pool, nil, secretbox.ForTest())
 	mux := NewMux(svc, authn, slog.New(slog.DiscardHandler))
 	mux.Handle("/mcp", mcpserver.Handler(svc, authn.Keys, authn.OAuth, "test"))
 	srv.Config.Handler = mux
@@ -410,7 +411,7 @@ func TestErrorStatuses(t *testing.T) {
 		{"bad email", agent, "POST", "/v1/signups", map[string]string{"email": "nope"}, http.StatusBadRequest},
 		{"reset an unknown field", agent, "DELETE", "/v1/contacts/1/manual_fields/shoe_size", nil, http.StatusBadRequest},
 		{"unknown provider", person, "PUT", "/v1/providers/myspace", map[string]string{"secret": "x"}, http.StatusNotFound},
-		{"webhook for an unconnected provider", c, "POST", "/webhooks/clerk", map[string]string{}, http.StatusNotFound},
+		{"webhook for an unconnected provider", c, "POST", "/webhooks/clerk", map[string]string{}, http.StatusUnauthorized},
 		{"invite an existing user", person, "POST", "/v1/invites", map[string]string{"email": adminEmail}, http.StatusConflict},
 		{"unknown /v1 route", agent, "GET", "/v1/nope", nil, http.StatusNotFound},
 		{"unknown activity kind", agent, "GET", "/v1/activity?kind=signup", nil, http.StatusBadRequest},
@@ -440,7 +441,11 @@ func TestSignInAndOut(t *testing.T) {
 	if !opts.SetupRequired || opts.PasswordLogin || len(opts.Providers) != 0 {
 		t.Fatalf("options before setup = %+v", opts)
 	}
-	c.call("GET", "/auth/setup/"+c.setupToken, nil, http.StatusNoContent, nil)
+	var setup struct{ Recovery bool }
+	c.call("GET", "/auth/setup/"+c.setupToken, nil, http.StatusOK, &setup)
+	if setup.Recovery {
+		t.Fatal("the first-account setup link reports itself as a recovery link")
+	}
 
 	person, _ := login(t, c)
 	c.call("GET", "/auth/options", nil, http.StatusOK, &opts)
@@ -734,12 +739,12 @@ func (downKeys) Verify(context.Context, string) (crm.Actor, error) {
 func TestKeyStoreOutageIs503(t *testing.T) {
 	pool := testdb.New(t)
 	u, _ := url.Parse(testOrigin)
-	users, err := auth.NewUsers(pool, auth.Config{PublicURL: u})
+	users, err := auth.NewUsers(pool, auth.Config{PublicURL: u, Secrets: secretbox.ForTest()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	authn := &auth.Authenticator{Keys: downKeys{}, Users: users, OAuth: auth.NewOAuthServer(pool, u)}
-	srv := httptest.NewServer(NewMux(crm.New(pool, nil), authn, slog.New(slog.DiscardHandler)))
+	srv := httptest.NewServer(NewMux(crm.New(pool, nil, secretbox.ForTest()), authn, slog.New(slog.DiscardHandler)))
 	t.Cleanup(srv.Close)
 	r := client{t: t, base: srv.URL, key: "keyring_whatever"}.do("GET", "/v1/contacts", nil)
 	var e struct {
@@ -793,7 +798,11 @@ func TestSecurityHeaders(t *testing.T) {
 	const csp = "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
 	for _, publicURL := range []string{"http://localhost:8080", "https://crm.example.com"} {
 		u, _ := url.Parse(publicURL)
-		mux := NewMux(nil, &auth.Authenticator{OAuth: auth.NewOAuthServer(nil, u)}, slog.New(slog.DiscardHandler))
+		users, err := auth.NewUsers(nil, auth.Config{PublicURL: u, Secrets: secretbox.ForTest()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		mux := NewMux(nil, &auth.Authenticator{Users: users, OAuth: auth.NewOAuthServer(nil, u)}, slog.New(slog.DiscardHandler))
 		mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "<!doctype html>") }))
 		srv := httptest.NewServer(SecurityHeaders(u, mux))
 		t.Cleanup(srv.Close)
@@ -805,6 +814,9 @@ func TestSecurityHeaders(t *testing.T) {
 			}
 			if hsts := h.Get("Strict-Transport-Security"); (hsts != "") != (u.Scheme == "https") {
 				t.Errorf("%s %s: Strict-Transport-Security %q", publicURL, path, hsts)
+			}
+			if path != "/" && path != "/contacts/42" && (h.Get("Cache-Control") != "no-store" || h.Get("Vary") != "Cookie, Authorization") {
+				t.Errorf("%s %s: Cache-Control %q, Vary %q, want no-store varying on Cookie and Authorization", publicURL, path, h.Get("Cache-Control"), h.Get("Vary"))
 			}
 		}
 	}

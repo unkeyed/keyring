@@ -39,3 +39,23 @@ func TestHandlerExplainsAMissingBuild(t *testing.T) {
 		t.Fatalf("GET / without a build = %d %q", rec.Code, rec.Body.String())
 	}
 }
+
+// A missing file is a 404, so a stale hashed chunk or a probe for a source
+// map never gets the app's HTML. Paths without an extension are client-side
+// routes and still get the app.
+func TestHandlerRefusesMissingFiles(t *testing.T) {
+	h := handler(fstest.MapFS{
+		"index.html":      {Data: []byte(`<div id="root"></div>`)},
+		"assets/app-1.js": {Data: []byte(`console.log(1)`)},
+	})
+	for _, p := range []string{"/assets/app-2.js", "/assets/app-1.js.map", "/assets/nope", "/favicon.ico", "/.env"} {
+		if rec := get(h, p); rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "root") {
+			t.Errorf("GET %s = %d %q, want 404", p, rec.Code, rec.Body.String())
+		}
+	}
+	for _, p := range []string{"/settings/keys", "/setup/abc123", "/invite/AbC-dEf_1"} {
+		if rec := get(h, p); rec.Code != http.StatusOK || rec.Body.String() != `<div id="root"></div>` {
+			t.Errorf("GET %s = %d, want the app", p, rec.Code)
+		}
+	}
+}

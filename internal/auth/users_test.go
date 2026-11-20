@@ -32,7 +32,9 @@ func TestSetupLinkIsSingleUse(t *testing.T) {
 	if bootA == "" || bootB == "" || bootA == bootB {
 		t.Fatalf("two boots gave setup tokens %q and %q, want two distinct tokens", bootA, bootB)
 	}
-	f.must(f.users.CheckSetupToken(f.ctx, bootA))
+	if recovery, err := f.users.CheckSetupToken(f.ctx, bootA); err != nil || recovery {
+		t.Fatalf("CheckSetupToken(setup link) = recovery %v, %v", recovery, err)
+	}
 
 	if _, _, err := f.signup(Signup{SetupToken: "guessed-token", Email: "ada@example.com"}); !errors.Is(err, crm.ErrNotFound) {
 		t.Fatalf("unknown setup token: %v, want ErrNotFound", err)
@@ -47,7 +49,7 @@ func TestSetupLinkIsSingleUse(t *testing.T) {
 		if _, _, err := f.signup(Signup{SetupToken: token, Email: "eve@example.com"}); !errors.Is(err, crm.ErrNotFound) {
 			t.Fatalf("setup token after setup: %v, want ErrNotFound", err)
 		}
-		if err := f.users.CheckSetupToken(f.ctx, token); !errors.Is(err, crm.ErrNotFound) {
+		if _, err := f.users.CheckSetupToken(f.ctx, token); !errors.Is(err, crm.ErrNotFound) {
 			t.Fatalf("CheckSetupToken after setup: %v", err)
 		}
 	}
@@ -548,9 +550,9 @@ func TestRemoveMember(t *testing.T) {
 	mate := f.current(mateCookie)
 	f.enrolTOTP(mateCookie)
 	keys := NewKeyStore(f.pool, UnkeyConfig{})
-	adminKey, _, err := keys.Create(f.ctx, admin, "admin's agent")
+	adminKey, _, err := keys.Create(f.ctx, admin, KeyOptions{Name: "admin's agent"})
 	f.must(err)
-	mateKey, _, err := keys.Create(f.ctx, f.actor(mateCookie), "bob's agent")
+	mateKey, _, err := keys.Create(f.ctx, f.actor(mateCookie), KeyOptions{Name: "bob's agent"})
 	f.must(err)
 
 	f.must(f.users.Remove(f.ctx, admin, mate.UserID, keys))
@@ -781,7 +783,7 @@ func TestCaller(t *testing.T) {
 	f := newFixture(t)
 	_, cookie := f.firstUser("ada@example.com")
 	authn := &Authenticator{Keys: NewKeyStore(f.pool, UnkeyConfig{}), Users: f.users}
-	key, _, err := authn.Keys.Create(f.ctx, crm.Actor{}, "agent")
+	key, _, err := authn.Keys.Create(f.ctx, crm.Actor{}, KeyOptions{Name: "agent"})
 	f.must(err)
 	request := func(authorization, session string) *http.Request {
 		r := httptest.NewRequest(http.MethodGet, "/v1/me", nil)

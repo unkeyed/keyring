@@ -30,12 +30,29 @@ export function Enrichment() {
                 </div>
               </div>
             </div>
+          ) : s.enrichment_daily_limit > 0 && s.enrichment_calls_today >= s.enrichment_daily_limit ? (
+            <div className="flex items-start gap-3 rounded-surface border border-warn/40 bg-warn-soft p-4 text-warn">
+              <Icon name="alert" className="mt-0.5 size-4" />
+              <div className="min-w-0 text-sm">
+                <div className="font-semibold">Paused: today&apos;s limit of {s.enrichment_daily_limit.toLocaleString()} lookups is used up</div>
+                <div className="mt-2 text-xs opacity-80">
+                  Queued records are looked up after midnight UTC. Raise <code className="font-mono">ENRICHMENT_DAILY_LIMIT</code> and restart to go on today.
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="flex items-center gap-2 rounded-surface border border-line bg-surface p-4 text-sm">
               <span className={cx("size-2 shrink-0 rounded-full", s.enrichment_enabled ? "bg-success" : "bg-faint")} />
               <span className="font-medium">{s.enrichment_enabled ? "On." : "Off."}</span>
               <span className="text-muted">{s.enrichment_enabled ? "New sign-ups are looked up within seconds." : "Records queue up and are enriched once a key is set."}</span>
             </div>
+          )}
+          {s.enrichment_enabled && (
+            <p className="mt-2 text-xs text-muted">
+              {s.enrichment_calls_today.toLocaleString()}
+              {s.enrichment_daily_limit > 0 ? ` of ${s.enrichment_daily_limit.toLocaleString()}` : ""} lookups today (UTC). The limit,{" "}
+              <code className="font-mono">ENRICHMENT_DAILY_LIMIT</code>, keeps a leaked key or a flood of sign-ups from spending your context.dev credits.
+            </p>
           )}
 
           <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-surface border border-line bg-line sm:grid-cols-5">

@@ -293,6 +293,9 @@ export interface Status {
   companies: number;
   /** Where API keys live: Postgres, or Unkey when UNKEY_ROOT_KEY is set. */
   key_store: "builtin" | "unkey";
+  /** ENRICHMENT_DAILY_LIMIT, 0 for no limit. Jobs wait for the next UTC day once calls reach it. */
+  enrichment_daily_limit: number;
+  enrichment_calls_today: number;
 }
 
 export interface Key {
@@ -300,8 +303,18 @@ export interface Key {
   name: string;
   /** "keyring_ab12", so people can tell keys apart. */
   prefix: string;
+  /** Only GET routes: it can read but not change or enrich anything. */
+  read_only: boolean;
+  /** When it stops working. Absent for a key that works until revoked. */
+  expires_at?: Timestamp;
   created_at: Timestamp;
   last_used_at?: Timestamp;
+}
+
+export interface KeyOptions {
+  name: string;
+  read_only: boolean;
+  expires_at?: Timestamp;
 }
 
 /** An MCP client a person approved. Its name is whatever the app registered, unverified. */
@@ -489,8 +502,8 @@ export const api = {
     secondFactorCode: (code: string) => request<SignInResponse>("POST", "/auth/second-factor/code", { body: { code } }),
     secondFactorPasskeyBegin: () => request<AssertionStart>("POST", "/auth/second-factor/passkey/begin"),
     secondFactorPasskeyFinish: (body: CeremonyFinish) => request<SignInResponse>("POST", "/auth/second-factor/passkey/finish", { body }),
-    /** 404 once the link is used, or when it never existed. */
-    checkSetup: (token: string) => request<void>("GET", `/auth/setup/${enc(token)}`),
+    /** 404 once the link is used, expired, or never existed. recovery is true for a link from `keyring recover`. */
+    checkSetup: (token: string) => request<{ recovery: boolean }>("GET", `/auth/setup/${enc(token)}`),
     invite: (token: string) => request<{ email: Email }>("GET", `/auth/invites/${enc(token)}`),
     signupBegin: (body: { setup_token: string; email: string; name: string } | { invite_token: string; name: string }) =>
       request<RegistrationStart>("POST", "/auth/signup/passkey/begin", { body }),
@@ -587,7 +600,7 @@ export const api = {
 
   keys: {
     list: () => request<Key[]>("GET", "/v1/keys"),
-    create: (name: string) => request<CreatedKey>("POST", "/v1/keys", { body: { name } }),
+    create: (body: KeyOptions) => request<CreatedKey>("POST", "/v1/keys", { body }),
     revoke: (id: KeyID) => request<void>("DELETE", `/v1/keys/${enc(id)}`),
   },
 

@@ -221,6 +221,9 @@ type Actor struct {
 	Kind  ActorKind `json:"kind"`
 	ID    string    `json:"id"`
 	Label string    `json:"label"`
+	// ReadOnly is set for an API key created read-only. httpapi refuses it
+	// every route but GET. It is never stored with the actor.
+	ReadOnly bool `json:"-"`
 }
 
 type ActorKind string
@@ -398,11 +401,15 @@ type ProviderStatus struct {
 
 // Status is the instance health summary for Settings and agents.
 type Status struct {
-	EnrichmentEnabled bool             `json:"enrichment_enabled"`
-	EnrichmentHalt    *EnrichmentHalt  `json:"enrichment_halt,omitempty"` // nil unless paused now
-	Jobs              map[JobState]int `json:"jobs"`
-	Contacts          int              `json:"contacts"`
-	Companies         int              `json:"companies"`
+	EnrichmentEnabled bool            `json:"enrichment_enabled"`
+	EnrichmentHalt    *EnrichmentHalt `json:"enrichment_halt,omitempty"` // nil unless paused now
+	// EnrichmentDailyLimit is ENRICHMENT_DAILY_LIMIT, 0 for none. Once
+	// EnrichmentCallsToday reaches it, jobs wait for the next UTC day.
+	EnrichmentDailyLimit int              `json:"enrichment_daily_limit"`
+	EnrichmentCallsToday int              `json:"enrichment_calls_today"`
+	Jobs                 map[JobState]int `json:"jobs"`
+	Contacts             int              `json:"contacts"`
+	Companies            int              `json:"companies"`
 }
 
 // EnrichmentHalt is why enrichment is paused (context.dev rejected the key or

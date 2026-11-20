@@ -5,9 +5,12 @@ E2E_SETUP_TOKEN ?=
 
 .PHONY: dev test lint build web e2e
 
+# make dev keeps a local ENCRYPTION_KEY in .keyring-dev-key (gitignored), so
+# secrets stored while developing stay readable across restarts.
 dev:
 	docker compose up -d --wait db
-	DATABASE_URL='$(DATABASE_URL)' go run ./cmd/keyring
+	@test -s .keyring-dev-key || openssl rand -base64 32 > .keyring-dev-key
+	DATABASE_URL='$(DATABASE_URL)' ENCRYPTION_KEY="$$(cat .keyring-dev-key)" go run ./cmd/keyring
 
 test:
 	go test -skip '$(GO_TEST_SKIP)' ./...

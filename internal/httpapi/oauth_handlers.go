@@ -92,7 +92,7 @@ func (s *server) registerClient(w http.ResponseWriter, r *http.Request) {
 // one is explained on that page.
 func (s *server) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	handle, err := s.oauth.Authorize(r.Context(), auth.AuthorizeRequest{
+	handle, err := s.oauth.Authorize(r.Context(), s.users.ClientOf(r), auth.AuthorizeRequest{
 		ClientID: q.Get("client_id"), RedirectURI: q.Get("redirect_uri"), ResponseType: q.Get("response_type"),
 		CodeChallenge: q.Get("code_challenge"), CodeChallengeMethod: q.Get("code_challenge_method"),
 		State: q.Get("state"), Resource: q.Get("resource"),

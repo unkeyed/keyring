@@ -5,13 +5,15 @@ Keyring reads its configuration from environment variables when it starts. `cmd/
 | Variable | Required | Default | What it does |
 |---|---|---|---|
 | `DATABASE_URL` | Yes | none | The Postgres connection URL, for example `postgres://user:pass@host:5432/keyring`. |
+| `ENCRYPTION_KEY` | Yes | none | 32 random bytes as base64 or hex, from `openssl rand -base64 32`. Encrypts webhook secrets and TOTP seeds in the database. |
+| `ENCRYPTION_KEY_PREVIOUS` | No | none | The key you are rotating away from. Set it for one restart after changing `ENCRYPTION_KEY`. |
 | `MIGRATION_DATABASE_URL` | No | `DATABASE_URL` | A connection URL for a role that can create tables. Keyring applies migrations through it, so `DATABASE_URL` can be a role that only reads and writes data. |
 | `PORT` | No | `8080` | The port the HTTP server listens on. |
 | `PUBLIC_URL` | No | `http://localhost:$PORT` | The URL people open Keyring at, such as `https://crm.example.com`. Passkeys, provider callbacks and MCP sign-in depend on it. |
 | `SETUP_TOKEN` | No | random | The token of the setup link, at least 32 characters. See [The setup link](sign-in.md#the-setup-link). |
 | `PASSWORD_LOGIN` | No | `false` | `true` lets people set a password, which always needs a second step. |
 | `ALLOWED_EMAIL_DOMAINS` | No | none | Comma-separated domains, such as `acme.com`, whose addresses can join without an invite through Google Workspace or the OIDC issuer. GitHub accounts always need an invite. |
-| `CLIENT_IP_HEADER` | No | none | The header your proxy writes the client IP to, such as `X-Forwarded-For`. Used to throttle failed sign-ins per IP. |
+| `CLIENT_IP_HEADER` | No | none | The header your proxy writes the client IP to, such as `X-Forwarded-For`. Keyring throttles failed sign-ins, OAuth requests and failed webhook deliveries per client IP. Set it to `X-Forwarded-For` on Unkey Deploy. |
 | `GOOGLE_CLIENT_ID` | No | none | A Google OAuth client ID. Set it with `GOOGLE_CLIENT_SECRET` to offer Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | No | none | The Google OAuth client secret. |
 | `GITHUB_CLIENT_ID` | No | none | A GitHub OAuth app client ID. Set it with `GITHUB_CLIENT_SECRET` to offer GitHub sign-in. |
@@ -23,12 +25,15 @@ Keyring reads its configuration from environment variables when it starts. `cmd/
 | `ADMIN_EMAIL` | No | none | Removed. Keyring refuses to start while it is set. |
 | `ADMIN_PASSWORD` | No | none | Removed. Keyring refuses to start while it is set. |
 | `CONTEXT_DEV_API_KEY` | No | none | The context.dev API key. Without it, enrichment is off. |
+| `ENRICHMENT_DAILY_LIMIT` | No | `200` | The most context.dev lookups per UTC day across all replicas. `0` means no limit. |
 | `UNKEY_ROOT_KEY` | No | none | An Unkey root key. Set it together with `UNKEY_API_ID` to store API keys in Unkey. |
 | `UNKEY_API_ID` | No | none | The Unkey API that holds Keyring's keys, for example `api_123`. |
 
 Keyring exits with an error that names the variable when one of these rules fails:
 
 - `DATABASE_URL` is empty.
+- `ENCRYPTION_KEY` is empty or not 32 bytes, or `ENCRYPTION_KEY_PREVIOUS` is set and not 32 bytes.
+- `ENRICHMENT_DAILY_LIMIT` is not a whole number of 0 or more.
 - Only one of `UNKEY_ROOT_KEY` and `UNKEY_API_ID` is set.
 - `PUBLIC_URL` is not an origin, or uses `http` with a host other than `localhost` or `127.0.0.1`.
 - `PASSWORD_LOGIN` is not `true` or `false`.
@@ -57,6 +62,31 @@ MIGRATION_DATABASE_URL='postgres://admin:pass@host:5432/keyring' keyring migrate
 ```
 
 `keyring migrate` applies any pending migrations and exits. With the Docker image, run `docker run --rm -e MIGRATION_DATABASE_URL=... ghcr.io/unkeyed/keyring migrate`.
+
+## `ENCRYPTION_KEY`
+
+Keyring hashes the tokens it only compares, such as session cookies, API keys and recovery codes. It must read two kinds of secret back, so it encrypts those with AES-256-GCM under `ENCRYPTION_KEY`:
+
+- each auth provider's webhook signing secret, which would let anyone forge sign-ups
+- each person's TOTP seed, which would let anyone make their two-factor codes
+
+A database backup, a replica or a read-only role then reveals neither. Each value is bound to its row, so copying one into another row does not decrypt it there.
+
+Generate the key once and store it with your other secrets:
+
+```sh
+openssl rand -base64 32
+```
+
+If you lose the key, Keyring cannot read those secrets and exits at start. Reconnect each provider under **Settings > Providers** with a fresh secret, and have each person set up their authenticator app again, after deleting the old rows with `DELETE FROM provider_connections; DELETE FROM totp;`.
+
+At every start, Keyring encrypts any secret still stored in plaintext from a version before encryption.
+
+To rotate the key:
+
+1. Set `ENCRYPTION_KEY_PREVIOUS` to the current key and `ENCRYPTION_KEY` to a new one.
+2. Restart. Keyring re-encrypts every secret with the new key and logs how many it changed.
+3. Remove `ENCRYPTION_KEY_PREVIOUS` and restart again.
 
 ## `PORT`
 
@@ -87,6 +117,12 @@ Companies enriched before an upgrade get the new details the next time they are 
 Without a key, enrichment jobs wait in the `pending` state. Set the key and restart Keyring, and the worker runs every waiting job.
 
 If context.dev rejects the key or the account (HTTP 401, 402, or 403), every replica pauses enrichment for 15 minutes. **Settings > Enrichment** shows the reason. A restart clears the pause.
+
+## `ENRICHMENT_DAILY_LIMIT`
+
+Every lookup spends context.dev credits. The daily limit caps what a leaked API key, a misbehaving agent or a flood of sign-ups can spend. Once today's lookups reach it, jobs wait as pending until midnight UTC, and **Settings > Enrichment** says so. `GET /v1/status` reports `enrichment_calls_today` and `enrichment_daily_limit`.
+
+Separately, each API key gets 30 enrichment requests before Keyring slows it down with `429 Too Many Requests`.
 
 ## `UNKEY_ROOT_KEY` and `UNKEY_API_ID`
 

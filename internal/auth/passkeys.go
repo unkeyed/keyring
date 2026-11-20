@@ -340,8 +340,19 @@ func (u *Users) BeginPasskeySignup(ctx context.Context, s Signup) (string, *prot
 		if err := checkEmail(n.Email); err != nil {
 			return "", nil, err
 		}
-		if err := u.checkSetup(ctx, u.db, n.TokenHash); err != nil {
+		g, err := u.checkSetup(ctx, u.db, n.TokenHash)
+		if err != nil {
 			return "", nil, err
+		}
+		if g.userID != 0 {
+			if n.Email != g.email {
+				return "", nil, fmt.Errorf("%w: this recovery link is for another account; enter the email it was issued for", crm.ErrInvalid)
+			}
+			// Keep the user's WebAuthn handle so their other passkeys
+			// still sign them in.
+			if g.handle != nil {
+				n.Handle = g.handle
+			}
 		}
 	case s.InviteToken != "" && s.SetupToken == "":
 		email, err := u.InviteEmail(ctx, s.InviteToken)

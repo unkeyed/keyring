@@ -1,6 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,19 +19,57 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request, _ crm.Actor) er
 	return nil
 }
 
+// openapiETag changes whenever openapi.yaml does.
+var openapiETag = func() string {
+	sum := sha256.Sum256(openapiYAML)
+	return `"` + hex.EncodeToString(sum[:8]) + `"`
+}()
+
+// openapi is public and the same for everyone, so caches may keep it but
+// must revalidate, and a client holding the current ETag gets a 304.
 func (s *server) openapi(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	w.Header().Set("Content-Type", "application/yaml")
-	_, err := w.Write(openapiYAML)
-	return err
+	h := w.Header()
+	h.Set("Content-Type", "application/yaml")
+	h.Set("Cache-Control", "public, no-cache")
+	h.Del("Vary")
+	h.Set("ETag", openapiETag)
+	http.ServeContent(w, r, "openapi.yaml", time.Time{}, bytes.NewReader(openapiYAML))
+	return nil
 }
 
+// maxWebhookBody is the largest delivery Keyring reads. A larger declared
+// Content-Length is refused before reading, and a body that turns out larger
+// is cut off before any signature is computed.
+const maxWebhookBody = 1 << 20
+
+// receiveWebhook answers every delivery that fails verification, including
+// one for an unknown or unconnected provider, with the same 401 body, and
+// counts it against the caller's address. Once an address has failed too
+// often it gets 429 before its body is read. The Settings page still shows
+// the specific reason for a connected provider.
 func (s *server) receiveWebhook(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	ip := s.users.ClientOf(r).IP
+	if err := s.users.Throttled(r.Context(), "webhook", ip); err != nil {
+		return err
+	}
+	if r.ContentLength > maxWebhookBody {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body is larger than 1 MiB"})
+		return nil
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWebhookBody))
 	if err != nil {
 		return fmt.Errorf("%w: %v", crm.ErrInvalid, err)
 	}
 	d := signup.Delivery{Header: r.Header, Body: body, ReceivedAt: time.Now()}
-	if err := s.svc.ReceiveWebhook(r.Context(), r.PathValue("provider"), d); err != nil {
+	err = s.svc.ReceiveWebhook(r.Context(), r.PathValue("provider"), d)
+	if errors.Is(err, signup.ErrBadSignature) {
+		if ferr := s.users.Failed(r.Context(), "webhook", ip); ferr != nil {
+			return fmt.Errorf("%w: %w", errUnavailable, ferr)
+		}
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": signup.ErrBadSignature.Error()})
+		return nil
+	}
+	if err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -208,9 +250,22 @@ func enriched(w http.ResponseWriter, st crm.JobState, err error) error {
 	return respond(w, code, enrichResult{st}, err)
 }
 
+// keyEnrichLimit throttles enrichment asked for with an API key, so a leaked
+// key cannot spend the context.dev budget in a loop. People and the daily
+// cap (ENRICHMENT_DAILY_LIMIT) are not limited here.
+func (s *server) keyEnrichLimit(r *http.Request, a crm.Actor) error {
+	if a.Kind != crm.ActorAPIKey {
+		return nil
+	}
+	return s.users.Attempt(r.Context(), "enrich", a.ID)
+}
+
 func (s *server) enrichContact(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
 	id, err := pathID(r, "id")
 	if err != nil {
+		return err
+	}
+	if err := s.keyEnrichLimit(r, a); err != nil {
 		return err
 	}
 	st, err := s.svc.EnrichContact(r.Context(), a, crm.ContactID(id))
@@ -279,6 +334,9 @@ func (s *server) resetCompanyField(w http.ResponseWriter, r *http.Request, a crm
 func (s *server) enrichCompany(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
 	id, err := pathID(r, "id")
 	if err != nil {
+		return err
+	}
+	if err := s.keyEnrichLimit(r, a); err != nil {
 		return err
 	}
 	st, err := s.svc.EnrichCompany(r.Context(), a, crm.CompanyID(id))

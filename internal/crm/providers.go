@@ -68,11 +68,47 @@ func (s *Service) ConnectProvider(ctx context.Context, actor Actor, name, secret
 		INSERT INTO provider_connections (provider, secret) VALUES ($1, $2)
 		ON CONFLICT (provider) DO UPDATE
 		   SET secret = EXCLUDED.secret, connected_at = now(),
-		       last_delivery_at = NULL, last_error = '', last_error_at = NULL`, name, secret)
+		       last_delivery_at = NULL, last_error = '', last_error_at = NULL`, name, s.secrets.Seal(secret, providerSecretContext(name)))
 	return secret, err
 }
 
-// DisconnectProvider deletes the connection. Deliveries then get ErrNotConnected.
+func providerSecretContext(provider string) string { return "provider_connections:" + provider }
+
+// SealProviderSecrets seals every webhook secret not yet sealed with the
+// current ENCRYPTION_KEY: plaintext from before encryption, or a value
+// sealed with ENCRYPTION_KEY_PREVIOUS. main runs it at every start.
+func (s *Service) SealProviderSecrets(ctx context.Context) (int, error) {
+	rows, err := s.db.Query(ctx, `SELECT provider, secret FROM provider_connections`)
+	if err != nil {
+		return 0, err
+	}
+	type row struct{ provider, secret string }
+	all, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (row, error) {
+		var x row
+		return x, r.Scan(&x.provider, &x.secret)
+	})
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, x := range all {
+		sealed, changed, err := s.secrets.Reseal(x.secret, providerSecretContext(x.provider))
+		if err != nil {
+			return n, fmt.Errorf("the %s webhook secret: %w", x.provider, err)
+		}
+		if !changed {
+			continue
+		}
+		if _, err := s.db.Exec(ctx, `UPDATE provider_connections SET secret = $2 WHERE provider = $1 AND secret = $3`,
+			x.provider, sealed, x.secret); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// DisconnectProvider deletes the connection. Deliveries then get signup.ErrBadSignature.
 // Identities and contacts from that provider stay.
 func (s *Service) DisconnectProvider(ctx context.Context, actor Actor, name string) error {
 	if _, ok := signup.Lookup(name); !ok {

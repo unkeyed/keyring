@@ -92,10 +92,12 @@ func (k *unkeyKeys) Verify(ctx context.Context, token string) (crm.Actor, error)
 	}
 	var res struct {
 		Data struct {
-			Valid      bool   `json:"valid"`
-			KeyID      string `json:"keyId"`
-			KeyspaceID string `json:"keyspaceId"`
-			Name       string `json:"name"`
+			Valid      bool      `json:"valid"`
+			KeyID      string    `json:"keyId"`
+			KeyspaceID string    `json:"keyspaceId"`
+			Name       string    `json:"name"`
+			Meta       unkeyMeta `json:"meta"`
+			Expires    int64     `json:"expires"`
 		} `json:"data"`
 	}
 	if err := k.call(ctx, "keys.verifyKey", req, &res); err != nil {
@@ -119,11 +121,15 @@ func (k *unkeyKeys) Verify(ctx context.Context, token string) (crm.Actor, error)
 		return crm.Actor{}, ErrInvalidKey
 	}
 
-	actor := crm.Actor{Kind: crm.ActorAPIKey, ID: d.KeyID, Label: d.Name}
+	actor := crm.Actor{Kind: crm.ActorAPIKey, ID: d.KeyID, Label: d.Name, ReadOnly: d.Meta.ReadOnly == "true"}
 	if actor.Label == "" {
 		actor.Label = d.KeyID
 	}
 	now := time.Now()
+	cacheUntil := now.Add(unkeyCacheTTL)
+	if d.Expires > 0 {
+		cacheUntil = minTime(cacheUntil, time.UnixMilli(d.Expires))
+	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.keyspace = keyspace
@@ -134,12 +140,19 @@ func (k *unkeyKeys) Verify(ctx context.Context, token string) (crm.Actor, error)
 			}
 		}
 	}
-	k.cache[sum] = cachedActor{actor: actor, expires: now.Add(unkeyCacheTTL)}
+	k.cache[sum] = cachedActor{actor: actor, expires: cacheUntil}
 	return actor, nil
 }
 
-func (k *unkeyKeys) Create(ctx context.Context, by crm.Actor, name string) (string, Key, error) {
-	name, err := keyName(name)
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
+}
+
+func (k *unkeyKeys) Create(ctx context.Context, by crm.Actor, opts KeyOptions) (string, Key, error) {
+	opts, err := opts.check(time.Now())
 	if err != nil {
 		return "", Key{}, err
 	}
@@ -148,10 +161,21 @@ func (k *unkeyKeys) Create(ctx context.Context, by crm.Actor, name string) (stri
 		Prefix     string     `json:"prefix"`
 		Name       string     `json:"name"`
 		ByteLength int        `json:"byteLength"`
+		Expires    int64      `json:"expires,omitempty"`
 		Meta       *unkeyMeta `json:"meta,omitempty"`
-	}{APIID: k.cfg.APIID, Prefix: "keyring", Name: name, ByteLength: 32}
+	}{APIID: k.cfg.APIID, Prefix: "keyring", Name: opts.Name, ByteLength: 32}
+	var meta unkeyMeta
 	if id := userID(by); id != nil {
-		req.Meta = &unkeyMeta{CreatedBy: strconv.FormatInt(*id, 10)}
+		meta.CreatedBy = strconv.FormatInt(*id, 10)
+	}
+	if opts.ReadOnly {
+		meta.ReadOnly = "true"
+	}
+	if meta != (unkeyMeta{}) {
+		req.Meta = &meta
+	}
+	if opts.ExpiresAt != nil {
+		req.Expires = opts.ExpiresAt.UnixMilli()
 	}
 	var res struct {
 		Data struct {
@@ -164,7 +188,9 @@ func (k *unkeyKeys) Create(ctx context.Context, by crm.Actor, name string) (stri
 	}
 	return res.Data.Key, Key{
 		ID:        res.Data.KeyID,
-		Name:      name,
+		Name:      opts.Name,
+		ReadOnly:  opts.ReadOnly,
+		ExpiresAt: opts.ExpiresAt,
 		Prefix:    displayPrefix(res.Data.Key),
 		CreatedAt: time.Now().UTC(),
 	}, nil
@@ -253,6 +279,7 @@ func (k *unkeyKeys) hasKey(ctx context.Context, keyID string) (bool, error) {
 
 type unkeyMeta struct {
 	CreatedBy string `json:"created_by,omitempty"` // users.id
+	ReadOnly  string `json:"read_only,omitempty"`  // "true" for a read-only key
 }
 
 type unkeyKey struct {
@@ -260,12 +287,18 @@ type unkeyKey struct {
 	Start      string    `json:"start"`
 	Name       string    `json:"name"`
 	Meta       unkeyMeta `json:"meta"`
+	Expires    int64     `json:"expires"`
 	CreatedAt  int64     `json:"createdAt"`
 	LastUsedAt int64     `json:"lastUsedAt"`
 }
 
 func (u unkeyKey) key() Key {
-	key := Key{ID: u.KeyID, Name: u.Name, Prefix: displayPrefix(u.Start), CreatedAt: time.UnixMilli(u.CreatedAt).UTC()}
+	key := Key{ID: u.KeyID, Name: u.Name, Prefix: displayPrefix(u.Start), ReadOnly: u.Meta.ReadOnly == "true",
+		CreatedAt: time.UnixMilli(u.CreatedAt).UTC()}
+	if u.Expires > 0 {
+		t := time.UnixMilli(u.Expires).UTC()
+		key.ExpiresAt = &t
+	}
 	if u.LastUsedAt > 0 {
 		t := time.UnixMilli(u.LastUsedAt).UTC()
 		key.LastUsedAt = &t

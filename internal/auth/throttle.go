@@ -15,11 +15,17 @@ import (
 // for both. A key's row exists for unknown emails too, so throttling never
 // reveals whether an account exists. The OAuth server counts refused token
 // requests under "token:<addr>" and every client registration under
-// "register:<addr>".
+// "register:<addr>". Every authorization request counts under
+// "authorize:<addr>", every webhook delivery that fails verification under
+// "webhook:<addr>", and every enrichment an API key asks for under
+// "enrich:<key id>".
 
 // freeAttempts is how many failures a key gets before backoff starts. An IP
 // gets more, because an office or a carrier NAT puts many people behind one.
-var freeAttempts = map[string]int{"email": 5, "user": 5, "ip": 30, "token": 30, "register": 20}
+var freeAttempts = map[string]int{
+	"email": 5, "user": 5, "ip": 30, "token": 30, "register": 20,
+	"authorize": 30, "webhook": 60, "enrich": 30,
+}
 
 const (
 	maxLoginBackoff    = 15 * time.Minute
@@ -125,4 +131,38 @@ func fail(ctx context.Context, db dbtx, keys []string) error {
 func clearKeys(ctx context.Context, db dbtx, keys []string) error {
 	_, err := db.Exec(ctx, `DELETE FROM login_failures WHERE key = ANY($1)`, keys)
 	return err
+}
+
+// countAttempt refuses the attempt when keys are throttled and otherwise
+// counts it, for requests that cost something whether or not they succeed.
+func countAttempt(ctx context.Context, tx pgx.Tx, keys []string) error {
+	if err := lockKeys(ctx, tx, keys); err != nil {
+		return err
+	}
+	if err := throttled(ctx, tx, keys); err != nil {
+		return err
+	}
+	return fail(ctx, tx, keys)
+}
+
+// Attempt counts one request under kind:subject and returns a
+// *ThrottledError once the key has had its free attempts in the last hour.
+// kind is "enrich" for an API key's enrichment requests.
+func (u *Users) Attempt(ctx context.Context, kind, subject string) error {
+	return pgx.BeginFunc(ctx, u.db, func(tx pgx.Tx) error {
+		return countAttempt(ctx, tx, []string{kind + ":" + subject})
+	})
+}
+
+// Throttled returns a *ThrottledError when kind:subject has failed too
+// often, without counting anything. Pair it with Failed for requests whose
+// failures, not attempts, are what an attacker repeats, such as webhook
+// deliveries that fail verification.
+func (u *Users) Throttled(ctx context.Context, kind, subject string) error {
+	return throttled(ctx, u.db, []string{kind + ":" + subject})
+}
+
+// Failed counts one failure under kind:subject.
+func (u *Users) Failed(ctx context.Context, kind, subject string) error {
+	return fail(ctx, u.db, []string{kind + ":" + subject})
 }

@@ -89,7 +89,8 @@ func TestWrongMethodIs405WithAllow(t *testing.T) {
 
 // mcpExclusions are API-key REST operations with no MCP tool, and why.
 var mcpExclusions = map[string]string{
-	"POST /v1/signups": "records a sign-up from an auth system the team runs; agents add people with create_contact",
+	"POST /v1/signups":        "records a sign-up from an auth system the team runs; agents add people with create_contact",
+	"DELETE /v1/keys/current": "revokes the calling API key; MCP clients sign in with OAuth and are disconnected under Settings > Apps",
 }
 
 // mcpTools maps each API-key REST operation to the MCP tool that does the

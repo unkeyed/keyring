@@ -210,8 +210,9 @@ func TestReceiveWebhookRecordsEachOutcome(t *testing.T) {
 		ReceivedAt: time.Now(),
 	}
 
-	wantErr(t, s.ReceiveWebhook(ctx, "kinde", d), ErrUnknownProvider)
-	wantErr(t, s.ReceiveWebhook(ctx, "clerk", d), ErrNotConnected)
+	// Unknown and unconnected providers look exactly like a bad signature.
+	wantErr(t, s.ReceiveWebhook(ctx, "kinde", d), signup.ErrBadSignature)
+	wantErr(t, s.ReceiveWebhook(ctx, "clerk", d), signup.ErrBadSignature)
 
 	_, err := s.ConnectProvider(ctx, human, "clerk", "")
 	wantErr(t, err, ErrInvalid)
@@ -249,7 +250,7 @@ func TestReceiveWebhookRecordsEachOutcome(t *testing.T) {
 	if err := s.DisconnectProvider(ctx, human, "clerk"); err != nil {
 		t.Fatal(err)
 	}
-	wantErr(t, s.ReceiveWebhook(ctx, "clerk", d), ErrNotConnected)
+	wantErr(t, s.ReceiveWebhook(ctx, "clerk", d), signup.ErrBadSignature)
 }
 
 func mustDomain(t *testing.T, s string) Domain {

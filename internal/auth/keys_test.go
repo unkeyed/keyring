@@ -19,7 +19,7 @@ func TestBuiltinKeyLifecycle(t *testing.T) {
 		t.Fatalf("mode %q without Unkey config, want builtin", keys.Mode())
 	}
 
-	token, created, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorSystem, ID: "test"}, "  zapier  ")
+	token, created, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorSystem, ID: "test"}, KeyOptions{Name: "  zapier  "})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestBuiltinKeyLifecycle(t *testing.T) {
 	if created.Name != "zapier" || created.Prefix != token[:len(keyPrefix)+4] {
 		t.Fatalf("created %+v, want name zapier and prefix %q", created, token[:len(keyPrefix)+4])
 	}
-	if _, _, err := keys.Create(ctx, crm.Actor{}, " "); !errors.Is(err, crm.ErrInvalid) {
+	if _, _, err := keys.Create(ctx, crm.Actor{}, KeyOptions{Name: " "}); !errors.Is(err, crm.ErrInvalid) {
 		t.Fatalf("blank name: %v, want crm.ErrInvalid", err)
 	}
 
@@ -79,7 +79,7 @@ func TestBuiltinVerifyWritesLastUsedAtMostOnceAMinute(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.New(t)
 	keys := NewKeyStore(pool, UnkeyConfig{})
-	token, k, err := keys.Create(ctx, crm.Actor{}, "agent")
+	token, k, err := keys.Create(ctx, crm.Actor{}, KeyOptions{Name: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}

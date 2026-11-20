@@ -3,6 +3,7 @@ package crm
 import (
 	"context"
 	"errors"
+	"github.com/unkeyed/keyring/internal/secretbox"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ var (
 func newService(t *testing.T, e Enricher) (*Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := testdb.New(t)
-	return New(pool, e), pool
+	return New(pool, e, secretbox.ForTest()), pool
 }
 
 // created is a provider's user.created fact for email.

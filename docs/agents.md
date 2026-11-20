@@ -82,14 +82,22 @@ Any app can register with any name, so the consent page marks every app **Unveri
 The REST API takes API keys.
 
 1. In Keyring, open **Settings > API keys**, or **REST API** under **Settings > Agents & MCP**.
-2. Name the key after what uses it, for example `Signup backend`, and create it.
-3. Copy the key. Keyring shows it only once.
+2. Name the key after what uses it, for example `Signup backend`.
+3. Choose its access. **Read and edit** can read and change contacts, companies, notes, and tags, and can post sign-ups. **Read only** can call only `GET` routes, so it can read everything an agent needs for reporting but cannot change, delete, or enrich anything.
+4. Choose when it expires: in 30 days, 90 days, a year, or never. An expired key gets `401` and stays listed until you revoke it. Give a key an expiry unless something you cannot easily update relies on it.
+5. Create the key and copy it. Keyring shows it only once.
 
-An API key can read and change contacts, companies, notes, and tags, and can post sign-ups. Only a person logged in to the web UI can manage API keys, providers, teammates, and stages, so a leaked key cannot create more keys.
+Only a person logged in to the web UI can manage API keys, providers, teammates, and stages, so a leaked key cannot create more keys. A key can revoke itself, which suits an agent that finds its key in a log or a commit:
+
+```sh
+curl -X DELETE https://crm.example.com/v1/keys/current -H "Authorization: Bearer $KEYRING_API_KEY"
+```
+
+Each key gets 30 enrichment requests before Keyring slows it down with `429`, and `ENRICHMENT_DAILY_LIMIT` caps the lookups everyone makes in a day, so a leaked key cannot spend your context.dev credits.
 
 ## MCP tools
 
-Keyring's MCP server has 24 tools. Every REST operation an API key can call has one, except `POST /v1/signups`, which is for auth systems. A test keeps the two in step.
+Keyring's MCP server has 24 tools. Every REST operation an API key can call has one, except `POST /v1/signups`, which is for auth systems, and `DELETE /v1/keys/current`, since MCP clients sign in with OAuth instead of a key. A test keeps the two in step.
 
 | Tool | REST | What it does |
 |---|---|---|
@@ -203,12 +211,12 @@ An error answers with a status code and `{"error": "<message>"}`:
 | Status | Meaning |
 |---|---|
 | `400` | The request body or a parameter is invalid. An unknown stage, field, or activity kind lists the valid ones. |
-| `401` | The key is missing, unknown, or revoked. |
-| `403` | The route is for people logged in to the web UI, not for API keys. |
+| `401` | The key is missing, unknown, revoked, or expired. Without a valid key, an unknown `/v1` route also answers `401`. |
+| `403` | The route is for people logged in to the web UI, not for API keys, or the key is read-only and the route changes data. |
 | `404` | The contact, company, note, or route does not exist. |
 | `405` | The path exists but not with this method. The `Allow` header lists the methods it takes. |
 | `409` | The contact or company to create already exists. The body's `id` names it. |
-| `429` | Too many failed attempts. Wait the number of seconds in the `Retry-After` header. |
+| `429` | Too many failed attempts, or too many enrichment requests from this key. Wait the number of seconds in the `Retry-After` header. |
 | `503` | The database or key store is down. Retry shortly. |
 
 A `5xx` answer also has a `request_id`. The server log records the cause under the same id.

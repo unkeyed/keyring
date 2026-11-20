@@ -34,7 +34,7 @@ type KeyStore interface {
 	// gone), and callers must treat it as a failure, never as a pass.
 	Verify(ctx context.Context, token string) (crm.Actor, error)
 	// Create returns the plaintext once. It is never retrievable again.
-	Create(ctx context.Context, by crm.Actor, name string) (plaintext string, k Key, err error)
+	Create(ctx context.Context, by crm.Actor, opts KeyOptions) (plaintext string, k Key, err error)
 	List(ctx context.Context) ([]Key, error)
 	// Revoke stops a key verifying. An id this store did not issue is
 	// crm.ErrNotFound.
@@ -51,8 +51,41 @@ type Key struct {
 	ID         string     `json:"id"`
 	Name       string     `json:"name"`
 	Prefix     string     `json:"prefix"` // "keyring_ab12" so people can tell keys apart
+	ReadOnly   bool       `json:"read_only"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+}
+
+// KeyOptions is what a person chooses when creating a key.
+type KeyOptions struct {
+	Name string `json:"name"`
+	// ReadOnly limits the key to GET routes: reading contacts, companies
+	// and activity, never changing or enriching them.
+	ReadOnly bool `json:"read_only"`
+	// ExpiresAt, when set, is when the key stops verifying.
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
+// maxKeyLifetime bounds ExpiresAt, so "expires" always means within a few
+// years rather than effectively never.
+const maxKeyLifetime = 2 * 366 * 24 * time.Hour
+
+// check validates and normalizes the options both stores accept.
+func (o KeyOptions) check(now time.Time) (KeyOptions, error) {
+	name, err := keyName(o.Name)
+	if err != nil {
+		return o, err
+	}
+	o.Name = name
+	if o.ExpiresAt != nil {
+		t := o.ExpiresAt.UTC().Truncate(time.Second)
+		if !t.After(now.Add(time.Minute)) || t.After(now.Add(maxKeyLifetime)) {
+			return o, fmt.Errorf("%w: expires_at must be in the future and within two years", crm.ErrInvalid)
+		}
+		o.ExpiresAt = &t
+	}
+	return o, nil
 }
 
 type UnkeyConfig struct {
@@ -127,37 +160,38 @@ func (k *dbKeys) Verify(ctx context.Context, token string) (crm.Actor, error) {
 	// key costs one write a minute, not one per request.
 	var id int64
 	var name string
+	var readOnly bool
 	err := k.db.QueryRow(ctx, `
 		WITH k AS (
-			SELECT id, name, last_used_at FROM api_keys
-			WHERE token_hash = $1 AND revoked_at IS NULL
+			SELECT id, name, read_only, last_used_at FROM api_keys
+			WHERE token_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
 		), touch AS (
 			UPDATE api_keys SET last_used_at = now() FROM k
 			WHERE api_keys.id = k.id
 			  AND (k.last_used_at IS NULL OR k.last_used_at < now() - interval '1 minute')
 		)
-		SELECT id, name FROM k`, hashToken(token)).Scan(&id, &name)
+		SELECT id, name, read_only FROM k`, hashToken(token)).Scan(&id, &name, &readOnly)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crm.Actor{}, ErrInvalidKey
 	}
 	if err != nil {
 		return crm.Actor{}, err
 	}
-	return crm.Actor{Kind: crm.ActorAPIKey, ID: strconv.FormatInt(id, 10), Label: name}, nil
+	return crm.Actor{Kind: crm.ActorAPIKey, ID: strconv.FormatInt(id, 10), Label: name, ReadOnly: readOnly}, nil
 }
 
-func (k *dbKeys) Create(ctx context.Context, by crm.Actor, name string) (string, Key, error) {
-	name, err := keyName(name)
+func (k *dbKeys) Create(ctx context.Context, by crm.Actor, opts KeyOptions) (string, Key, error) {
+	opts, err := opts.check(time.Now())
 	if err != nil {
 		return "", Key{}, err
 	}
 	token := keyPrefix + newToken()
-	key := Key{Name: name, Prefix: displayPrefix(token)}
+	key := Key{Name: opts.Name, Prefix: displayPrefix(token), ReadOnly: opts.ReadOnly, ExpiresAt: opts.ExpiresAt}
 	var id int64
 	err = k.db.QueryRow(ctx, `
-		INSERT INTO api_keys (name, prefix, token_hash, created_by)
-		VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-		key.Name, key.Prefix, hashToken(token), userID(by)).Scan(&id, &key.CreatedAt)
+		INSERT INTO api_keys (name, prefix, token_hash, created_by, read_only, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+		key.Name, key.Prefix, hashToken(token), userID(by), key.ReadOnly, key.ExpiresAt).Scan(&id, &key.CreatedAt)
 	if err != nil {
 		return "", Key{}, err
 	}
@@ -167,14 +201,14 @@ func (k *dbKeys) Create(ctx context.Context, by crm.Actor, name string) (string,
 
 func (k *dbKeys) List(ctx context.Context) ([]Key, error) {
 	rows, err := k.db.Query(ctx, `
-		SELECT id::text, name, prefix, created_at, last_used_at FROM api_keys
+		SELECT id::text, name, prefix, read_only, expires_at, created_at, last_used_at FROM api_keys
 		WHERE revoked_at IS NULL ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Key, error) {
 		var key Key
-		err := row.Scan(&key.ID, &key.Name, &key.Prefix, &key.CreatedAt, &key.LastUsedAt)
+		err := row.Scan(&key.ID, &key.Name, &key.Prefix, &key.ReadOnly, &key.ExpiresAt, &key.CreatedAt, &key.LastUsedAt)
 		return key, err
 	})
 }

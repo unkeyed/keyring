@@ -121,7 +121,8 @@ const (
 
 // claimSQL takes one due job. A running job whose lease expired is due again,
 // which is the whole crash-recovery story. SKIP LOCKED keeps replicas from
-// waiting on each other. Nothing is due while an unexpired halt exists.
+// waiting on each other. Nothing is due while an unexpired halt exists, or
+// once today's calls (UTC) reach the daily limit $2, where 0 means no limit.
 const claimSQL = `
 UPDATE enrichment_jobs
    SET state = 'running', lease_until = now() + $1::interval, claims = claims + 1, updated_at = now()
@@ -130,6 +131,8 @@ UPDATE enrichment_jobs
         WHERE ((state = 'pending' AND run_at <= now())
            OR (state = 'running' AND lease_until < now()))
           AND NOT EXISTS (SELECT 1 FROM enrichment_halt WHERE until > now())
+          AND ($2 = 0 OR COALESCE((SELECT calls FROM enrichment_usage
+                                   WHERE day = (now() AT TIME ZONE 'UTC')::date), 0) < $2)
         ORDER BY run_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1)
@@ -240,15 +243,29 @@ func (s *Service) enrichOnce(ctx context.Context) (bool, error) {
 	return true, s.finish(ctx, j, person, company, settle(j.failures, callErr, s.now()))
 }
 
+// claim takes a due job and counts the enricher call it is about to make
+// against today's usage. Replicas claiming at the same moment can overshoot
+// the limit by at most one call each.
 func (s *Service) claim(ctx context.Context) (job, bool, error) {
 	var j job
-	err := s.db.QueryRow(ctx, claimSQL, leaseFor).
+	err := s.db.QueryRow(ctx, claimSQL, leaseFor, s.dailyLimit).
 		Scan(&j.id, &j.contactID, &j.companyID, &j.claims, &j.failures, &j.email, &j.linkedInURL, &j.domain)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return j, false, nil
 	}
-	return j, err == nil, err
+	if err != nil {
+		return j, false, err
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO enrichment_usage (day, calls) VALUES ((now() AT TIME ZONE 'UTC')::date, 1)
+		ON CONFLICT (day) DO UPDATE SET calls = enrichment_usage.calls + 1`)
+	return j, true, err
 }
+
+// LimitEnrichment caps calls to the enricher per UTC day across every
+// replica (ENRICHMENT_DAILY_LIMIT). 0 means no limit. Jobs past the cap stay
+// pending and run the next day.
+func (s *Service) LimitEnrichment(perDay int) { s.dailyLimit = perDay }
 
 var enrichmentActor = Actor{Kind: ActorSystem, ID: "enrichment", Label: "context.dev"}
 

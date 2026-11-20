@@ -6,15 +6,16 @@ Keyring is one container plus a Postgres database. This guide runs it with Docke
 
 You need Docker with Compose v2.
 
-1. Clone the repository and start the stack:
+1. Clone the repository, create an encryption key, and start the stack:
 
    ```sh
    git clone https://github.com/unkeyed/keyring.git
    cd keyring
+   echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
    docker compose up -d --build --wait
    ```
 
-   Compose builds the image, starts Postgres 17 and Keyring, and returns when both pass their health checks.
+   `ENCRYPTION_KEY` encrypts the webhook secrets and two-factor seeds Keyring stores, so a database backup alone does not reveal them. Keep `.env` with your other secrets. Compose builds the image, starts Postgres 17 and Keyring, and returns when both pass their health checks.
 
 2. Check that Keyring is up:
 
@@ -44,7 +45,7 @@ KEYRING_PORT=18080 KEYRING_DB_PORT=15432 docker compose up -d --build --wait
 
 ### Set other variables
 
-Compose passes `CONTEXT_DEV_API_KEY`, `PUBLIC_URL`, `SETUP_TOKEN`, `PASSWORD_LOGIN`, `ALLOWED_EMAIL_DOMAINS`, and the `GOOGLE_*`, `GITHUB_*`, and `OIDC_*` variables from your shell or from a `.env` file next to `docker-compose.yml`. To turn on enrichment, put the key in `.env` and restart:
+Compose passes `ENCRYPTION_KEY`, `ENCRYPTION_KEY_PREVIOUS`, `ENRICHMENT_DAILY_LIMIT`, `CONTEXT_DEV_API_KEY`, `PUBLIC_URL`, `SETUP_TOKEN`, `PASSWORD_LOGIN`, `ALLOWED_EMAIL_DOMAINS`, and the `GOOGLE_*`, `GITHUB_*`, and `OIDC_*` variables from your shell or from a `.env` file next to `docker-compose.yml`. To turn on enrichment, put the key in `.env` and restart:
 
 ```sh
 echo 'CONTEXT_DEV_API_KEY=your-context-dev-key' >> .env
@@ -70,17 +71,18 @@ Compose publishes Keyring and Postgres on `127.0.0.1` only. To reach Keyring fro
 Use the prebuilt image `ghcr.io/unkeyed/keyring` on any host that runs containers, such as Fly.io, Railway, Render, Kubernetes, or a VM with Docker. Each release is tagged with its version, for example `ghcr.io/unkeyed/keyring:0.1.0`, and the newest release is also `latest`. The image is built for `linux/amd64` and `linux/arm64`.
 
 1. Create a Postgres database that the host can reach, and copy its connection URL.
-2. Start the container with `DATABASE_URL` and the HTTPS URL people will open Keyring at as `PUBLIC_URL`:
+2. Start the container with `DATABASE_URL`, the HTTPS URL people will open Keyring at as `PUBLIC_URL`, and an `ENCRYPTION_KEY` from `openssl rand -base64 32` that you store with your other secrets:
 
    ```sh
    docker run -d --name keyring -p 8080:8080 \
    	-e DATABASE_URL='postgres://user:pass@db.example.com:5432/keyring' \
    	-e PUBLIC_URL=https://crm.example.com \
+   	-e ENCRYPTION_KEY='your-32-byte-base64-key' \
    	ghcr.io/unkeyed/keyring:latest
    ```
 
 3. Point the host's health check at `GET /healthz`. It returns 200 while the process runs and does not query the database.
-4. Put HTTPS in front of Keyring at `PUBLIC_URL`. If the proxy writes the client address to a header, set `CLIENT_IP_HEADER` to it, so failed sign-ins are throttled per client instead of per proxy.
+4. Put HTTPS in front of Keyring at `PUBLIC_URL`. If the proxy writes the client address to a header, set `CLIENT_IP_HEADER` to it, so failed sign-ins and other per-address limits apply per client instead of to everyone behind the proxy at once.
 5. Open the setup link from the container log (`docker logs keyring`) and register a passkey. [The setup link](sign-in.md#the-setup-link) explains it.
 
 The container contract is short:
@@ -112,3 +114,15 @@ All state is in Postgres. Back it up as you would any Postgres database, for exa
 ```sh
 docker compose exec -T db pg_dump -U keyring keyring > keyring-backup.sql
 ```
+
+## Recover a locked-out account
+
+If someone loses every way to sign in, such as their only passkey, run `keyring recover` with their email. It needs the same `DATABASE_URL` and `PUBLIC_URL` as the server:
+
+```sh
+DATABASE_URL='postgres://...' PUBLIC_URL=https://crm.example.com keyring recover ada@example.com
+```
+
+With Docker, run `docker run --rm -e DATABASE_URL=... -e PUBLIC_URL=... ghcr.io/unkeyed/keyring recover ada@example.com`. The command prints a link that works once, for an hour. Opening it registers a new passkey for that account and signs it out everywhere else. Only someone with the database credentials can run it, and they can change every account anyway.
+
+To avoid needing it, give every account two ways to sign in, such as a passkey on a laptop and one on a phone. **Settings > Account** warns while an account has only one.

@@ -27,6 +27,7 @@ import (
 	"github.com/unkeyed/keyring/internal/db"
 	"github.com/unkeyed/keyring/internal/httpapi"
 	"github.com/unkeyed/keyring/internal/mcpserver"
+	"github.com/unkeyed/keyring/internal/secretbox"
 	"github.com/unkeyed/keyring/web"
 )
 
@@ -42,6 +43,29 @@ type config struct {
 	Unkey         auth.UnkeyConfig // UNKEY_ROOT_KEY + UNKEY_API_ID, both or neither
 	Auth          auth.Config      // PUBLIC_URL, PASSWORD_LOGIN, ALLOWED_EMAIL_DOMAINS, CLIENT_IP_HEADER, providers
 	SetupToken    string           // SETUP_TOKEN, optional: the setup link's token instead of a random one
+	Secrets       *secretbox.Box   // ENCRYPTION_KEY, required, and ENCRYPTION_KEY_PREVIOUS while rotating
+	EnrichPerDay  int              // ENRICHMENT_DAILY_LIMIT, default 200; 0 for no limit
+}
+
+const defaultEnrichPerDay = 200
+
+// loadSecrets reads ENCRYPTION_KEY and the optional ENCRYPTION_KEY_PREVIOUS.
+func loadSecrets() (*secretbox.Box, error) {
+	raw := os.Getenv("ENCRYPTION_KEY")
+	if raw == "" {
+		return nil, errors.New("ENCRYPTION_KEY is required: it encrypts webhook secrets and TOTP seeds in the database. Generate one with openssl rand -base64 32 and keep it with your other secrets")
+	}
+	cur, err := secretbox.ParseKey(raw)
+	if err != nil {
+		return nil, fmt.Errorf("ENCRYPTION_KEY: %w", err)
+	}
+	var prev []byte
+	if raw := os.Getenv("ENCRYPTION_KEY_PREVIOUS"); raw != "" {
+		if prev, err = secretbox.ParseKey(raw); err != nil {
+			return nil, fmt.Errorf("ENCRYPTION_KEY_PREVIOUS: %w", err)
+		}
+	}
+	return secretbox.New(cur, prev)
 }
 
 // loadConfig reads and validates the environment. Every config error is
@@ -83,7 +107,17 @@ func loadConfig() (config, error) {
 	if c.SetupToken != "" && len(c.SetupToken) < auth.MinSetupTokenLen {
 		return c, fmt.Errorf("SETUP_TOKEN must be at least %d characters; generate one with openssl rand -hex 32", auth.MinSetupTokenLen)
 	}
+	if c.Secrets, err = loadSecrets(); err != nil {
+		return c, err
+	}
+	c.EnrichPerDay = defaultEnrichPerDay
+	if v := os.Getenv("ENRICHMENT_DAILY_LIMIT"); v != "" {
+		if c.EnrichPerDay, err = strconv.Atoi(v); err != nil || c.EnrichPerDay < 0 {
+			return c, fmt.Errorf("ENRICHMENT_DAILY_LIMIT must be a whole number of calls per day, 0 for no limit, got %q", v)
+		}
+	}
 	c.Auth, err = loadAuthConfig(c.Port)
+	c.Auth.Secrets = c.Secrets
 	return c, err
 }
 
@@ -213,6 +247,17 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "recover" {
+		if len(os.Args) != 3 {
+			fmt.Fprintln(os.Stderr, "usage: keyring recover <email>")
+			os.Exit(2)
+		}
+		if err := runRecover(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, "recover failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(log); err != nil {
 		log.Error("Keyring stopped", "err", err)
 		os.Exit(1)
@@ -248,10 +293,14 @@ func run(log *slog.Logger) error {
 	if cfg.ContextDevKey != "" {
 		enricher = contextdev.New(cfg.ContextDevKey)
 	}
-	svc := crm.New(pool, enricher)
+	svc := crm.New(pool, enricher, cfg.Secrets)
+	svc.LimitEnrichment(cfg.EnrichPerDay)
 
 	users, err := auth.NewUsers(pool, cfg.Auth)
 	if err != nil {
+		return err
+	}
+	if err := sealSecrets(ctx, log, svc, users); err != nil {
 		return err
 	}
 	if err := announceSetup(ctx, log, users, cfg.SetupToken); err != nil {
@@ -290,6 +339,59 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("drain HTTP: %w", err)
 	}
 	log.Info("HTTP drained")
+	return nil
+}
+
+// sealSecrets encrypts secrets stored before ENCRYPTION_KEY existed and
+// reseals those under ENCRYPTION_KEY_PREVIOUS, so a rotation finishes with
+// one restart.
+func sealSecrets(ctx context.Context, log *slog.Logger, svc *crm.Service, users *auth.Users) error {
+	providers, err := svc.SealProviderSecrets(ctx)
+	if err != nil {
+		return fmt.Errorf("encrypt webhook secrets with ENCRYPTION_KEY: %w", err)
+	}
+	totp, err := users.SealTOTPSecrets(ctx)
+	if err != nil {
+		return fmt.Errorf("encrypt TOTP seeds with ENCRYPTION_KEY: %w", err)
+	}
+	if providers+totp > 0 {
+		log.Info("encrypted stored secrets with the current ENCRYPTION_KEY", "webhook_secrets", providers, "totp_seeds", totp)
+	}
+	return nil
+}
+
+// runRecover is `keyring recover <email>`: print a one-time link, valid for
+// an hour, that lets that person register a new passkey after losing every
+// way to sign in. It needs DATABASE_URL and PUBLIC_URL, the same values the
+// server runs with.
+func runRecover(email string) error {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		return errors.New("keyring recover needs DATABASE_URL")
+	}
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return errors.New("DATABASE_URL is not a Postgres connection string")
+	}
+	authCfg, err := loadAuthConfig(cmp.Or(os.Getenv("PORT"), "8080"))
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	link, err := auth.IssueRecovery(ctx, pool, authCfg.PublicURL, email)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\n  Send this link to %s. It works once, for an hour, and signs out their other sessions:\n\n    %s\n\n", email, link)
+	if os.Getenv("PUBLIC_URL") == "" {
+		fmt.Fprintln(os.Stderr, "  PUBLIC_URL is unset, so the link points at localhost. Set PUBLIC_URL to the address people open Keyring at.")
+	}
 	return nil
 }
 

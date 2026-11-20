@@ -95,6 +95,7 @@ export function Account() {
       </SettingsHeader>
       <div className="space-y-3 empty:hidden">
         <UrlNotice providers={providers} />
+        <SingleMethodWarning a={a} />
         {!a.recent && (
           <Card className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
             <p className="min-w-0 flex-1 text-sm text-muted">Changing how you sign in needs a sign-in from the last 15 minutes. Confirm it&apos;s you first.</p>
@@ -112,6 +113,22 @@ export function Account() {
       </div>
 
     </>
+  );
+}
+
+/** Warns when losing one passkey or login would lock the person out. */
+function SingleMethodWarning({ a }: { a: AccountData }) {
+  const methods = a.passkeys.length + a.identities.length + (a.password && a.totp ? 1 : 0);
+  if (methods > 1) return null;
+  return (
+    <Card className="flex items-start gap-2 border-warn p-3">
+      <Icon name="key" className="mt-0.5 size-4 shrink-0 text-warn" />
+      <p className="min-w-0 flex-1 text-sm">
+        You have one way to sign in. If you lose it, only someone who can run commands on Keyring&apos;s server can let you back in with{" "}
+        <code className="font-mono text-xs">keyring recover</code>. Add a second passkey below, such as your phone or a security key
+        {a.identities.length === 0 ? ", or connect a login" : ""}.
+      </p>
+    </Card>
   );
 }
 

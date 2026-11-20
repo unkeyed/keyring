@@ -104,3 +104,15 @@ That is the case on a new database. It is also the case after an upgrade from a 
 The person who opens the link enters a name and an email and registers a passkey, or signs in with a configured provider. They become the first user. If a user with that email already exists, they take over that account. The link works once and stays valid until someone uses it. Every link printed before then stops working at the same moment.
 
 Anyone who can read the log can use the link, so treat the log as you would a password. To choose the token yourself, for example on a platform where logs are awkward to read, set `SETUP_TOKEN` to 32 or more random characters, such as the output of `openssl rand -hex 32`, and open `PUBLIC_URL/setup/<SETUP_TOKEN>`.
+
+## Recovery links
+
+Someone who lost every way to sign in, such as their only passkey, cannot recover on their own. Whoever runs Keyring can issue a recovery link:
+
+```sh
+keyring recover ada@example.com
+```
+
+The link opens the setup page, which asks for the account's email and registers a new passkey. It works once and expires after an hour. Using it signs the account out of every other session, and keeps its other passkeys and logins. Remove the lost passkey afterwards under **Settings > Account**. [Self-host Keyring](self-hosting.md#recover-a-locked-out-account) shows how to run the command.
+
+**Settings > Account** warns while an account has only one way to sign in. Add a second passkey, such as a phone or a security key, so losing one device does not lock you out.

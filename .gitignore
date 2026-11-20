@@ -2,6 +2,7 @@
 *.test
 *.out
 .env
+.keyring-dev-key
 .DS_Store
 
 web/node_modules/

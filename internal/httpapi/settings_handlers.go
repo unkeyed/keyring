@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/unkeyed/keyring/internal/auth"
@@ -60,20 +61,27 @@ type createdKey struct {
 }
 
 func (s *server) createKey(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	var b struct {
-		Name string `json:"name"`
-	}
+	var b auth.KeyOptions
 	if err := readJSON(r, &b); err != nil {
 		return err
 	}
 	return s.recentOnly(r, func() error {
-		plaintext, k, err := s.keys.Create(r.Context(), a, b.Name)
+		plaintext, k, err := s.keys.Create(r.Context(), a, b)
 		return respond(w, http.StatusCreated, createdKey{plaintext, k}, keyStoreErr(err))
 	})
 }
 
 func (s *server) revokeKey(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
 	return noContent(w, keyStoreErr(s.keys.Revoke(r.Context(), r.PathValue("id"))))
+}
+
+// revokeCurrentKey lets an agent revoke the key it calls with, for example
+// when it finds the key in a log. Read-only keys may call it too.
+func (s *server) revokeCurrentKey(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
+	if a.Kind != crm.ActorAPIKey {
+		return fmt.Errorf("%w: call this with the API key to revoke; people revoke keys under Settings > API keys", crm.ErrInvalid)
+	}
+	return noContent(w, keyStoreErr(s.keys.Revoke(r.Context(), a.ID)))
 }
 
 func (s *server) listUsers(w http.ResponseWriter, r *http.Request, a crm.Actor) error {

@@ -79,6 +79,7 @@ var routes = []route{
 	{"GET /v1/keys", humans, (*server).listKeys},
 	{"POST /v1/keys", humans, (*server).createKey},
 	{"DELETE /v1/keys/{id}", humans, (*server).revokeKey},
+	{"DELETE /v1/keys/current", anyone, (*server).revokeCurrentKey},
 	{"GET /v1/apps", humans, (*server).listApps},
 	{"DELETE /v1/apps/{id}", humans, (*server).revokeApp},
 	{"GET /v1/oauth/requests/{id}", humans, (*server).consentRequest},
@@ -151,6 +152,12 @@ func NewMux(svc *crm.Service, authn *auth.Authenticator, log *slog.Logger) *http
 	}
 	s.mountOAuth(mux)
 	mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
+		// Anonymous callers get the same 401 as on a real route, so a path's
+		// existence is not an answer to someone without credentials.
+		if _, _, err := s.authn.Caller(r); err != nil {
+			s.writeError(w, r, callerErr(err))
+			return
+		}
 		var allow []string
 		for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 			probe := *r
@@ -173,8 +180,12 @@ func NewMux(svc *crm.Service, authn *auth.Authenticator, log *slog.Logger) *http
 
 var (
 	errForbidden   = errors.New("forbidden: API keys cannot use this route; sign in to the UI")
+	errReadOnlyKey = fmt.Errorf("%w: this API key is read-only; create a key without read-only to change data", errForbidden)
 	errUnavailable = errors.New("unavailable")
 )
+
+// readOnlyAllowed are the routes besides GET that a read-only key may call.
+var readOnlyAllowed = map[string]bool{"DELETE /v1/keys/current": true}
 
 func (s *server) wrap(rt route) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +198,10 @@ func (s *server) wrap(rt route) http.Handler {
 			}
 			if rt.access == humans && via != auth.ViaSession {
 				s.writeError(w, r, errForbidden)
+				return
+			}
+			if a.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead && !readOnlyAllowed[rt.pattern] {
+				s.writeError(w, r, errReadOnlyKey)
 				return
 			}
 			actor = a
@@ -258,7 +273,7 @@ func statusOf(err error) int {
 		return http.StatusUnauthorized
 	case errors.Is(err, errForbidden), errors.Is(err, auth.ErrReauth):
 		return http.StatusForbidden
-	case errors.Is(err, crm.ErrNotFound), errors.Is(err, crm.ErrUnknownProvider), errors.Is(err, crm.ErrNotConnected):
+	case errors.Is(err, crm.ErrNotFound), errors.Is(err, crm.ErrUnknownProvider):
 		return http.StatusNotFound
 	case errors.Is(err, crm.ErrConflict):
 		return http.StatusConflict

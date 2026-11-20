@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"github.com/unkeyed/keyring/internal/secretbox"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -92,7 +93,7 @@ func TestEveryToolOverHTTP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool := testdb.New(t)
-	svc := crm.New(pool, nil)
+	svc := crm.New(pool, nil, secretbox.ForTest())
 	srv := httptest.NewServer(Handler(svc, auth.NewKeyStore(pool, auth.UnkeyConfig{}), app, "test"))
 	defer srv.Close()
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/unkeyed/keyring/internal/crm"
 )
@@ -32,6 +33,7 @@ type fakeUnkey struct {
 type fakeKey struct {
 	id, api, name string
 	meta          map[string]string
+	expires       int64
 	expired       bool
 }
 
@@ -79,6 +81,7 @@ func (f *fakeUnkey) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Key, KeyID, APIID, Name, Prefix string
 		Keyspaces                       []string
 		Meta                            map[string]string
+		Expires                         int64
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		f.t.Errorf("fake unkey: bad body: %v", err)
@@ -97,17 +100,17 @@ func (f *fakeUnkey) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(map[string]any{"data": map[string]any{"valid": false, "code": "EXPIRED", "keyId": k.id, "keyspaceId": ks, "name": k.name}})
 			return
 		}
-		reply(map[string]any{"data": map[string]any{"valid": true, "code": "VALID", "keyId": k.id, "keyspaceId": ks, "name": k.name}})
+		reply(map[string]any{"data": map[string]any{"valid": true, "code": "VALID", "keyId": k.id, "keyspaceId": ks, "name": k.name, "meta": k.meta, "expires": k.expires}})
 	case "/v2/keys.createKey":
 		plaintext := unkeyToken(in.Prefix + "_" + strconv.Itoa(len(f.keys)))
 		id := "key_" + strconv.Itoa(len(f.keys)+1)
-		f.keys[plaintext] = fakeKey{id: id, api: in.APIID, name: in.Name, meta: in.Meta}
+		f.keys[plaintext] = fakeKey{id: id, api: in.APIID, name: in.Name, meta: in.Meta, expires: in.Expires}
 		reply(map[string]any{"data": map[string]any{"keyId": id, "key": plaintext}})
 	case "/v2/apis.listKeys":
 		data := []map[string]any{}
 		for plaintext, k := range f.keys {
 			if k.api == in.APIID {
-				data = append(data, map[string]any{"keyId": k.id, "start": plaintext[:8], "name": k.name, "meta": k.meta, "createdAt": 1701425400000})
+				data = append(data, map[string]any{"keyId": k.id, "start": plaintext[:8], "name": k.name, "meta": k.meta, "expires": k.expires, "createdAt": 1701425400000})
 			}
 		}
 		reply(map[string]any{"data": data, "pagination": map[string]any{"hasMore": false}})
@@ -225,7 +228,7 @@ func TestUnkeyOutageIsAnErrorNotAPass(t *testing.T) {
 	if actor != (crm.Actor{}) {
 		t.Fatalf("verify during a 503 returned actor %+v", actor)
 	}
-	if _, _, err := keys.Create(ctx, crm.Actor{}, "x"); err == nil {
+	if _, _, err := keys.Create(ctx, crm.Actor{}, KeyOptions{Name: "x"}); err == nil {
 		t.Fatal("create during a 503 succeeded")
 	}
 }
@@ -237,7 +240,7 @@ func TestUnkeyCreateListRevoke(t *testing.T) {
 	keys := newTestUnkeyStore(srv)
 	other := fake.add(billing, "api_other", "billing")
 
-	token, k, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "1"}, "zapier")
+	token, k, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "1"}, KeyOptions{Name: "zapier"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,11 +294,11 @@ func TestUnkeyRevokeCreatedBy(t *testing.T) {
 	ctx := context.Background()
 	_, srv := newFakeUnkey(t)
 	keys := newTestUnkeyStore(srv)
-	bobs, _, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "7"}, "bob's agent")
+	bobs, _, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "7"}, KeyOptions{Name: "bob's agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	adas, _, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "1"}, "ada's agent")
+	adas, _, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "1"}, KeyOptions{Name: "ada's agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,5 +314,34 @@ func TestUnkeyRevokeCreatedBy(t *testing.T) {
 	}
 	if _, err := keys.Verify(ctx, adas); err != nil {
 		t.Fatalf("another person's key after the removal: %v", err)
+	}
+}
+
+func TestUnkeyReadOnlyAndExpiringKeys(t *testing.T) {
+	_, srv := newFakeUnkey(t)
+	keys := newUnkeyKeys(UnkeyConfig{RootKey: "unkey_root", APIID: "api_ours"}, srv.URL)
+	ctx := context.Background()
+	expires := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	token, k, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "1"}, KeyOptions{Name: "reports", ReadOnly: true, ExpiresAt: &expires})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !k.ReadOnly || k.ExpiresAt == nil || !k.ExpiresAt.Equal(expires) {
+		t.Fatalf("created %+v, want read-only expiring at %v", k, expires)
+	}
+	actor, err := keys.Verify(ctx, token)
+	if err != nil || !actor.ReadOnly {
+		t.Fatalf("Verify = %+v, %v; want a read-only actor", actor, err)
+	}
+	listed, err := keys.List(ctx)
+	if err != nil || len(listed) != 1 || !listed[0].ReadOnly || listed[0].ExpiresAt == nil || !listed[0].ExpiresAt.Equal(expires) {
+		t.Fatalf("List = %+v, %v", listed, err)
+	}
+	full, _, err := keys.Create(ctx, crm.Actor{}, KeyOptions{Name: "writer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actor, err := keys.Verify(ctx, full); err != nil || actor.ReadOnly {
+		t.Fatalf("Verify(full key) = %+v, %v", actor, err)
 	}
 }

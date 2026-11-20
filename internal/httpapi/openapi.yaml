@@ -94,6 +94,11 @@ paths:
         delivery that carries nothing to store (an event Keyring ignores, a
         phone-only user) still answers 204 so the provider stops retrying.
         The outcome shows on the Settings page as last delivery or last error.
+
+        Every delivery that fails verification gets the same 401, including
+        one for an unknown provider or one not connected yet, so the answer
+        does not reveal which providers are connected. An address whose
+        deliveries keep failing gets 429 until it backs off.
       security: []
       parameters:
         - name: provider
@@ -115,17 +120,19 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
-          description: The signature did not verify against the stored secret.
+          description: The delivery did not verify, the provider is not connected, or there is no such provider.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "404":
-          description: Unknown provider, or the provider is not connected yet.
+        "413":
+          description: The body is larger than 1 MiB.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/Unavailable"
 
@@ -963,6 +970,14 @@ paths:
                 name:
                   type: string
                   description: A label people recognize, such as "Claude Code".
+                read_only:
+                  type: boolean
+                  default: false
+                  description: Limit the key to GET routes. It can read contacts, companies and activity but not change, delete or enrich anything.
+                expires_at:
+                  type: string
+                  format: date-time
+                  description: When the key stops working, at most two years ahead. Omit for a key that works until revoked.
       responses:
         "201":
           description: The key.
@@ -1000,6 +1015,22 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/keys/current:
+    delete:
+      tags: [settings]
+      operationId: revokeCurrentKey
+      summary: Revoke the API key making this request, for an agent that finds its key exposed. Read-only keys may call it.
+      security:
+        - apiKey: []
+      responses:
+        "204":
+          description: Revoked. The key stops working at once (within 30 seconds with Unkey).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "503":
           $ref: "#/components/responses/Unavailable"
   /v1/apps:
@@ -1833,11 +1864,20 @@ paths:
     get:
       tags: [auth]
       operationId: checkSetup
-      summary: Whether a setup link still works. Setup links exist only while nobody can sign in.
+      summary: Whether a setup or recovery link still works. Setup links exist only while nobody can sign in; recovery links come from `keyring recover` and last an hour.
       security: []
       responses:
-        "204":
+        "200":
           description: It works.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recovery]
+                properties:
+                  recovery:
+                    type: boolean
+                    description: True for a recovery link, which adds a passkey to the existing account with the email it was issued for.
         "404":
           $ref: "#/components/responses/NotFound"
         "503":
@@ -2626,6 +2666,12 @@ components:
           description: Enrichment job count per state, every state present.
           additionalProperties:
             type: integer
+        enrichment_daily_limit:
+          type: integer
+          description: ENRICHMENT_DAILY_LIMIT, the most context.dev calls per UTC day. 0 means no limit.
+        enrichment_calls_today:
+          type: integer
+          description: Calls made since midnight UTC. Once it reaches the limit, jobs wait until the next day.
         contacts:
           type: integer
         companies:
@@ -2635,7 +2681,7 @@ components:
           enum: [builtin, unkey]
     Key:
       type: object
-      required: [id, name, prefix, created_at]
+      required: [id, name, prefix, read_only, created_at]
       properties:
         id:
           type: string
@@ -2644,6 +2690,13 @@ components:
         prefix:
           type: string
           description: The first characters of the key, such as keyring_ab12, to tell keys apart.
+        read_only:
+          type: boolean
+          description: The key can only call GET routes.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the key stops working. Absent for a key that works until revoked. Expired keys stay listed until revoked.
         created_at:
           type: string
           format: date-time

@@ -3,6 +3,7 @@ package crm
 import (
 	"context"
 	"errors"
+	"github.com/unkeyed/keyring/internal/secretbox"
 	"os"
 	"regexp"
 	"slices"
@@ -117,11 +118,11 @@ func TestStaleWorkerCannotOverwriteNewerClaim(t *testing.T) {
 			<-release
 			return CompanyFacts{Found: true, Name: "Stale Inc"}, nil
 		},
-	})
+	}, secretbox.ForTest())
 	fresh := New(pool, fakeEnricher{
 		person:  func(Email, string) (PersonFacts, error) { return PersonFacts{Found: true, Title: "fresh"}, nil },
 		company: func(Domain) (CompanyFacts, error) { return CompanyFacts{Found: true, Name: "Fresh Inc"}, nil },
-	})
+	}, secretbox.ForTest())
 
 	finished := make(chan error)
 	go func() {
@@ -159,7 +160,7 @@ func TestHaltPausesEveryReplicaUntilRestart(t *testing.T) {
 		person:  func(Email, string) (PersonFacts, error) { return PersonFacts{}, badKey },
 		company: func(Domain) (CompanyFacts, error) { return CompanyFacts{}, badKey },
 	}
-	a, b := New(pool, rejected), New(pool, rejected)
+	a, b := New(pool, rejected, secretbox.ForTest()), New(pool, rejected, secretbox.ForTest())
 	if ran, err := a.enrichOnce(ctx); !ran || err != nil {
 		t.Fatalf("replica a: ran %v err %v", ran, err)
 	}
@@ -171,7 +172,7 @@ func TestHaltPausesEveryReplicaUntilRestart(t *testing.T) {
 		t.Fatalf("replica b ran %v err %v while halted, want no claim", ran, err)
 	}
 
-	fixed := New(pool, fakeEnricher{})
+	fixed := New(pool, fakeEnricher{}, secretbox.ForTest())
 	runCtx, stop := context.WithCancel(ctx)
 	stopped := make(chan error, 1)
 	go func() { stopped <- fixed.RunEnrichment(runCtx) }()

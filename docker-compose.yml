@@ -21,6 +21,11 @@ services:
     build: .
     environment:
       DATABASE_URL: postgres://keyring:keyring@db:5432/keyring?sslmode=disable
+      # Encrypts webhook secrets and TOTP seeds. Put ENCRYPTION_KEY=<openssl rand -base64 32> in .env and keep it:
+      # without it, stored secrets cannot be read.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      ENCRYPTION_KEY_PREVIOUS: ${ENCRYPTION_KEY_PREVIOUS:-}
+      ENRICHMENT_DAILY_LIMIT: ${ENRICHMENT_DAILY_LIMIT:-200}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:${KEYRING_PORT:-8080}}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
       PASSWORD_LOGIN: ${PASSWORD_LOGIN:-false}

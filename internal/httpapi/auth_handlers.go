@@ -247,7 +247,8 @@ func (s *server) logIfServer(r *http.Request, err error) {
 }
 
 func (s *server) checkSetup(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	return noContent(w, s.users.CheckSetupToken(r.Context(), r.PathValue("token")))
+	recovery, err := s.users.CheckSetupToken(r.Context(), r.PathValue("token"))
+	return respond(w, http.StatusOK, map[string]bool{"recovery": recovery}, err)
 }
 
 func (s *server) inviteInfo(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {

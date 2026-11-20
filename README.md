@@ -13,10 +13,11 @@ You need Docker with Compose v2.
    ```sh
    git clone https://github.com/unkeyed/keyring.git
    cd keyring
+   echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
    docker compose up -d --build --wait
    ```
 
-   Keyring has no default login. Print the one-time setup link, open it, and register a passkey:
+   `ENCRYPTION_KEY` encrypts webhook secrets and two-factor seeds in the database. Keep `.env`: without the key, those secrets cannot be read. Keyring has no default login. Print the one-time setup link, open it, and register a passkey:
 
    ```sh
    docker compose logs app | grep -A2 'Open this link'

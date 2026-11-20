@@ -41,10 +41,21 @@ func handler(files fs.FS) http.Handler {
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if name != "" && name != "index.html" {
 			if f, err := fs.Stat(files, name); err == nil && !f.IsDir() {
+				w.Header().Del("Vary")
 				if strings.HasPrefix(name, "assets/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				} else {
+					w.Header().Set("Cache-Control", "no-cache")
 				}
 				static.ServeHTTP(w, r)
+				return
+			}
+			// A missing file is a 404, never the app: a stale hashed chunk
+			// must fail instead of being parsed as HTML, and a cache must not
+			// pin index.html to a file's URL. Client-side routes have no
+			// file extension.
+			if strings.HasPrefix(name, "assets/") || path.Ext(name) != "" {
+				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
 		}

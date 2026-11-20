@@ -211,18 +211,23 @@ func ingestDeleted(ctx context.Context, tx pgx.Tx, actor Actor, su signup.Signup
 // Every outcome updates provider_connections.last_delivery_at or
 // last_error/last_error_at, so the Settings page shows "last delivery 2m ago"
 // or "bad signature 30s ago" while the user is setting the webhook up.
+//
+// An unknown or unconnected provider is answered with ErrBadSignature, the
+// same as a forged delivery, so the response does not tell an anonymous
+// caller which providers are connected.
 func (s *Service) ReceiveWebhook(ctx context.Context, name string, d signup.Delivery) error {
-	p, ok := signup.Lookup(name)
-	if !ok {
-		return fmt.Errorf("%w: %q", ErrUnknownProvider, name)
-	}
-	var secret string
-	err := s.db.QueryRow(ctx, `SELECT secret FROM provider_connections WHERE provider = $1`, name).Scan(&secret)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("%w: connect %s under Settings > Providers", ErrNotConnected, p.Title)
+	p, known := signup.Lookup(name)
+	var sealed string
+	err := s.db.QueryRow(ctx, `SELECT secret FROM provider_connections WHERE provider = $1`, name).Scan(&sealed)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !known) {
+		return signup.ErrBadSignature
 	}
 	if err != nil {
 		return err
+	}
+	secret, err := s.secrets.Open(sealed, providerSecretContext(name))
+	if err != nil {
+		return fmt.Errorf("open the %s webhook secret: %w", p.Title, err)
 	}
 	err = s.deliver(ctx, p, secret, d)
 	if err == nil {

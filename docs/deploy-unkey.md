@@ -31,10 +31,13 @@ Unkey stores variables per environment. Set these on the **production** environm
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | The connection URL from step 1. Sensitive. |
+| `ENCRYPTION_KEY` | 32 random bytes from `openssl rand -base64 32`. Sensitive. Keep a copy elsewhere: Unkey cannot show a write-only value again, and Keyring cannot read its stored secrets without it. |
+| `CLIENT_IP_HEADER` | `X-Forwarded-For`. Unkey replaces that header with the client's address, so Keyring throttles each client on its own instead of everyone behind Unkey's gateway at once. |
 | `MIGRATION_DATABASE_URL` | Optional. Only if the role in `DATABASE_URL` cannot create tables, as with PlanetScale Postgres's read/write role: a URL for a role that can. Sensitive. Or leave it out and run `keyring migrate` with it yourself before each deploy that adds a migration. See [Configuration](configuration.md#migration_database_url). |
 | `PUBLIC_URL` | Your deployment's URL from step 6, such as `https://keyring-acme.unkey.app`. Set it after the first deploy and redeploy. |
 | `SETUP_TOKEN` | 32 or more random characters, for example from `openssl rand -hex 32`. Sensitive. You open the setup link with it in step 6. |
 | `CONTEXT_DEV_API_KEY` | Optional. Your [context.dev](https://context.dev) key, which turns on enrichment. Sensitive. |
+| `ENRICHMENT_DAILY_LIMIT` | Optional. The most context.dev lookups per day, `200` by default. |
 | `UNKEY_ROOT_KEY` | Optional. See [Store API keys in Unkey](#store-api-keys-in-unkey). Sensitive. |
 | `UNKEY_API_ID` | Optional. Set it together with `UNKEY_ROOT_KEY`. |
 
@@ -117,6 +120,14 @@ In Keyring, open **Settings > Providers** and pick your provider. Each provider 
 | Stytch | `https://<your-domain>/webhooks/stytch` | [Stytch](providers/stytch.md) |
 
 Send a test event from the provider. **Settings > Providers** shows the delivery, or the reason it failed, within a few seconds.
+
+## Recover a locked-out account
+
+If someone loses their only passkey, run `keyring recover` from your machine with the database URL and the deployment's URL. It prints a one-time link, valid for an hour, that registers a new passkey for that account:
+
+```sh
+DATABASE_URL='postgres://...' PUBLIC_URL=https://keyring-acme.unkey.app go run ./cmd/keyring recover ada@example.com
+```
 
 ## Store API keys in Unkey
 

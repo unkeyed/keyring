@@ -13,6 +13,12 @@ const contentSecurityPolicy = "default-src 'self'; img-src 'self' https: data:; 
 
 // SecurityHeaders sets the browser hardening headers on every response,
 // and HSTS when Keyring is served over https.
+//
+// Every response defaults to Cache-Control: no-store with Vary: Cookie,
+// Authorization, because most of them depend on who is asking and Keyring
+// may sit behind a shared cache such as a CDN or Unkey's gateway. The few
+// responses that are the same for everyone (the UI's files, openapi.yaml)
+// replace both headers.
 func SecurityHeaders(publicURL *url.URL, next http.Handler) http.Handler {
 	hsts := publicURL.Scheme == "https"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -21,6 +27,8 @@ func SecurityHeaders(publicURL *url.URL, next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
+		h.Set("Cache-Control", "no-store")
+		h.Set("Vary", "Cookie, Authorization")
 		if hsts {
 			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}

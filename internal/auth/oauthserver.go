@@ -111,13 +111,7 @@ func (o *OAuthServer) Register(ctx context.Context, c Client, m *oauthex.ClientR
 	var created time.Time
 	keys := []string{"register:" + c.IP}
 	err = pgx.BeginFunc(ctx, o.db, func(tx pgx.Tx) error {
-		if err := lockKeys(ctx, tx, keys); err != nil {
-			return err
-		}
-		if err := throttled(ctx, tx, keys); err != nil {
-			return err
-		}
-		if err := fail(ctx, tx, keys); err != nil {
+		if err := countAttempt(ctx, tx, keys); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -215,7 +209,15 @@ type AuthorizeRequest struct {
 // *OAuthError to show the person, never a redirect: anyone can register
 // any redirect_uri, so redirecting a request nobody approved would make
 // Keyring an open redirector (RFC 9700 section 4.11.2).
-func (o *OAuthServer) Authorize(ctx context.Context, q AuthorizeRequest) (string, error) {
+//
+// Each request writes a row, and anyone can register a client, so every
+// request counts against the caller's address under "authorize:<addr>".
+func (o *OAuthServer) Authorize(ctx context.Context, c Client, q AuthorizeRequest) (string, error) {
+	if err := pgx.BeginFunc(ctx, o.db, func(tx pgx.Tx) error {
+		return countAttempt(ctx, tx, []string{"authorize:" + c.IP})
+	}); err != nil {
+		return "", err
+	}
 	var uris []string
 	err := o.db.QueryRow(ctx, `SELECT redirect_uris FROM oauth_clients WHERE id = $1`, q.ClientID).Scan(&uris)
 	if errors.Is(err, pgx.ErrNoRows) {
