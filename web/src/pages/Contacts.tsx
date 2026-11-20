@@ -235,7 +235,7 @@ export function Contacts() {
         ) : (
           <ul aria-label="Contacts" className="divide-y divide-line">
             {rows.map((c, i) => (
-              <ContactItem key={c.id} c={c} index={i} selected={i === sel} onOpen={() => (lastOpened = c.id)} />
+              <ContactItem key={c.id} c={c} index={i} onOpen={() => (lastOpened = c.id)} />
             ))}
           </ul>
         )}
@@ -265,7 +265,7 @@ function TagCell({ tags }: { tags: string[] }) {
   return (
     <div className="flex min-w-0 items-center gap-1" title={tags.join(", ")}>
       <Tag tag={tags[0]} />
-      {tags[1] && <Tag tag={tags[1]} className="hidden xl:inline-flex" />}
+      {tags[1] && <Tag tag={tags[1]} className="max-xl:hidden" />}
       {tags.length > 1 && <span className="shrink-0 text-xs text-faint xl:hidden">+{tags.length - 1}</span>}
       {tags.length > 2 && <span className="hidden shrink-0 text-xs text-faint xl:inline">+{tags.length - 2}</span>}
     </div>
@@ -315,11 +315,11 @@ function ContactRow({ c, index, selected, onOpen, onHover }: { c: Contact; index
 }
 
 /** A phone row: who, their email, where they work and their stage. */
-function ContactItem({ c, index, selected, onOpen }: { c: Contact; index: number; selected: boolean; onOpen: () => void }) {
+function ContactItem({ c, index, onOpen }: { c: Contact; index: number; onOpen: () => void }) {
   const label = contactLabel(c);
   return (
-    <li data-row={index} aria-current={selected || undefined}>
-      <Link to={`/contacts/${c.id}`} onClick={onOpen} className={cx("flex items-center gap-3 px-4 py-2.5 transition-colors active:bg-subtle", selected && "bg-subtle")}>
+    <li data-row={index}>
+      <Link to={`/contacts/${c.id}`} onClick={onOpen} className="flex items-center gap-3 px-4 py-2.5 transition-colors active:bg-subtle">
         <Avatar src={c.avatar_url} label={label} size={32} />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{label}</div>
