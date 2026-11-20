@@ -1,0 +1,13 @@
+{
+  "name": "keyring-docs-build",
+  "private": true,
+  "type": "module",
+  "description": "Renders docs/*.md into the static pages served at kyring.dev/docs.",
+  "scripts": {
+    "build": "node build.mjs ../../docs ../out/docs"
+  },
+  "dependencies": {
+    "marked": "18.2.1",
+    "marked-gfm-heading-id": "4.1.4"
+  }
+}

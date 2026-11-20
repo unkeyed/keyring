@@ -1,6 +1,16 @@
-# The Keyring landing page: static files behind nginx on port 8080.
-# Unkey builds it with root directory site/.
+# The Keyring site: the landing page plus docs/*.md rendered to HTML, behind
+# nginx on port 8080. Build from the repository root so docs/ is in the
+# context: docker build -f site/Dockerfile .
+FROM node:24-alpine AS docs
+WORKDIR /build
+COPY site/docs-build/package.json site/docs-build/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY site/docs-build/ ./
+COPY docs/ /docs/
+RUN node build.mjs /docs /out/docs
+
 FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY index.html app.js /usr/share/nginx/html/
+COPY site/nginx.conf /etc/nginx/conf.d/default.conf
+COPY site/index.html site/app.js site/base.css site/favicon.svg site/og.png /usr/share/nginx/html/
+COPY --from=docs /out/docs /usr/share/nginx/html/docs
 EXPOSE 8080
