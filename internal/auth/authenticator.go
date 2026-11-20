@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // Via says how a request authenticated, which decides the routes it may use.

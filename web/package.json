@@ -1,5 +1,5 @@
 {
-  "name": "uncrm-web",
+  "name": "keyring-web",
   "private": true,
   "type": "module",
   "scripts": {

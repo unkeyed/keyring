@@ -76,7 +76,7 @@ func guarded(ctx context.Context, db *pgxpool.Pool, keys, onSuccess []string, fa
 }
 
 func lockKeys(ctx context.Context, tx pgx.Tx, keys []string) error {
-	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.throttle:' || k)) FROM (SELECT unnest($1::text[]) AS k ORDER BY 1) s`, keys)
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('keyring.throttle:' || k)) FROM (SELECT unnest($1::text[]) AS k ORDER BY 1) s`, keys)
 	return err
 }
 

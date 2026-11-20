@@ -9,9 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pquerna/otp/totp"
-	"github.com/uncrm/uncrm/internal/authtest"
-	"github.com/uncrm/uncrm/internal/crm"
-	"github.com/uncrm/uncrm/internal/testdb"
+	"github.com/unkeyed/keyring/internal/authtest"
+	"github.com/unkeyed/keyring/internal/crm"
+	"github.com/unkeyed/keyring/internal/testdb"
 )
 
 const testOrigin = "http://localhost:8080"

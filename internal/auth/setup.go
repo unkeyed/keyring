@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // Setup is open while nobody can sign in: no passkey, no linked identity
@@ -44,7 +44,7 @@ func (u *Users) PrepareSetup(ctx context.Context, fixed string) (string, error) 
 		token = newToken()
 	}
 	err := pgx.BeginFunc(ctx, u.db, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.setup'))`); err != nil {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('keyring.setup'))`); err != nil {
 			return err
 		}
 		open, err := u.setupOpen(ctx, tx)
@@ -93,7 +93,7 @@ func (u *Users) checkSetup(ctx context.Context, db dbtx, tokenHash []byte) error
 // user's WebAuthn handle for the passkey being registered with it. The
 // caller must give the user a sign-in method in the same transaction.
 func (u *Users) claimSetup(ctx context.Context, tx pgx.Tx, tokenHash []byte, email, name string, handle []byte) (int64, error) {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.setup'))`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('keyring.setup'))`); err != nil {
 		return 0, err
 	}
 	if err := u.checkSetup(ctx, tx, tokenHash); err != nil {

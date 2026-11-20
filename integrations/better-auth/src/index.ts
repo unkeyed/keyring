@@ -1,20 +1,20 @@
 import type { BetterAuthPlugin, User } from "better-auth";
 
-export interface UncrmOptions {
-  /** The webhook URL from uncrm's Settings > Providers > Better Auth. */
+export interface KeyringOptions {
+  /** The webhook URL from Keyring's Settings > Providers > Better Auth. */
   url: string;
-  /** The secret uncrm showed when you connected Better Auth (starts with whsec_). */
+  /** The secret Keyring showed when you connected Better Auth (starts with whsec_). */
   secret: string;
 }
 
 type EventType = "user.created" | "user.updated" | "user.deleted";
 
 /**
- * Sends every Better Auth user create, update and delete to uncrm, signed
+ * Sends every Better Auth user create, update and delete to Keyring, signed
  * with Standard Webhooks. A failed delivery is logged and never fails the
  * sign-up.
  */
-export const uncrm = (options: UncrmOptions) => {
+export const keyring = (options: KeyringOptions) => {
   const key = importKey(options.secret);
 
   const send = async (type: EventType, user: User) => {
@@ -50,15 +50,15 @@ export const uncrm = (options: UncrmOptions) => {
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {
-        console.error(`[uncrm] ${type} for ${user.id}: ${res.status} ${await res.text()}`);
+        console.error(`[keyring] ${type} for ${user.id}: ${res.status} ${await res.text()}`);
       }
     } catch (err) {
-      console.error(`[uncrm] ${type} for ${user.id}:`, err);
+      console.error(`[keyring] ${type} for ${user.id}:`, err);
     }
   };
 
   return {
-    id: "uncrm",
+    id: "keyring",
     init(ctx) {
       const emit = (type: EventType) => async (user: User) => {
         await ctx.runInBackgroundOrAwait(send(type, user));
@@ -81,7 +81,7 @@ export const uncrm = (options: UncrmOptions) => {
 function importKey(secret: string): Promise<CryptoKey> {
   const raw = Uint8Array.from(atob(secret.replace(/^whsec_/, "")), (c) => c.charCodeAt(0));
   if (raw.length === 0) {
-    throw new Error("uncrm: secret is empty; copy it from uncrm's Settings > Providers > Better Auth");
+    throw new Error("keyring: secret is empty; copy it from Keyring's Settings > Providers > Better Auth");
   }
   return crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 }

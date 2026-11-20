@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uncrm/uncrm/internal/authtest"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/authtest"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 func TestDecideSocial(t *testing.T) {
@@ -46,9 +46,9 @@ func socialFixture(t *testing.T, iss *authtest.Issuer, domains ...string) *fixtu
 	return newFixture(t, func(c *Config) {
 		c.AllowedEmailDomains = domains
 		c.Providers = []ProviderConfig{
-			{ID: "oidc", Name: "Acme SSO", ClientID: "uncrm", ClientSecret: "s3cret", Issuer: iss.URL},
-			{ID: "google", Name: "Google", ClientID: "uncrm-google", ClientSecret: "s3cret", Issuer: iss.URL},
-			{ID: "github", Name: "GitHub", ClientID: "uncrm-gh", ClientSecret: "s3cret", GitHubURL: iss.URL, GitHubAPIURL: iss.URL + "/api"},
+			{ID: "oidc", Name: "Acme SSO", ClientID: "keyring", ClientSecret: "s3cret", Issuer: iss.URL},
+			{ID: "google", Name: "Google", ClientID: "keyring-google", ClientSecret: "s3cret", Issuer: iss.URL},
+			{ID: "github", Name: "GitHub", ClientID: "keyring-gh", ClientSecret: "s3cret", GitHubURL: iss.URL, GitHubAPIURL: iss.URL + "/api"},
 		}
 	})
 }

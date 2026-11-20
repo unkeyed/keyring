@@ -3,8 +3,8 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // Human-only routes: Settings and login. Agents cannot mint keys, read

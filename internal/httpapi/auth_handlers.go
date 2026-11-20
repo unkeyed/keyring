@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 type signInResponse struct {

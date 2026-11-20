@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
-  title: uncrm
+  title: Keyring
   version: 0.1.0
   summary: The REST API of a self-hosted CRM that collects every sign-up from your auth providers.
   description: |
     The React UI and your agents call the same routes. Agents send an API key
-    (`Authorization: Bearer uncrm_...`, created under Settings > API keys).
-    People send the `uncrm_session` cookie that a sign-in under `/auth` sets.
+    (`Authorization: Bearer keyring_...`, created under Settings > API keys).
+    People send the `keyring_session` cookie that a sign-in under `/auth` sets.
     Routes for keys, providers, stages and the team accept only the cookie, so
     a leaked agent key cannot mint more access.
 
@@ -40,7 +40,7 @@ info:
     identifier: MIT
 servers:
   - url: /
-    description: The uncrm instance serving this document.
+    description: The Keyring instance serving this document.
 security:
   - apiKey: []
   - session: []
@@ -91,7 +91,7 @@ paths:
         Point the provider's webhook at this URL after connecting it with
         `PUT /v1/providers/{name}`. The signature is checked with the stored
         secret. Retries and replays of the same user land once. A verified
-        delivery that carries nothing to store (an event uncrm ignores, a
+        delivery that carries nothing to store (an event Keyring ignores, a
         phone-only user) still answers 204 so the provider stops retrying.
         The outcome shows on the Settings page as last delivery or last error.
       security: []
@@ -872,7 +872,7 @@ paths:
       tags: [settings]
       operationId: connectProvider
       summary: Store the webhook signing secret for a provider, replacing any previous one.
-      description: Paste the provider's secret, or send an empty secret for providers with issue_secret to have uncrm generate one. The response holds the secret once.
+      description: Paste the provider's secret, or send an empty secret for providers with issue_secret to have Keyring generate one. The response holds the secret once.
       security:
         - session: []
       requestBody:
@@ -1637,7 +1637,7 @@ paths:
               $ref: "#/components/schemas/CeremonyFinish"
       responses:
         "200":
-          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries keyring_pending).
           content:
             application/json:
               schema:
@@ -1650,7 +1650,7 @@ paths:
     post:
       tags: [auth]
       operationId: passwordLogin
-      summary: 'Check an email and password. Never a session on its own: success sets uncrm_pending and asks for a second factor.'
+      summary: 'Check an email and password. Never a session on its own: success sets keyring_pending and asks for a second factor.'
       description: Only with PASSWORD_LOGIN on (404 otherwise). After five wrong passwords for one email, or thirty from one IP, attempts wait with exponential backoff (429).
       security: []
       requestBody:
@@ -1668,7 +1668,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries keyring_pending).
           content:
             application/json:
               schema:
@@ -1687,7 +1687,7 @@ paths:
     get:
       tags: [auth]
       operationId: getSecondFactor
-      summary: The second factors the pending login (uncrm_pending cookie) accepts.
+      summary: The second factors the pending login (keyring_pending cookie) accepts.
       security: []
       responses:
         "200":
@@ -1719,7 +1719,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries keyring_pending).
           content:
             application/json:
               schema:
@@ -1761,7 +1761,7 @@ paths:
               $ref: "#/components/schemas/CeremonyFinish"
       responses:
         "200":
-          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries keyring_pending).
           content:
             application/json:
               schema:
@@ -1797,7 +1797,7 @@ paths:
     get:
       tags: [auth]
       operationId: startOAuth
-      summary: Redirect to the provider. Sets uncrm_oauth, which binds the flow to this browser.
+      summary: Redirect to the provider. Sets keyring_oauth, which binds the flow to this browser.
       security: []
       responses:
         "303":
@@ -1918,7 +1918,7 @@ paths:
               $ref: "#/components/schemas/CeremonyFinish"
       responses:
         "200":
-          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries keyring_pending).
           content:
             application/json:
               schema:
@@ -1948,11 +1948,11 @@ components:
     apiKey:
       type: http
       scheme: bearer
-      description: An API key from Settings > API keys, such as `uncrm_ab12...`.
+      description: An API key from Settings > API keys, such as `keyring_ab12...`.
     session:
       type: apiKey
       in: cookie
-      name: uncrm_session
+      name: keyring_session
       description: Set by a completed sign-in under /auth. Unsafe cross-site browser requests are rejected.
   parameters:
     id:
@@ -2008,7 +2008,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     Exists:
-      description: The email or domain is already in uncrm; id names that contact or company.
+      description: The email or domain is already in Keyring; id names that contact or company.
       content:
         application/json:
           schema:
@@ -2590,7 +2590,7 @@ components:
           description: Such as /webhooks/clerk. Prefix it with this server's origin.
         issue_secret:
           type: boolean
-          description: True when uncrm generates the secret; false when you paste the provider's.
+          description: True when Keyring generates the secret; false when you paste the provider's.
         setup:
           type: string
           description: Markdown setup steps with {{webhook_url}} and {{secret}} placeholders.
@@ -2643,7 +2643,7 @@ components:
           type: string
         prefix:
           type: string
-          description: The first characters of the key, such as uncrm_ab12, to tell keys apart.
+          description: The first characters of the key, such as keyring_ab12, to tell keys apart.
         created_at:
           type: string
           format: date-time

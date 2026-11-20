@@ -1,4 +1,4 @@
--- uncrm schema, version 1.
+-- Keyring schema, version 1.
 --
 -- State tables are the source of truth. Every write is an idempotent upsert
 -- keyed by a natural key, so running any write twice converges.

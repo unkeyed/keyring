@@ -3,7 +3,7 @@
 (function () {
   var t;
   try {
-    t = localStorage.getItem("uncrm-theme");
+    t = localStorage.getItem("keyring-theme");
   } catch (e) {}
   var dark = t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
   if (dark) document.documentElement.classList.add("dark");

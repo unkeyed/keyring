@@ -18,7 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 var (
@@ -50,7 +50,7 @@ type KeyStore interface {
 type Key struct {
 	ID         string     `json:"id"`
 	Name       string     `json:"name"`
-	Prefix     string     `json:"prefix"` // "uncrm_ab12" so people can tell keys apart
+	Prefix     string     `json:"prefix"` // "keyring_ab12" so people can tell keys apart
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 }
@@ -70,7 +70,7 @@ func NewKeyStore(db *pgxpool.Pool, unkey UnkeyConfig) KeyStore {
 	return &dbKeys{db: db}
 }
 
-const keyPrefix = "uncrm_"
+const keyPrefix = "keyring_"
 
 // keyName validates the human label both stores require.
 func keyName(name string) (string, error) {
@@ -81,13 +81,13 @@ func keyName(name string) (string, error) {
 	return name, nil
 }
 
-// displayPrefix is the part of a key shown in lists: "uncrm_" plus four
+// displayPrefix is the part of a key shown in lists: "keyring_" plus four
 // characters, enough to tell keys apart and far too short to guess from.
 func displayPrefix(key string) string {
 	return key[:min(len(key), len(keyPrefix)+4)]
 }
 
-// wellFormedKey is whether token could be a key uncrm issued: "uncrm_"
+// wellFormedKey is whether token could be a key Keyring issued: "keyring_"
 // then 52 base32 characters (built-in) or about 44 base58 characters
 // (Unkey, 32 bytes).
 func wellFormedKey(token string) bool {

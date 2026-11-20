@@ -10,8 +10,8 @@ import (
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // mountOAuth adds the OAuth endpoints MCP clients discover and call. Their
@@ -23,7 +23,7 @@ func (s *server) mountOAuth(mux *http.ServeMux) {
 		Resource:               s.oauth.Resource(),
 		AuthorizationServers:   []string{s.oauth.Issuer()},
 		BearerMethodsSupported: []string{"header"},
-		ResourceName:           "uncrm",
+		ResourceName:           "Keyring",
 	})
 	mux.Handle("/.well-known/oauth-protected-resource", prm)
 	mux.Handle("/.well-known/oauth-protected-resource/mcp", prm)
@@ -53,7 +53,7 @@ func anyOrigin(method string, h http.HandlerFunc) http.Handler {
 	})
 }
 
-// authServerMetadata is RFC 8414 metadata. uncrm issues no scopes, so it
+// authServerMetadata is RFC 8414 metadata. Keyring issues no scopes, so it
 // lists none.
 func (s *server) authServerMetadata(w http.ResponseWriter, r *http.Request) {
 	iss := s.oauth.Issuer()

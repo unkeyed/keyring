@@ -29,7 +29,7 @@ export function Providers() {
   return (
     <>
       <SettingsHeader title="Providers">
-        Point your auth provider&apos;s webhook at uncrm and every sign-up becomes a contact. A connected provider shows its last delivery, so you can tell
+        Point your auth provider&apos;s webhook at Keyring and every sign-up becomes a contact. A connected provider shows its last delivery, so you can tell
         right away whether the setup worked.
       </SettingsHeader>
       {providers.isPending && <PageSpinner />}

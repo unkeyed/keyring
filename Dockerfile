@@ -14,10 +14,10 @@ RUN go mod download
 COPY . .
 COPY --from=web /src/web/dist ./web/dist
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/uncrm ./cmd/uncrm
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/keyring ./cmd/keyring
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=server /out/uncrm /uncrm
+COPY --from=server /out/keyring /keyring
 ENV PORT=8080
 EXPOSE 8080
-ENTRYPOINT ["/uncrm"]
+ENTRYPOINT ["/keyring"]

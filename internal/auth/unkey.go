@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 const unkeyBaseURL = "https://api.unkey.com"
@@ -29,12 +29,12 @@ const unkeyCacheTTL = 30 * time.Second
 // requires go >= 1.26.10; four JSON calls do not justify forcing that.
 //
 //	Verify          -> keys.verifyKey {key, keyspaces: [our keyspace id]},
-//	                   only for a token shaped like an uncrm key
-//	Create          -> keys.createKey {apiId, prefix: "uncrm", name, meta: {created_by}}
+//	                   only for a token shaped like an Keyring key
+//	Create          -> keys.createKey {apiId, prefix: "Keyring", name, meta: {created_by}}
 //	List            -> apis.listKeys {apiId}
 //	Revoke          -> keys.deleteKey {keyId}, after checking apis.listKeys has it
 //	RevokeCreatedBy -> keys.deleteKey for each key whose meta.created_by
-//	                   matches. A key created before uncrm wrote that meta
+//	                   matches. A key created before Keyring wrote that meta
 //	                   has no creator and stays until revoked by hand.
 //
 // Cross-API keys. keys.verifyKey takes no apiId; a key from any keyspace in
@@ -149,7 +149,7 @@ func (k *unkeyKeys) Create(ctx context.Context, by crm.Actor, name string) (stri
 		Name       string     `json:"name"`
 		ByteLength int        `json:"byteLength"`
 		Meta       *unkeyMeta `json:"meta,omitempty"`
-	}{APIID: k.cfg.APIID, Prefix: "uncrm", Name: name, ByteLength: 32}
+	}{APIID: k.cfg.APIID, Prefix: "keyring", Name: name, ByteLength: 32}
 	if id := userID(by); id != nil {
 		req.Meta = &unkeyMeta{CreatedBy: strconv.FormatInt(*id, 10)}
 	}

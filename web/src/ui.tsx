@@ -86,7 +86,7 @@ export function Button({ variant, size, className, ...props }: ButtonHTMLAttribu
 export function Logo({ className = "size-6 text-xs" }: { className?: string }) {
   return (
     <span aria-hidden="true" className={cx("grid shrink-0 place-items-center rounded-control bg-primary font-bold text-primary-fg", className)}>
-      u
+      K
     </span>
   );
 }

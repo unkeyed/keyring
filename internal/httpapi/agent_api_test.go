@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 func TestDeleteBulkAndLookups(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/uncrm/uncrm
+module github.com/unkeyed/keyring
 
 go 1.26.0
 

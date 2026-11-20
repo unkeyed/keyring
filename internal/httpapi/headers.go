@@ -5,14 +5,14 @@ import (
 	"net/url"
 )
 
-// contentSecurityPolicy allows only uncrm's own scripts, so injected markup
+// contentSecurityPolicy allows only Keyring's own scripts, so injected markup
 // cannot run code. Company logos load from any https origin, the TOTP QR
 // code is a data: URL, and React sets inline style attributes.
 const contentSecurityPolicy = "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; " +
 	"frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
 
 // SecurityHeaders sets the browser hardening headers on every response,
-// and HSTS when uncrm is served over https.
+// and HSTS when Keyring is served over https.
 func SecurityHeaders(publicURL *url.URL, next http.Handler) http.Handler {
 	hsts := publicURL.Scheme == "https"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -18,13 +18,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 const loopbackRedirect = "http://127.0.0.1:33418/callback"
 
-// newLocalServer serves uncrm at http://localhost:<port> with that as its
+// newLocalServer serves Keyring at http://localhost:<port> with that as its
 // PUBLIC_URL, so the URLs an MCP client discovers are the ones it can reach.
 func newLocalServer(t *testing.T) (anon, person client) {
 	t.Helper()
@@ -378,7 +378,7 @@ func TestOAuthRegistrationRedirectURIs(t *testing.T) {
 		"http://127.0.0.1:33418/callback",
 		"http://localhost:6274/oauth/callback",
 		"http://[::1]:8080/cb",
-		"cursor://anysphere.cursor-retrieval/oauth/user-uncrm/callback",
+		"cursor://anysphere.cursor-retrieval/oauth/user-keyring/callback",
 		"com.example.app:/oauth2redirect",
 	} {
 		if r := anon.do("POST", "/oauth/register", map[string]any{"redirect_uris": []string{uri}}); r.code != http.StatusCreated {
@@ -409,7 +409,7 @@ func TestOAuthRegistrationRedirectURIs(t *testing.T) {
 }
 
 // TestOAuthAuthorizeRefusals checks that a refused authorization request is
-// explained on uncrm's own page and never redirected, so uncrm cannot be
+// explained on Keyring's own page and never redirected, so Keyring cannot be
 // used as an open redirector, and that declining goes back to the client.
 func TestOAuthAuthorizeRefusals(t *testing.T) {
 	anon, person := newLocalServer(t)

@@ -1,50 +1,50 @@
-# Connect agents to uncrm
+# Connect agents to Keyring
 
-Agents reach uncrm in two ways. The MCP server at `/mcp` gives an agent tools to search, read, and update contacts. The REST API under `/v1` does the same over plain HTTP. Both call the same code as the web UI, so an agent sees exactly what your team sees.
+Agents reach Keyring in two ways. The MCP server at `/mcp` gives an agent tools to search, read, and update contacts. The REST API under `/v1` does the same over plain HTTP. Both call the same code as the web UI, so an agent sees exactly what your team sees.
 
 They sign in differently. An MCP client signs in as you, in your browser, and needs no key. The REST API takes an API key.
 
-In the examples, replace `https://crm.example.com` with your uncrm URL, which is its `PUBLIC_URL`.
+In the examples, replace `https://crm.example.com` with your Keyring URL, which is its `PUBLIC_URL`.
 
 ## Connect an MCP client
 
-uncrm's MCP server uses the Streamable HTTP transport, without sessions, at `https://crm.example.com/mcp`. Add that URL to your client with no `Authorization` header. **Settings > Agents & MCP** shows the snippets with your URL filled in.
+Keyring's MCP server uses the Streamable HTTP transport, without sessions, at `https://crm.example.com/mcp`. Add that URL to your client with no `Authorization` header. **Settings > Agents & MCP** shows the snippets with your URL filled in.
 
 ### Claude Code
 
 ```sh
-claude mcp add --transport http uncrm https://crm.example.com/mcp
+claude mcp add --transport http keyring https://crm.example.com/mcp
 ```
 
-Then run `/mcp` in Claude Code, pick `uncrm`, and choose **Authenticate**.
+Then run `/mcp` in Claude Code, pick `keyring`, and choose **Authenticate**.
 
 ### Cursor
 
-Add uncrm to `.cursor/mcp.json` in your project, or to `~/.cursor/mcp.json` for every project:
+Add Keyring to `.cursor/mcp.json` in your project, or to `~/.cursor/mcp.json` for every project:
 
 ```json
 {
 	"mcpServers": {
-		"uncrm": {
+		"keyring": {
 			"url": "https://crm.example.com/mcp"
 		}
 	}
 }
 ```
 
-Cursor then asks you to log in to uncrm from its MCP settings.
+Cursor then asks you to log in to Keyring from its MCP settings.
 
 ### Claude Desktop
 
 Claude Desktop connects through [`mcp-remote`](https://www.npmjs.com/package/mcp-remote), which needs Node.js and signs in the same way.
 
 1. In Claude Desktop, open **Settings > Developer** and click **Edit Config**.
-2. Add uncrm to `claude_desktop_config.json`:
+2. Add Keyring to `claude_desktop_config.json`:
 
    ```json
    {
    	"mcpServers": {
-   		"uncrm": {
+   		"keyring": {
    			"command": "npx",
    			"args": ["-y", "mcp-remote", "https://crm.example.com/mcp"]
    		}
@@ -56,9 +56,9 @@ Claude Desktop connects through [`mcp-remote`](https://www.npmjs.com/package/mcp
 
 ### What happens when you connect
 
-1. The client calls `/mcp` without a token. uncrm answers `401` with a `WWW-Authenticate` header that points to `/.well-known/oauth-protected-resource/mcp`.
-2. The client reads that document and the authorization server metadata at `/.well-known/oauth-authorization-server`, registers itself, and opens your browser at uncrm.
-3. You sign in to uncrm if you are not signed in already. uncrm then shows the app's name and where your browser goes after you approve, such as `127.0.0.1:33418` for an app on your computer.
+1. The client calls `/mcp` without a token. Keyring answers `401` with a `WWW-Authenticate` header that points to `/.well-known/oauth-protected-resource/mcp`.
+2. The client reads that document and the authorization server metadata at `/.well-known/oauth-authorization-server`, registers itself, and opens your browser at Keyring.
+3. You sign in to Keyring if you are not signed in already. Keyring then shows the app's name and where your browser goes after you approve, such as `127.0.0.1:33418` for an app on your computer.
 4. You approve, and the browser hands a one-time code back to the client. The client trades it for an access token, which lasts an hour, and a refresh token, which lasts 30 days from its last use.
 
 From then on the agent acts as you. Its changes show on the timeline as `Claude Code (via Alex Rivera)`, with the name the app registered and your name. Like an API key, it can read and change contacts, companies, notes, and tags, and cannot manage keys, providers, teammates, or stages.
@@ -67,7 +67,7 @@ Any app can register with any name, so the consent page marks every app **Unveri
 
 ### Disconnect an app
 
-**Settings > Agents & MCP** lists every connected app, who approved it, and when it was last used. **Disconnect** stops its tokens at once. uncrm also ends a connection when:
+**Settings > Agents & MCP** lists every connected app, who approved it, and when it was last used. **Disconnect** stops its tokens at once. Keyring also ends a connection when:
 
 - the client signs out, through the revocation endpoint;
 - a refresh token is used twice, because then someone other than the client holds a copy;
@@ -75,21 +75,21 @@ Any app can register with any name, so the consent page marks every app **Unveri
 
 ### API keys and `/mcp`
 
-`/mcp` does not take API keys. A client configured with an `Authorization: Bearer uncrm_...` header gets `401`. Remove the header, and the client signs in through the browser instead.
+`/mcp` does not take API keys. A client configured with an `Authorization: Bearer keyring_...` header gets `401`. Remove the header, and the client signs in through the browser instead.
 
 ## Create an API key
 
 The REST API takes API keys.
 
-1. In uncrm, open **Settings > API keys**, or **REST API** under **Settings > Agents & MCP**.
+1. In Keyring, open **Settings > API keys**, or **REST API** under **Settings > Agents & MCP**.
 2. Name the key after what uses it, for example `Signup backend`, and create it.
-3. Copy the key. uncrm shows it only once.
+3. Copy the key. Keyring shows it only once.
 
 An API key can read and change contacts, companies, notes, and tags, and can post sign-ups. Only a person logged in to the web UI can manage API keys, providers, teammates, and stages, so a leaked key cannot create more keys.
 
 ## MCP tools
 
-uncrm's MCP server has 24 tools. Every REST operation an API key can call has one, except `POST /v1/signups`, which is for auth systems. A test keeps the two in step.
+Keyring's MCP server has 24 tools. Every REST operation an API key can call has one, except `POST /v1/signups`, which is for auth systems. A test keeps the two in step.
 
 | Tool | REST | What it does |
 |---|---|---|
@@ -122,19 +122,19 @@ A value that a person or an agent sets wins over machine data. After an agent se
 
 Read tools are marked read-only, and `delete_contact`, `delete_company`, `delete_note`, and `merge_contacts` are marked destructive, so a client can ask before it runs them. Closed sets such as fields and activity kinds are enums in each tool's schema. Time filters take an RFC 3339 time or a date such as `2026-01-02`.
 
-Names, bios, descriptions, taglines, and notes come from sign-up providers, context.dev, and other people. The server tells agents to treat that text as data, not as instructions. uncrm does not store or return the raw webhook payload of a sign-up.
+Names, bios, descriptions, taglines, and notes come from sign-up providers, context.dev, and other people. The server tells agents to treat that text as data, not as instructions. Keyring does not store or return the raw webhook payload of a sign-up.
 
 When a tool fails, its error says what to do next. A duplicate names the existing record, such as `contact 12 already has ada@stripe.com; use get_contact {"id":12} or update_contact`. An unknown stage, field, or activity kind lists the valid ones. A missing record names the tool that finds one. An internal failure shows only a `request_id`, and the server log has the cause under the same id.
 
 ## Use the REST API
 
-Send the key in the `Authorization` header. In the examples, replace `uncrm_...` with your key. Request and response bodies are JSON.
+Send the key in the `Authorization` header. In the examples, replace `keyring_...` with your key. Request and response bodies are JSON.
 
 Record a sign-up from any backend:
 
 ```sh
 curl -X POST https://crm.example.com/v1/signups \
-	-H "Authorization: Bearer uncrm_..." \
+	-H "Authorization: Bearer keyring_..." \
 	-H "Content-Type: application/json" \
 	-d '{"email": "ada@example.com", "name": "Ada Lovelace"}'
 ```
@@ -145,18 +145,18 @@ Add a person who never signed up. Only `email` is required, and `name`, `title`,
 
 ```sh
 curl -X POST https://crm.example.com/v1/contacts \
-	-H "Authorization: Bearer uncrm_..." \
+	-H "Authorization: Bearer keyring_..." \
 	-H "Content-Type: application/json" \
 	-d '{"email": "grace@example.com", "name": "Grace Hopper", "stage": "qualified"}'
 ```
 
-The answer is `201` with the contact. If the email is already in uncrm, the answer is `409` with `{"error": "...", "id": 12}`, where `id` is the existing contact. `POST /v1/companies` with `{"domain": "example.com"}` adds a company the same way.
+The answer is `201` with the contact. If the email is already in Keyring, the answer is `409` with `{"error": "...", "id": 12}`, where `id` is the existing contact. `POST /v1/companies` with `{"domain": "example.com"}` adds a company the same way.
 
 Search contacts. The `q` parameter matches email, name, and company:
 
 ```sh
 curl "https://crm.example.com/v1/contacts?q=example.com" \
-	-H "Authorization: Bearer uncrm_..."
+	-H "Authorization: Bearer keyring_..."
 ```
 
 The answer is `{"items": [...], "next_cursor": "..."}`. To get the next page, pass `next_cursor` as `cursor`.
@@ -165,7 +165,7 @@ Move a contact to a stage and tag it:
 
 ```sh
 curl -X PATCH https://crm.example.com/v1/contacts/1 \
-	-H "Authorization: Bearer uncrm_..." \
+	-H "Authorization: Bearer keyring_..." \
 	-H "Content-Type: application/json" \
 	-d '{"stage": "qualified", "add_tags": ["beta"]}'
 ```
@@ -174,7 +174,7 @@ Add a note:
 
 ```sh
 curl -X POST https://crm.example.com/v1/contacts/1/notes \
-	-H "Authorization: Bearer uncrm_..." \
+	-H "Authorization: Bearer keyring_..." \
 	-H "Content-Type: application/json" \
 	-d '{"body": "Asked about SSO on the onboarding call."}'
 ```
@@ -185,7 +185,7 @@ Tag many contacts at once:
 
 ```sh
 curl -X POST https://crm.example.com/v1/contacts/bulk \
-	-H "Authorization: Bearer uncrm_..." \
+	-H "Authorization: Bearer keyring_..." \
 	-H "Content-Type: application/json" \
 	-d '{"ids": [1, 2, 3], "stage": "qualified", "add_tags": ["webinar"]}'
 ```
@@ -215,4 +215,4 @@ A `5xx` answer also has a `request_id`. The server log records the cause under t
 
 ### API reference
 
-uncrm serves its OpenAPI spec at `https://crm.example.com/v1/openapi.yaml`. The spec is built into the binary, so it describes the version you run. No API key is needed to read it.
+Keyring serves its OpenAPI spec at `https://crm.example.com/v1/openapi.yaml`. The spec is built into the binary, so it describes the version you run. No API key is needed to read it.

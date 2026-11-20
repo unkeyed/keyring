@@ -12,16 +12,16 @@ func init() {
 		IssueSecret: true,
 		Verify:      standardWebhooks,
 		Parse:       parseBetterAuth,
-		Setup: "1. Install the plugin in your app: `npm install @uncrm/better-auth`.\n" +
+		Setup: "1. Install the plugin in your app: `npm install @keyring/better-auth`.\n" +
 			"2. Add it to `plugins` in your `betterAuth({ ... })` config:\n\n" +
 			"```ts\n" +
-			"import { uncrm } from \"@uncrm/better-auth\";\n\n" +
+			"import { keyring } from \"@keyring/better-auth\";\n\n" +
 			"export const auth = betterAuth({\n" +
 			"  // ...your existing options\n" +
-			"  plugins: [uncrm({ url: \"{{webhook_url}}\", secret: process.env.UNCRM_SECRET! })],\n" +
+			"  plugins: [keyring({ url: \"{{webhook_url}}\", secret: process.env.KEYRING_SECRET! })],\n" +
 			"});\n" +
 			"```\n\n" +
-			"3. Set `UNCRM_SECRET={{secret}}` in your app's environment and redeploy.\n\n" +
+			"3. Set `KEYRING_SECRET={{secret}}` in your app's environment and redeploy.\n\n" +
 			"Every user create, update and delete is then sent here, signed with Standard Webhooks.",
 	})
 }

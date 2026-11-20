@@ -28,14 +28,14 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/uncrm/uncrm/internal/authtest"
+	"github.com/unkeyed/keyring/internal/authtest"
 )
 
 var (
 	baseURL    = strings.TrimRight(envOr("BASE_URL", "http://localhost:8080"), "/")
 	publicURL  = strings.TrimRight(envOr("E2E_PUBLIC_URL", baseURL), "/")
 	setupToken = os.Getenv("E2E_SETUP_TOKEN")
-	adminEmail = envOr("E2E_ADMIN_EMAIL", "e2e-admin@uncrm-e2e.test")
+	adminEmail = envOr("E2E_ADMIN_EMAIL", "e2e-admin@keyring-e2e.test")
 )
 
 // passkeyFile keeps the suite's passkey between runs, since the setup link
@@ -45,7 +45,7 @@ func passkeyFile() string {
 		return f
 	}
 	name := strings.NewReplacer(":", "_", "/", "_").Replace(strings.TrimPrefix(strings.TrimPrefix(baseURL, "http://"), "https://"))
-	return filepath.Join(os.TempDir(), "uncrm-e2e-passkey-"+name+".json")
+	return filepath.Join(os.TempDir(), "keyring-e2e-passkey-"+name+".json")
 }
 
 func TestHealthz(t *testing.T) {
@@ -64,7 +64,7 @@ func TestOpenAPIIsPublic(t *testing.T) {
 func TestClerkWebhookCreatesOneContact(t *testing.T) {
 	inst := bootstrap(t)
 	run := unique()
-	email := "clerk-" + run + "@uncrm-e2e.test"
+	email := "clerk-" + run + "@keyring-e2e.test"
 	body := clerkUserCreated(t, "user_e2e_"+run, email)
 
 	forged := do(t, request{method: "POST", path: "/webhooks/clerk", body: body,
@@ -90,7 +90,7 @@ func TestClerkWebhookCreatesOneContact(t *testing.T) {
 
 func TestGenericSignupIsIdempotent(t *testing.T) {
 	inst := bootstrap(t)
-	email := "api-" + unique() + "@uncrm-e2e.test"
+	email := "api-" + unique() + "@keyring-e2e.test"
 
 	first := postSignup(t, inst, email)
 	first.res.expect(t, http.StatusCreated)
@@ -111,7 +111,7 @@ func TestGenericSignupIsIdempotent(t *testing.T) {
 
 func TestContactsListAndSearch(t *testing.T) {
 	inst := bootstrap(t)
-	email := "list-" + unique() + "@uncrm-e2e.test"
+	email := "list-" + unique() + "@keyring-e2e.test"
 	created := postSignup(t, inst, email)
 	created.res.expect(t, http.StatusCreated)
 
@@ -141,7 +141,7 @@ func TestContactsListAndSearch(t *testing.T) {
 
 func TestMCPSearchContacts(t *testing.T) {
 	inst := bootstrap(t)
-	email := "mcp-" + unique() + "@uncrm-e2e.test"
+	email := "mcp-" + unique() + "@keyring-e2e.test"
 	postSignup(t, inst, email).res.expect(t, http.StatusCreated)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -267,7 +267,7 @@ func signIn() (string, error) {
 		}
 	}
 	if setupToken == "" {
-		return "", fmt.Errorf("no saved passkey at %s and no E2E_SETUP_TOKEN: set it to the token of the setup link uncrm logged at start", passkeyFile())
+		return "", fmt.Errorf("no saved passkey at %s and no E2E_SETUP_TOKEN: set it to the token of the setup link Keyring logged at start", passkeyFile())
 	}
 	var begun ceremony
 	if err := call(request{method: "POST", path: "/auth/signup/passkey/begin",
@@ -323,11 +323,11 @@ func savePasskey(pk *authtest.Passkey) error {
 
 func sessionCookie(res response) (string, error) {
 	for _, c := range res.Cookies() {
-		if c.Name == "uncrm_session" && c.Value != "" {
+		if c.Name == "keyring_session" && c.Value != "" {
 			return c.Value, nil
 		}
 	}
-	return "", fmt.Errorf("%s %s set no uncrm_session cookie", res.req.method, res.req.path)
+	return "", fmt.Errorf("%s %s set no keyring_session cookie", res.req.method, res.req.path)
 }
 
 func call(r request, out any) error {
@@ -345,7 +345,7 @@ func TestPasswordAloneIsRefused(t *testing.T) {
 	bootstrap(t)
 	res := do(t, request{method: "POST", path: "/auth/password", body: map[string]string{"email": adminEmail, "password": "a-guessed-password"}})
 	for _, c := range res.Cookies() {
-		if c.Name == "uncrm_session" && c.Value != "" {
+		if c.Name == "keyring_session" && c.Value != "" {
 			t.Fatal("POST /auth/password set a session cookie")
 		}
 	}
@@ -359,7 +359,7 @@ func TestSetupLinkIsSpent(t *testing.T) {
 	}
 	do(t, request{method: "GET", path: "/auth/setup/" + setupToken}).expect(t, http.StatusNotFound)
 	do(t, request{method: "POST", path: "/auth/signup/passkey/begin",
-		body: map[string]string{"setup_token": setupToken, "email": "intruder@uncrm-e2e.test"}}).expect(t, http.StatusNotFound)
+		body: map[string]string{"setup_token": setupToken, "email": "intruder@keyring-e2e.test"}}).expect(t, http.StatusNotFound)
 }
 
 type contact struct {
@@ -440,7 +440,7 @@ func svixHeaders(secret []byte, msgID string, at time.Time, body []byte) http.He
 }
 
 func connectMCP(ctx context.Context, rt http.RoundTripper) (*mcp.ClientSession, error) {
-	return mcp.NewClient(&mcp.Implementation{Name: "uncrm-e2e", Version: "0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
+	return mcp.NewClient(&mcp.Implementation{Name: "keyring-e2e", Version: "0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint:             baseURL + "/mcp",
 		HTTPClient:           &http.Client{Transport: rt, Timeout: 30 * time.Second},
 		DisableStandaloneSSE: true,
@@ -449,13 +449,13 @@ func connectMCP(ctx context.Context, rt http.RoundTripper) (*mcp.ClientSession, 
 }
 
 // connectMCPWithOAuth connects the way Claude Code does: the SDK's OAuth
-// client finds uncrm's authorization server from the 401, registers, and
+// client finds Keyring's authorization server from the 401, registers, and
 // opens the authorization URL, where the signed-in person approves.
 func connectMCPWithOAuth(ctx context.Context, session string) (*mcp.ClientSession, error) {
 	const redirect = "http://127.0.0.1:33418/callback"
 	h, err := mcpauth.NewAuthorizationCodeHandler(&mcpauth.AuthorizationCodeHandlerConfig{
 		DynamicClientRegistrationConfig: &mcpauth.DynamicClientRegistrationConfig{
-			Metadata: &oauthex.ClientRegistrationMetadata{ClientName: "uncrm e2e", RedirectURIs: []string{redirect}},
+			Metadata: &oauthex.ClientRegistrationMetadata{ClientName: "Keyring e2e", RedirectURIs: []string{redirect}},
 		},
 		AuthorizationCodeFetcher: func(_ context.Context, args *mcpauth.AuthorizationArgs) (*mcpauth.AuthorizationResult, error) {
 			return approve(args.URL, session)
@@ -464,7 +464,7 @@ func connectMCPWithOAuth(ctx context.Context, session string) (*mcp.ClientSessio
 	if err != nil {
 		return nil, err
 	}
-	return mcp.NewClient(&mcp.Implementation{Name: "uncrm-e2e", Version: "0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
+	return mcp.NewClient(&mcp.Implementation{Name: "keyring-e2e", Version: "0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint:             baseURL + "/mcp",
 		HTTPClient:           &http.Client{Timeout: 30 * time.Second},
 		OAuthHandler:         h,
@@ -521,7 +521,7 @@ func toolText(res *mcp.CallToolResult) string {
 type request struct {
 	method, path string
 	key          string // sent as a bearer token
-	session      string // sent as the uncrm_session cookie
+	session      string // sent as the keyring_session cookie
 	header       http.Header
 	body         any // []byte is sent as is; anything else as JSON
 }
@@ -570,7 +570,7 @@ func send(r request) (response, error) {
 		req.Header.Set("Authorization", "Bearer "+r.key)
 	}
 	if r.session != "" {
-		req.AddCookie(&http.Cookie{Name: "uncrm_session", Value: r.session})
+		req.AddCookie(&http.Cookie{Name: "keyring_session", Value: r.session})
 	}
 	res, err := httpClient.Do(req)
 	if err != nil {

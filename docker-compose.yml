@@ -1,16 +1,18 @@
+name: keyring
+
 services:
   db:
     image: postgres:17
     environment:
-      POSTGRES_USER: uncrm
-      POSTGRES_PASSWORD: uncrm
-      POSTGRES_DB: uncrm
+      POSTGRES_USER: keyring
+      POSTGRES_PASSWORD: keyring
+      POSTGRES_DB: keyring
     ports:
-      - "127.0.0.1:${UNCRM_DB_PORT:-5432}:5432"
+      - "127.0.0.1:${KEYRING_DB_PORT:-5432}:5432"
     volumes:
       - db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U uncrm -d uncrm"]
+      test: ["CMD-SHELL", "pg_isready -U keyring -d keyring"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -18,8 +20,8 @@ services:
   app:
     build: .
     environment:
-      DATABASE_URL: postgres://uncrm:uncrm@db:5432/uncrm?sslmode=disable
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:${UNCRM_PORT:-8080}}
+      DATABASE_URL: postgres://keyring:keyring@db:5432/keyring?sslmode=disable
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:${KEYRING_PORT:-8080}}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
       PASSWORD_LOGIN: ${PASSWORD_LOGIN:-false}
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
@@ -33,7 +35,7 @@ services:
       OIDC_NAME: ${OIDC_NAME:-}
       CONTEXT_DEV_API_KEY: ${CONTEXT_DEV_API_KEY:-}
     ports:
-      - "127.0.0.1:${UNCRM_PORT:-8080}:8080"
+      - "127.0.0.1:${KEYRING_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy

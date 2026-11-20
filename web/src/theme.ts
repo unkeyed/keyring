@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 export type ThemeMode = "system" | "light" | "dark";
-const key = "uncrm-theme";
+const key = "keyring-theme";
 const media = matchMedia("(prefers-color-scheme: dark)");
 
 function read(): ThemeMode {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/uncrm/uncrm/internal/signup"
-	"github.com/uncrm/uncrm/internal/testdb"
+	"github.com/unkeyed/keyring/internal/signup"
+	"github.com/unkeyed/keyring/internal/testdb"
 )
 
 var (

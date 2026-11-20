@@ -10,20 +10,20 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // Cookie names. Over https each goes out with the __Host- prefix (see
 // cookieName).
 const (
-	SessionCookie = "uncrm_session"
-	PendingCookie = "uncrm_pending"
+	SessionCookie = "keyring_session"
+	PendingCookie = "keyring_pending"
 	// OAuthCookie binds an OAuth redirect to the browser that started it.
-	OAuthCookie = "uncrm_oauth"
+	OAuthCookie = "keyring_oauth"
 	// OAuthBackCookie is the setup or invite page a failed OAuth flow
 	// returns to. It holds that page's token, so it stays in the browser
 	// instead of the challenge row.
-	OAuthBackCookie = "uncrm_oauth_back"
+	OAuthBackCookie = "keyring_oauth_back"
 
 	recentAuth = 15 * time.Minute
 )

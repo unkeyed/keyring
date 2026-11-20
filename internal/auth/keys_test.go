@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uncrm/uncrm/internal/crm"
-	"github.com/uncrm/uncrm/internal/testdb"
+	"github.com/unkeyed/keyring/internal/crm"
+	"github.com/unkeyed/keyring/internal/testdb"
 )
 
 func TestBuiltinKeyLifecycle(t *testing.T) {
@@ -23,11 +23,11 @@ func TestBuiltinKeyLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(token, "uncrm_") || len(token) < len("uncrm_")+50 {
-		t.Fatalf("token %q is not uncrm_ + 32 encoded bytes", token)
+	if !strings.HasPrefix(token, "keyring_") || len(token) < len("keyring_")+50 {
+		t.Fatalf("token %q is not keyring_ + 32 encoded bytes", token)
 	}
-	if created.Name != "zapier" || created.Prefix != token[:10] {
-		t.Fatalf("created %+v, want name zapier and prefix %q", created, token[:10])
+	if created.Name != "zapier" || created.Prefix != token[:len(keyPrefix)+4] {
+		t.Fatalf("created %+v, want name zapier and prefix %q", created, token[:len(keyPrefix)+4])
 	}
 	if _, _, err := keys.Create(ctx, crm.Actor{}, " "); !errors.Is(err, crm.ErrInvalid) {
 		t.Fatalf("blank name: %v, want crm.ErrInvalid", err)
@@ -41,7 +41,7 @@ func TestBuiltinKeyLifecycle(t *testing.T) {
 	if actor != want {
 		t.Fatalf("verify gave %+v, want %+v", actor, want)
 	}
-	for _, bad := range []string{"", "uncrm_", token[:len(token)-1], token + "a", strings.ToUpper(token)} {
+	for _, bad := range []string{"", "keyring_", token[:len(token)-1], token + "a", strings.ToUpper(token)} {
 		if _, err := keys.Verify(ctx, bad); !errors.Is(err, ErrInvalidKey) {
 			t.Fatalf("verify %q: %v, want ErrInvalidKey", bad, err)
 		}

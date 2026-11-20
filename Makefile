@@ -1,4 +1,4 @@
-DATABASE_URL ?= postgres://uncrm:uncrm@localhost:5432/uncrm?sslmode=disable
+DATABASE_URL ?= postgres://keyring:keyring@localhost:5432/keyring?sslmode=disable
 BASE_URL ?= http://localhost:8080
 GO_TEST_SKIP ?=
 E2E_SETUP_TOKEN ?=
@@ -7,7 +7,7 @@ E2E_SETUP_TOKEN ?=
 
 dev:
 	docker compose up -d --wait db
-	DATABASE_URL='$(DATABASE_URL)' go run ./cmd/uncrm
+	DATABASE_URL='$(DATABASE_URL)' go run ./cmd/keyring
 
 test:
 	go test -skip '$(GO_TEST_SKIP)' ./...
@@ -21,7 +21,7 @@ web:
 	cd web && npm ci && npm run build
 
 build: web
-	CGO_ENABLED=0 go build -o bin/uncrm ./cmd/uncrm
+	CGO_ENABLED=0 go build -o bin/keyring ./cmd/keyring
 
 e2e:
 	BASE_URL='$(BASE_URL)' E2E_SETUP_TOKEN='$(E2E_SETUP_TOKEN)' go test -tags e2e -count=1 -v ./e2e/

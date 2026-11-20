@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/uncrm/uncrm/internal/signup"
+	"github.com/unkeyed/keyring/internal/signup"
 )
 
 func wantNotFound(t *testing.T, err error, r Record) {

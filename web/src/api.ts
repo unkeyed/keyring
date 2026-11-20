@@ -269,7 +269,7 @@ export interface ProviderStatus {
   title: string;
   /** "/webhooks/clerk"; prefix with the origin. */
   webhook_path: string;
-  /** True: uncrm generates the secret. False: paste the provider's secret. */
+  /** True: Keyring generates the secret. False: paste the provider's secret. */
   issue_secret: boolean;
   /** Markdown with {{webhook_url}} and {{secret}} placeholders. */
   setup: string;
@@ -298,7 +298,7 @@ export interface Status {
 export interface Key {
   id: KeyID;
   name: string;
-  /** "uncrm_ab12", so people can tell keys apart. */
+  /** "keyring_ab12", so people can tell keys apart. */
   prefix: string;
   created_at: Timestamp;
   last_used_at?: Timestamp;
@@ -353,7 +353,7 @@ export interface AuthOptions {
 
 export type SecondFactor = "totp" | "recovery_code" | "passkey";
 
-/** Every sign-in step ends in a session, or in a pending login (uncrm_pending cookie) that owes a second factor. */
+/** Every sign-in step ends in a session, or in a pending login (keyring_pending cookie) that owes a second factor. */
 export type SignInResponse = { status: "signed_in" } | { status: "second_factor"; second_factors: SecondFactor[] };
 
 /** A WebAuthn ceremony: options carry binary fields as base64url. */
@@ -579,7 +579,7 @@ export const api = {
 
   providers: {
     list: () => request<ProviderStatus[]>("GET", "/v1/providers"),
-    /** An empty secret asks uncrm to issue one; the response holds it once. */
+    /** An empty secret asks Keyring to issue one; the response holds it once. */
     connect: (name: string, secret: string) =>
       request<{ secret: string }>("PUT", `/v1/providers/${enc(name)}`, { body: { secret } }),
     disconnect: (name: string) => request<void>("DELETE", `/v1/providers/${enc(name)}`),

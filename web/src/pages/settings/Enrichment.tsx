@@ -10,7 +10,7 @@ export function Enrichment() {
   return (
     <>
       <SettingsHeader title="Enrichment">
-        uncrm looks up people and companies on context.dev: job titles, locations, company logos, sizes and industries. Free-mail addresses like Gmail are
+        Keyring looks up people and companies on context.dev: job titles, locations, company logos, sizes and industries. Free-mail addresses like Gmail are
         skipped. Fields a person edited are never overwritten.
       </SettingsHeader>
       {status.isPending && <PageSpinner />}
@@ -64,7 +64,7 @@ export function Enrichment() {
                   Set it as <code className="font-mono text-fg">CONTEXT_DEV_API_KEY</code> on this deployment. On Unkey Deploy that is an environment variable on
                   the project; with Docker Compose, add it to <code className="font-mono text-fg">.env</code>.
                 </li>
-                <li>Restart uncrm. Everything queued is enriched right away.</li>
+                <li>Restart Keyring. Everything queued is enriched right away.</li>
               </ol>
               <CodeBlock code="CONTEXT_DEV_API_KEY=ctx_..." />
             </section>

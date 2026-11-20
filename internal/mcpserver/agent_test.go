@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/crm"
-	"github.com/uncrm/uncrm/internal/testdb"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/crm"
+	"github.com/unkeyed/keyring/internal/testdb"
 )
 
 // session connects an MCP client to the real /mcp handler with an access
@@ -189,7 +189,7 @@ func TestGetCompanyCapsItsContacts(t *testing.T) {
 // a client ask before an irreversible call.
 func TestToolSchemasNameTheClosedSets(t *testing.T) {
 	ctx := context.Background()
-	srv := mcp.NewServer(&mcp.Implementation{Name: "uncrm", Version: "test"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "keyring", Version: "test"}, nil)
 	addTools(srv, nil, nil)
 	st, ct := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {

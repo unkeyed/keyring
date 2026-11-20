@@ -1,38 +1,38 @@
-# @uncrm/better-auth
+# @keyring/better-auth
 
-A [Better Auth](https://www.better-auth.com) plugin that sends every new, updated and deleted user to [uncrm](https://github.com/uncrm/uncrm).
+A [Better Auth](https://www.better-auth.com) plugin that sends every new, updated and deleted user to [Keyring](https://github.com/unkeyed/keyring).
 
-Better Auth runs inside your app and has no webhooks of its own. This plugin hooks `databaseHooks.user.{create,update,delete}.after` and POSTs the user to uncrm, signed with [Standard Webhooks](https://www.standardwebhooks.com). It has no runtime dependencies.
+Better Auth runs inside your app and has no webhooks of its own. This plugin hooks `databaseHooks.user.{create,update,delete}.after` and POSTs the user to Keyring, signed with [Standard Webhooks](https://www.standardwebhooks.com). It has no runtime dependencies.
 
 ## Setup
 
-1. In uncrm, open **Settings > Providers > Better Auth** and click **Connect**. Copy the webhook URL and the secret it shows (the secret starts with `whsec_`).
+1. In Keyring, open **Settings > Providers > Better Auth** and click **Connect**. Copy the webhook URL and the secret it shows (the secret starts with `whsec_`).
 2. Install the plugin:
 
    ```sh
-   npm install @uncrm/better-auth
+   npm install @keyring/better-auth
    ```
 
 3. Add it to your Better Auth config:
 
    ```ts
    import { betterAuth } from "better-auth";
-   import { uncrm } from "@uncrm/better-auth";
+   import { keyring } from "@keyring/better-auth";
 
    export const auth = betterAuth({
      // ...your existing options
      plugins: [
-       uncrm({
+       keyring({
          url: "https://crm.example.com/webhooks/better-auth",
-         secret: process.env.UNCRM_SECRET!,
+         secret: process.env.KEYRING_SECRET!,
        }),
      ],
    });
    ```
 
-4. Set `UNCRM_SECRET` in your app's environment and redeploy.
+4. Set `KEYRING_SECRET` in your app's environment and redeploy.
 
-Sign up a test user. Settings in uncrm shows "last delivery" within a few seconds.
+Sign up a test user. Settings in Keyring shows "last delivery" within a few seconds.
 
 ## What it sends
 
@@ -58,9 +58,9 @@ Only these user fields leave your app: `id`, `email`, `emailVerified`, `name`, `
 
 ## Failure behaviour
 
-A delivery that fails (network error, a non-2xx answer, or no answer within 5 seconds) is logged with `console.error` and dropped. It never fails the sign-up. There is no retry, so a user created while uncrm is down reaches uncrm on their next profile update.
+A delivery that fails (network error, a non-2xx answer, or no answer within 5 seconds) is logged with `console.error` and dropped. It never fails the sign-up. There is no retry, so a user created while Keyring is down reaches Keyring on their next profile update.
 
-The request is awaited inside the hook. On serverless platforms, set Better Auth's `advanced.backgroundTasks.handler` (for example to `waitUntil`) and the plugin sends in the background instead, so sign-up does not wait for uncrm.
+The request is awaited inside the hook. On serverless platforms, set Better Auth's `advanced.backgroundTasks.handler` (for example to `waitUntil`) and the plugin sends in the background instead, so sign-up does not wait for Keyring.
 
 ## Requirements
 

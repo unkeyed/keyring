@@ -1,4 +1,4 @@
-// Package crm is uncrm. Every read and write of CRM data goes through
+// Package crm is Keyring. Every read and write of CRM data goes through
 // Service, whoever the caller is: REST handlers, MCP tools, the UI (which
 // calls the same REST routes), webhooks and the enrichment worker.
 //

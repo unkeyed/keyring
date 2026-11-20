@@ -10,8 +10,8 @@ import { SettingsHeader, SettingsSubhead } from "./Settings";
 
 export function snippets(origin: string, key: string) {
   return {
-    claude: `claude mcp add --transport http uncrm ${origin}/mcp`,
-    cursor: JSON.stringify({ mcpServers: { uncrm: { url: `${origin}/mcp` } } }, null, 2),
+    claude: `claude mcp add --transport http keyring ${origin}/mcp`,
+    cursor: JSON.stringify({ mcpServers: { keyring: { url: `${origin}/mcp` } } }, null, 2),
     curl: `curl "${origin}/v1/contacts?q=acme.com" \\\n  -H "Authorization: Bearer ${key}"`,
   };
 }
@@ -33,7 +33,7 @@ export function Agents() {
         <CodeBlock label="Claude Code" code={s.claude} />
         <CodeBlock label="Cursor (.cursor/mcp.json)" code={s.cursor} />
         <p className="text-sm text-muted">
-          There is no key to paste. The first time the agent reaches uncrm, it opens your browser: sign in, check the app's name and where it sends you back,
+          There is no key to paste. The first time the agent reaches Keyring, it opens your browser: sign in, check the app's name and where it sends you back,
           and approve. From then on the agent acts as you, and its changes show on the timeline as{" "}
           <span className="font-medium text-fg">Claude Code (via {me.data?.label ?? "you"})</span>.
         </p>
@@ -61,7 +61,7 @@ export function Agents() {
           </>
         )}
         <CodeBlock label="REST (curl)" code={s.curl} />
-        <CodeBlock label="Send a sign-up from any backend" code={signupCurl(location.origin).replace("$UNCRM_API_KEY", created?.key ?? "$UNCRM_API_KEY")} />
+        <CodeBlock label="Send a sign-up from any backend" code={signupCurl(location.origin).replace("$KEYRING_API_KEY", created?.key ?? "$KEYRING_API_KEY")} />
         <p className="text-xs text-muted">
           Every route is described in{" "}
           <a href="/v1/openapi.yaml" className="text-fg underline underline-offset-2 hover:opacity-70">

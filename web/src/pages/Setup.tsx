@@ -35,7 +35,7 @@ export function Setup() {
 
   if (check.isPending) {
     return (
-      <AuthShell title="Set up uncrm">
+      <AuthShell title="Set up Keyring">
         <PageSpinner />
       </AuthShell>
     );
@@ -45,7 +45,7 @@ export function Setup() {
       <AuthShell title="This setup link no longer works">
         {used(check.error) || used(create.error) ? (
           <p className="text-sm text-muted">
-            It was already used, or it is not the latest one. If nobody can sign in yet, restart uncrm and open the new link from the server log.
+            It was already used, or it is not the latest one. If nobody can sign in yet, restart Keyring and open the new link from the server log.
           </p>
         ) : (
           <ErrorNote error={check.error} />
@@ -57,7 +57,7 @@ export function Setup() {
 
   const providers = options.data?.providers ?? [];
   return (
-    <AuthShell title="Set up uncrm" subtitle="Create the first account. You sign in with a passkey, so there is no password to choose.">
+    <AuthShell title="Set up Keyring" subtitle="Create the first account. You sign in with a passkey, so there is no password to choose.">
       <form onSubmit={submit} className="space-y-3">
         <Field label="Your name">
           <input className={inputClass} autoComplete="name" required autoFocus value={name} onChange={(e) => setName(e.target.value)} />

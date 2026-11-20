@@ -12,10 +12,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/crm"
-	"github.com/uncrm/uncrm/internal/signup"
-	"github.com/uncrm/uncrm/internal/testdb"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/crm"
+	"github.com/unkeyed/keyring/internal/signup"
+	"github.com/unkeyed/keyring/internal/testdb"
 )
 
 // oneToken accepts one access token, standing in for auth.OAuthServer,
@@ -36,7 +36,7 @@ func (oneToken) ResourceMetadataURL() string {
 	return "http://localhost/.well-known/oauth-protected-resource/mcp"
 }
 
-var app = oneToken{"uncrm_at_test", crm.Actor{Kind: crm.ActorApp, ID: "1", Label: "Claude Code (via Ada)"}}
+var app = oneToken{"keyring_at_test", crm.Actor{Kind: crm.ActorApp, ID: "1", Label: "Claude Code (via Ada)"}}
 
 type bearer struct{ key string }
 
@@ -99,7 +99,7 @@ func TestEveryToolOverHTTP(t *testing.T) {
 	if _, err := connect(ctx, srv.URL, ""); err == nil {
 		t.Fatal("connected without a token")
 	}
-	if _, err := connect(ctx, srv.URL, "uncrm_at_wrong"); err == nil {
+	if _, err := connect(ctx, srv.URL, "keyring_at_wrong"); err == nil {
 		t.Fatal("connected with a wrong token")
 	}
 	cs, err := connect(ctx, srv.URL, app.token)

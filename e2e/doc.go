@@ -1,4 +1,4 @@
-// Package e2e checks uncrm's definition of done against a running instance,
+// Package e2e checks Keyring's definition of done against a running instance,
 // over HTTP only, the way a user and their agents reach it:
 //
 //   - GET /healthz answers 200.
@@ -10,12 +10,12 @@
 //   - GET /v1/openapi.yaml serves the spec without credentials.
 //   - The MCP server at /mcp refuses API keys, and an MCP client that signs
 //     in with OAuth as the person lists its tools and search_contacts finds
-//     the contact. BASE_URL must be uncrm's PUBLIC_URL, since the client
+//     the contact. BASE_URL must be Keyring's PUBLIC_URL, since the client
 //     checks the resource it discovers against the URL it connects to.
 //   - A password alone never sets a session, and a used setup link is dead.
 //
 // Run it against a fresh compose stack, passing the token of the setup link
-// uncrm logs at start:
+// Keyring logs at start:
 //
 //	docker compose up -d --build --wait
 //	make e2e E2E_SETUP_TOKEN=<token from the setup link>

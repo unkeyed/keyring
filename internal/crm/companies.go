@@ -100,7 +100,7 @@ func upsertCompany(ctx context.Context, tx pgx.Tx, d Domain) (CompanyID, error) 
 }
 
 // CreateCompany adds a company by hand and queues its enrichment. A
-// free-mail domain is ErrInvalid; a domain already in uncrm is an
+// free-mail domain is ErrInvalid; a domain already in Keyring is an
 // *ExistsError naming that company. A given Name is manual. Writes a
 // company_created activity.
 func (s *Service) CreateCompany(ctx context.Context, actor Actor, in NewCompany) (Company, error) {

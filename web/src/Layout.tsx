@@ -109,7 +109,7 @@ function NavBody({ label, theme: [theme, setTheme], rail, onNavigate, close }: {
     <>
       <div className={cx("flex h-12 shrink-0 items-center gap-2", rail ? "justify-center lg:justify-start lg:px-4" : "pr-2 pl-4")}>
         <Logo />
-        <span className={cx(wideOnly, "text-sm font-semibold")}>uncrm</span>
+        <span className={cx(wideOnly, "text-sm font-semibold")}>Keyring</span>
         {close}
       </div>
       <nav aria-label="Main" className="flex flex-col gap-0.5 px-2 py-2">

@@ -1,8 +1,8 @@
-# Contributing to uncrm
+# Contributing to Keyring
 
-This page covers running uncrm from source, the checks a change has to pass, and the most common contribution: a new auth provider. Read [docs/design.md](docs/design.md) before a larger change. It explains how the packages fit together and why.
+This page covers running Keyring from source, the checks a change has to pass, and the most common contribution: a new auth provider. Read [docs/design.md](docs/design.md) before a larger change. It explains how the packages fit together and why.
 
-## Run uncrm from source
+## Run Keyring from source
 
 You need Go 1.26, Node.js 24, and Docker.
 
@@ -22,7 +22,7 @@ npm run dev
 
 Open <http://localhost:5173>. Vite reloads the UI on every change and forwards API calls to the Go server on port 8080.
 
-To build the binary with the UI inside, run `make build`. The result is `bin/uncrm`.
+To build the binary with the UI inside, run `make build`. The result is `bin/keyring`.
 
 ## Check your change
 
@@ -36,14 +36,14 @@ cd web && npm run build   # TypeScript check and production build
 
 `make test` needs Postgres. `make dev` starts it, or run `docker compose up -d --wait db`. Each test gets its own freshly migrated database, which it drops afterwards. If Postgres is unreachable, the tests fail instead of skipping. To use another server, set `TEST_DATABASE_URL` to a role that can create databases.
 
-The end-to-end tests drive a running uncrm over HTTP:
+The end-to-end tests drive a running Keyring over HTTP:
 
 ```sh
 docker compose up -d --build --wait
 make e2e
 ```
 
-On a fresh stack, pass the token from the setup link that uncrm prints: `make e2e E2E_SETUP_TOKEN=<token>`. The suite creates its account with a software passkey and saves the passkey, so later runs need no token. `e2e/doc.go` lists the other variables.
+On a fresh stack, pass the token from the setup link that Keyring prints: `make e2e E2E_SETUP_TOKEN=<token>`. The suite creates its account with a software passkey and saves the passkey, so later runs need no token. `e2e/doc.go` lists the other variables.
 
 ## Follow the house rules
 
@@ -59,7 +59,7 @@ A provider is one Go file. The webhook route, the Settings page, and the dispatc
 
 1. Add `internal/signup/<name>.go`. Its `init` calls `register` with a `Provider` that names a verification scheme from `verify.go` and a parse function. Copy the shape of `clerk.go` or `workos.go`.
 2. Add at least one real delivery body as `internal/signup/testdata/<name>/<case>.json`, and the expected parse result as `<case>.want.json`. `TestEveryProviderHasFixtures` fails until you do.
-3. Add `docs/providers/<name>.md` with the setup steps and the fields uncrm reads, and add a row to the provider table in `README.md`.
+3. Add `docs/providers/<name>.md` with the setup steps and the fields Keyring reads, and add a row to the provider table in `README.md`.
 
 ## Release
 
@@ -70,6 +70,6 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-`.github/workflows/release.yml` builds the image for `linux/amd64` and `linux/arm64` and pushes it to `ghcr.io/uncrm/uncrm` with the version (`0.1.0`), the minor version (`0.1`), and `latest`. A pre-release tag such as `v0.2.0-rc.1` gets only its own version.
+`.github/workflows/release.yml` builds the image for `linux/amd64` and `linux/arm64` and pushes it to `ghcr.io/unkeyed/keyring` with the version (`0.1.0`), the minor version (`0.1`), and `latest`. A pre-release tag such as `v0.2.0-rc.1` gets only its own version.
 
 Unkey Deploy and `docker pull` need the image without credentials. After the first release, check that the package's visibility is **Public** in the package settings on GitHub.

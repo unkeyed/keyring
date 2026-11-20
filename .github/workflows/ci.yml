@@ -12,18 +12,18 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_USER: uncrm
-          POSTGRES_PASSWORD: uncrm
-          POSTGRES_DB: uncrm
+          POSTGRES_USER: keyring
+          POSTGRES_PASSWORD: keyring
+          POSTGRES_DB: keyring
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U uncrm -d uncrm"
+          --health-cmd "pg_isready -U Keyring -d Keyring"
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
     env:
-      TEST_DATABASE_URL: postgres://uncrm:uncrm@localhost:5432/uncrm?sslmode=disable
+      TEST_DATABASE_URL: postgres://keyring:keyring@localhost:5432/keyring?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

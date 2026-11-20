@@ -25,7 +25,7 @@ func init() {
 			"3. Sign up a test user. This page shows the delivery within a few seconds.\n\n" +
 			"```sql\n" + supabaseSQL + "```\n\n" +
 			"To send the users you already have, run once:\n\n" +
-			"```sql\nselect uncrm.send_user('INSERT', u) from auth.users u where u.email is not null and not u.is_anonymous;\n```",
+			"```sql\nselect keyring.send_user('INSERT', u) from auth.users u where u.email is not null and not u.is_anonymous;\n```",
 	})
 }
 

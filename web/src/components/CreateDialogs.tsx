@@ -11,7 +11,7 @@ function CreateError({ error, to, onNavigate }: { error: unknown; to: string; on
   if (error instanceof ApiError && error.status === 409 && error.existingId) {
     return (
       <p role="alert" className="rounded-control bg-subtle px-2.5 py-1.5 text-xs text-muted">
-        Already in uncrm.{" "}
+        Already in Keyring.{" "}
         <Link to={`${to}/${error.existingId}`} onClick={onNavigate} className="font-medium text-fg underline underline-offset-2">
           Open it
         </Link>

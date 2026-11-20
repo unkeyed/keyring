@@ -17,7 +17,7 @@ var migrations embed.FS
 
 // Migrate applies every migrations/NNN_*.sql not yet recorded in
 // schema_migrations, in name order, each in its own transaction.
-// It holds pg_advisory_xact_lock(hashtext('uncrm.migrate')) per file, so
+// It holds pg_advisory_xact_lock(hashtext('keyring.migrate')) per file, so
 // replicas booting together apply each file exactly once and the losers
 // wait, then find nothing to do. Files are never edited after release;
 // a change is a new file.
@@ -42,7 +42,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 func apply(ctx context.Context, tx pgx.Tx, name, sql string) error {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.migrate'))`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('keyring.migrate'))`); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (

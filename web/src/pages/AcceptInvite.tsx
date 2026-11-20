@@ -37,7 +37,7 @@ export function AcceptInvite() {
 
   if (invite.isPending) {
     return (
-      <AuthShell title="Join your team on uncrm">
+      <AuthShell title="Join your team on Keyring">
         <PageSpinner />
       </AuthShell>
     );
@@ -59,7 +59,7 @@ export function AcceptInvite() {
   const providers = options.data?.providers ?? [];
   return (
     <AuthShell
-      title="Join your team on uncrm"
+      title="Join your team on Keyring"
       subtitle={
         <>
           You&apos;re invited as <span className="font-medium text-fg [overflow-wrap:anywhere]">{email}</span>. Sign in with a passkey, no password needed.

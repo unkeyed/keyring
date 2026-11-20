@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/uncrm/uncrm/internal/signup"
+	"github.com/unkeyed/keyring/internal/signup"
 )
 
 // ListProviders returns one row per registered signup.Provider (from

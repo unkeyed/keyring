@@ -1,4 +1,4 @@
--- uncrm is the OAuth authorization server for its own MCP server. MCP
+-- Keyring is the OAuth authorization server for its own MCP server. MCP
 -- clients register themselves (RFC 7591), a signed-in person approves one
 -- on the consent page, and the client gets an access token for /mcp that
 -- acts as that person. Codes and tokens are stored only as SHA-256 hashes.

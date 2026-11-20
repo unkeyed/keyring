@@ -12,7 +12,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-2">
           <Logo className="size-7 text-sm" />
-          <span className="text-base font-semibold">uncrm</span>
+          <span className="text-base font-semibold">Keyring</span>
         </div>
         <div className="rounded-overlay border border-line bg-surface p-6 shadow-raised">
           <h1 className="text-lg font-semibold">{title}</h1>
@@ -131,12 +131,12 @@ function FirstFactorStep({ expired }: { expired: boolean }) {
   }
   if (options.data?.setup_required) {
     return (
-      <AuthShell title="Set up uncrm" subtitle="Nobody can sign in yet.">
+      <AuthShell title="Set up Keyring" subtitle="Nobody can sign in yet.">
         <div className="space-y-3">
           <ErrorNote error={error} />
           <p className="rounded-control border border-line bg-subtle p-3 text-xs leading-relaxed text-muted">
-            When uncrm starts, the server log prints a one-time setup link. Open it to create the first account with a passkey or a configured sign-in
-            provider. Restart uncrm to print a fresh link.
+            When Keyring starts, the server log prints a one-time setup link. Open it to create the first account with a passkey or a configured sign-in
+            provider. Restart Keyring to print a fresh link.
           </p>
         </div>
       </AuthShell>

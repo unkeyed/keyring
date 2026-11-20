@@ -1,41 +1,41 @@
 # Auth0
 
-uncrm takes Auth0 users from an Event Streams webhook. Auth0 authenticates each delivery with a bearer token that uncrm generates for you. If your tenant has no Event Streams, a Post-Login Action does the same job.
+Keyring takes Auth0 users from an Event Streams webhook. Auth0 authenticates each delivery with a bearer token that Keyring generates for you. If your tenant has no Event Streams, a Post-Login Action does the same job.
 
 ## Setup with Event Streams (recommended)
 
-1. In uncrm, open **Settings > Providers > Auth0** and click **Connect**. Copy the webhook URL (`https://<your-uncrm-host>/webhooks/auth0`) and the token uncrm shows (it starts with `whsec_`).
+1. In Keyring, open **Settings > Providers > Auth0** and click **Connect**. Copy the webhook URL (`https://<your-keyring-host>/webhooks/auth0`) and the token Keyring shows (it starts with `whsec_`).
 2. In the [Auth0 Dashboard](https://manage.auth0.com), open **Event Streams** and click **Create Event Stream**, then choose **Webhook**.
 3. Set **Webhook Endpoint** to the URL from step 1.
 4. Set **Authorization Method** to **Bearer** and paste the token from step 1.
 5. Select the events `user.created`, `user.updated` and `user.deleted`.
 6. Save the stream and make sure it is enabled.
-7. Use the stream's **Test** tab to send a test `user.created` event. uncrm's Settings page shows the delivery within a few seconds.
+7. Use the stream's **Test** tab to send a test `user.created` event. Keyring's Settings page shows the delivery within a few seconds.
 
 Event Streams covers every connection: database, passwordless, social and enterprise.
 
-Auth0 tries each delivery 4 times over a few seconds and does not retry a 4xx answer. If uncrm was down, redeliver failed events from the stream's **Deliveries** tab.
+Auth0 tries each delivery 4 times over a few seconds and does not retry a 4xx answer. If Keyring was down, redeliver failed events from the stream's **Deliveries** tab.
 
 ## Setup with a Post-Login Action (fallback)
 
 Use this when **Event Streams** is not in your Dashboard. It sends each user once, the first time they log in after you deploy it, so users who signed up earlier arrive as they log in. It does not send updates or deletes.
 
-1. In uncrm, open **Settings > Providers > Auth0**, click **Connect**, and copy the webhook URL and token.
-2. In the Auth0 Dashboard open **Actions > Library**, click **Create Action > Build from scratch**, name it `uncrm`, choose the **Login / Post Login** trigger and the latest Node runtime, and click **Create**.
-3. In the editor's **Secrets** panel (the key icon), add `UNCRM_URL` with the webhook URL and `UNCRM_TOKEN` with the token.
+1. In Keyring, open **Settings > Providers > Auth0**, click **Connect**, and copy the webhook URL and token.
+2. In the Auth0 Dashboard open **Actions > Library**, click **Create Action > Build from scratch**, name it `keyring`, choose the **Login / Post Login** trigger and the latest Node runtime, and click **Create**.
+3. In the editor's **Secrets** panel (the key icon), add `KEYRING_URL` with the webhook URL and `KEYRING_TOKEN` with the token.
 4. Replace the code with the code below and click **Deploy**.
-5. Open **Actions > Triggers > post-login**, drag `uncrm` from the right-hand panel into the flow, and click **Apply**.
+5. Open **Actions > Triggers > post-login**, drag `keyring` from the right-hand panel into the flow, and click **Apply**.
 
 ```js
-// Sends each user to uncrm once, then marks them in app_metadata.
+// Sends each user to keyring once, then marks them in app_metadata.
 exports.onExecutePostLogin = async (event, api) => {
   const u = event.user;
-  if (u.app_metadata.uncrm_sent) return;
-  const res = await fetch(event.secrets.UNCRM_URL, {
+  if (u.app_metadata.keyring_sent) return;
+  const res = await fetch(event.secrets.KEYRING_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${event.secrets.UNCRM_TOKEN}`,
+      authorization: `Bearer ${event.secrets.KEYRING_TOKEN}`,
     },
     body: JSON.stringify({
       id: `login_${u.user_id}`,
@@ -57,16 +57,16 @@ exports.onExecutePostLogin = async (event, api) => {
       },
     }),
     signal: AbortSignal.timeout(3000),
-  }).catch((err) => console.log(`uncrm: ${err.message}`));
-  if (res && res.ok) api.user.setAppMetadata("uncrm_sent", true);
+  }).catch((err) => console.log(`keyring: ${err.message}`));
+  if (res && res.ok) api.user.setAppMetadata("keyring_sent", true);
 };
 ```
 
 A failed or slow request never blocks the login. It is logged, and the user is sent again on their next login.
 
-## What uncrm reads
+## What Keyring reads
 
-| uncrm field | Auth0 field |
+| Keyring field | Auth0 field |
 |---|---|
 | external id | `data.object.user_id`, for example `auth0\|679f...` or `google-oauth2\|1082...` |
 | email | `data.object.email` |
@@ -79,4 +79,4 @@ Event types are accepted as `user.created` or `com.auth0.user.created` (and the 
 
 ## Verification
 
-uncrm compares the `Authorization: Bearer <token>` header with the stored token in constant time. Auth0 does not sign Event Streams deliveries, so there is no timestamp check. Replays are harmless because uncrm writes every sign-up idempotently.
+Keyring compares the `Authorization: Bearer <token>` header with the stored token in constant time. Auth0 does not sign Event Streams deliveries, so there is no timestamp check. Replays are harmless because Keyring writes every sign-up idempotently.

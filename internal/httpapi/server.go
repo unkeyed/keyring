@@ -18,9 +18,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/crm"
-	"github.com/uncrm/uncrm/internal/signup"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/crm"
+	"github.com/unkeyed/keyring/internal/signup"
 )
 
 // access is who may call a route.

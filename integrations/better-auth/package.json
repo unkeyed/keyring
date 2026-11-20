@@ -1,7 +1,7 @@
 {
-  "name": "@uncrm/better-auth",
+  "name": "@keyring/better-auth",
   "version": "0.1.0",
-  "description": "Better Auth plugin that sends every sign-up to uncrm",
+  "description": "Better Auth plugin that sends every sign-up to Keyring",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 type reply struct {

@@ -20,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/oauth2"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // Social and OIDC sign-in: the authorization code flow with PKCE, and a
@@ -75,7 +75,7 @@ func withClient(ctx context.Context) context.Context {
 
 // oidcProvider is Google or a generic OIDC issuer. It discovers the
 // issuer's endpoints on first use and retries discovery until it works, so
-// an issuer that is down at boot does not stop uncrm from starting.
+// an issuer that is down at boot does not stop Keyring from starting.
 type oidcProvider struct {
 	id, issuer string
 	conf       oauth2.Config
@@ -412,7 +412,7 @@ func (u *Users) providerName(id string) string {
 var (
 	errUnverifiedEmail = fmt.Errorf("%w: your provider has not verified your email address, so it cannot be matched to a teammate", crm.ErrInvalid)
 	errNotWorkspace    = fmt.Errorf("%w: sign in with your Google Workspace account for this address", crm.ErrInvalid)
-	errStranger        = fmt.Errorf("%w: there is no uncrm account for this email. Ask a teammate for an invite", crm.ErrInvalid)
+	errStranger        = fmt.Errorf("%w: there is no Keyring account for this email. Ask a teammate for an invite", crm.ErrInvalid)
 )
 
 type socialAction int
@@ -569,7 +569,7 @@ func (u *Users) insertIdentity(ctx context.Context, tx pgx.Tx, userID int64, ide
 		ident.Provider, ident.Subject, userID, ident.Email)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return fmt.Errorf("%w: a different %s account is already linked to this uncrm account; unlink it first", crm.ErrConflict, name)
+		return fmt.Errorf("%w: a different %s account is already linked to this Keyring account; unlink it first", crm.ErrConflict, name)
 	}
 	return err
 }

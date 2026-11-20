@@ -17,11 +17,11 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/authtest"
-	"github.com/uncrm/uncrm/internal/crm"
-	"github.com/uncrm/uncrm/internal/mcpserver"
-	"github.com/uncrm/uncrm/internal/testdb"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/authtest"
+	"github.com/unkeyed/keyring/internal/crm"
+	"github.com/unkeyed/keyring/internal/mcpserver"
+	"github.com/unkeyed/keyring/internal/testdb"
 )
 
 const (
@@ -144,7 +144,7 @@ func newServer(t *testing.T, mod ...func(*auth.Config)) client {
 	return serve(t, srv, testOrigin, mod...)
 }
 
-// serve starts srv as uncrm with PUBLIC_URL publicURL, mounting /mcp the
+// serve starts srv as Keyring with PUBLIC_URL publicURL, mounting /mcp the
 // way main does.
 func serve(t *testing.T, srv *httptest.Server, publicURL string, mod ...func(*auth.Config)) client {
 	t.Helper()
@@ -396,7 +396,7 @@ func TestErrorStatuses(t *testing.T) {
 		want   int
 	}{
 		{"no credentials", c, "GET", "/v1/contacts", nil, http.StatusUnauthorized},
-		{"unknown key", client{t: t, base: c.base, key: "uncrm_nope"}, "GET", "/v1/contacts", nil, http.StatusUnauthorized},
+		{"unknown key", client{t: t, base: c.base, key: "keyring_nope"}, "GET", "/v1/contacts", nil, http.StatusUnauthorized},
 		{"unknown session", client{t: t, base: c.base, session: "nope"}, "GET", "/v1/contacts", nil, http.StatusUnauthorized},
 		{"agent on a human route", agent, "GET", "/v1/keys", nil, http.StatusForbidden},
 		{"agent mints a key", agent, "POST", "/v1/keys", map[string]string{"name": "x"}, http.StatusForbidden},
@@ -619,7 +619,7 @@ func TestOAuthSignInSetsCookiesAndRedirects(t *testing.T) {
 	iss := authtest.NewIssuer()
 	defer iss.Close()
 	c := newServer(t, func(cfg *auth.Config) {
-		cfg.Providers = []auth.ProviderConfig{{ID: "oidc", Name: "Acme SSO", ClientID: "uncrm", ClientSecret: "s3cret", Issuer: iss.URL}}
+		cfg.Providers = []auth.ProviderConfig{{ID: "oidc", Name: "Acme SSO", ClientID: "keyring", ClientSecret: "s3cret", Issuer: iss.URL}}
 	})
 	person, _ := login(t, c)
 	jar, _ := cookiejar.New(nil)
@@ -741,7 +741,7 @@ func TestKeyStoreOutageIs503(t *testing.T) {
 	authn := &auth.Authenticator{Keys: downKeys{}, Users: users, OAuth: auth.NewOAuthServer(pool, u)}
 	srv := httptest.NewServer(NewMux(crm.New(pool, nil), authn, slog.New(slog.DiscardHandler)))
 	t.Cleanup(srv.Close)
-	r := client{t: t, base: srv.URL, key: "uncrm_whatever"}.do("GET", "/v1/contacts", nil)
+	r := client{t: t, base: srv.URL, key: "keyring_whatever"}.do("GET", "/v1/contacts", nil)
 	var e struct {
 		Error     string `json:"error"`
 		RequestID string `json:"request_id"`

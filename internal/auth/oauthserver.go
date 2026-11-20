@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // OAuthServer is the OAuth 2.1 authorization server behind /mcp, as the MCP
@@ -45,8 +45,8 @@ const (
 	// unapprovedClientTTL is how long a registration nobody approved is kept.
 	unapprovedClientTTL = 30 * 24 * time.Hour
 
-	accessTokenPrefix  = "uncrm_at_"
-	refreshTokenPrefix = "uncrm_rt_"
+	accessTokenPrefix  = "keyring_at_"
+	refreshTokenPrefix = "keyring_rt_"
 	maxClientName      = 80
 	maxRedirectURIs    = 10
 	maxRedirectURILen  = 2000
@@ -214,12 +214,12 @@ type AuthorizeRequest struct {
 // page, returning the handle that page loads it by. A refusal is an
 // *OAuthError to show the person, never a redirect: anyone can register
 // any redirect_uri, so redirecting a request nobody approved would make
-// uncrm an open redirector (RFC 9700 section 4.11.2).
+// Keyring an open redirector (RFC 9700 section 4.11.2).
 func (o *OAuthServer) Authorize(ctx context.Context, q AuthorizeRequest) (string, error) {
 	var uris []string
 	err := o.db.QueryRow(ctx, `SELECT redirect_uris FROM oauth_clients WHERE id = $1`, q.ClientID).Scan(&uris)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", oauthErr("invalid_client", "this app is not registered with uncrm; reconnect it from the app")
+		return "", oauthErr("invalid_client", "this app is not registered with Keyring; reconnect it from the app")
 	}
 	if err != nil {
 		return "", err

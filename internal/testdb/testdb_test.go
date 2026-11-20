@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/uncrm/uncrm/internal/testdb"
+	"github.com/unkeyed/keyring/internal/testdb"
 )
 
 func TestDatabasesAreMigratedAndIsolated(t *testing.T) {

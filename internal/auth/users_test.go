@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 func TestSetupLinkIsSingleUse(t *testing.T) {
@@ -802,7 +802,7 @@ func TestCaller(t *testing.T) {
 	}
 	for name, r := range map[string]*http.Request{
 		"nothing":                    request("", ""),
-		"bad key beside good cookie": request("Bearer uncrm_wrong", cookie),
+		"bad key beside good cookie": request("Bearer keyring_wrong", cookie),
 		"basic auth":                 request("Basic "+key, ""),
 		"bad cookie":                 request("", "nope"),
 		"empty bearer beside cookie": request("Bearer ", cookie),
@@ -819,7 +819,7 @@ func TestSessionCookieAttributes(t *testing.T) {
 		publicURL string
 		name      string
 		secure    bool
-	}{{"http://localhost:8080", "uncrm_session", false}, {"https://crm.example.com", "__Host-uncrm_session", true}} {
+	}{{"http://localhost:8080", "keyring_session", false}, {"https://crm.example.com", "__Host-keyring_session", true}} {
 		u, _ := url.Parse(c.publicURL)
 		users := &Users{cfg: Config{PublicURL: u}}
 		w := httptest.NewRecorder()
@@ -856,10 +856,10 @@ func TestHTTPSIgnoresAnUnprefixedSessionCookie(t *testing.T) {
 		r.AddCookie(&http.Cookie{Name: name, Value: session})
 		return r
 	}
-	if _, _, err := authn.Caller(withCookie("uncrm_session")); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err := authn.Caller(withCookie("keyring_session")); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("an unprefixed session cookie over https, as a sibling subdomain could plant: %v, want ErrUnauthorized", err)
 	}
-	if _, via, err := authn.Caller(withCookie("__Host-uncrm_session")); err != nil || via != ViaSession {
+	if _, via, err := authn.Caller(withCookie("__Host-keyring_session")); err != nil || via != ViaSession {
 		t.Fatalf("the __Host- session cookie over https: %v", err)
 	}
 }

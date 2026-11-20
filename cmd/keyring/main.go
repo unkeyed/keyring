@@ -1,4 +1,4 @@
-// Command uncrm is the whole product in one process: REST + UI API, MCP,
+// Command Keyring is the whole product in one process: REST + UI API, MCP,
 // webhooks, the embedded React app and the enrichment worker.
 package main
 
@@ -20,18 +20,18 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/uncrm/uncrm/internal/auth"
-	"github.com/uncrm/uncrm/internal/contextdev"
-	"github.com/uncrm/uncrm/internal/crm"
-	"github.com/uncrm/uncrm/internal/db"
-	"github.com/uncrm/uncrm/internal/httpapi"
-	"github.com/uncrm/uncrm/internal/mcpserver"
-	"github.com/uncrm/uncrm/web"
+	"github.com/unkeyed/keyring/internal/auth"
+	"github.com/unkeyed/keyring/internal/contextdev"
+	"github.com/unkeyed/keyring/internal/crm"
+	"github.com/unkeyed/keyring/internal/db"
+	"github.com/unkeyed/keyring/internal/httpapi"
+	"github.com/unkeyed/keyring/internal/mcpserver"
+	"github.com/unkeyed/keyring/web"
 )
 
 var version = "dev" // set by -ldflags at build
 
-// config is every environment variable uncrm reads, parsed once at boot.
+// config is every environment variable Keyring reads, parsed once at boot.
 // Only DATABASE_URL is required.
 type config struct {
 	DB            *pgxpool.Config  // DATABASE_URL, required
@@ -53,12 +53,12 @@ func loadConfig() (config, error) {
 	}
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
-		return c, errors.New("DATABASE_URL is required, e.g. postgres://user:pass@host:5432/uncrm")
+		return c, errors.New("DATABASE_URL is required, e.g. postgres://user:pass@host:5432/keyring")
 	}
 	db, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		// pgx's message can echo the URL, password included, so it is not logged.
-		return c, errors.New("DATABASE_URL is not a Postgres connection string; want postgres://user:pass@host:5432/uncrm")
+		return c, errors.New("DATABASE_URL is not a Postgres connection string; want postgres://user:pass@host:5432/keyring")
 	}
 	c.DB = db
 	if c.Port == "" {
@@ -71,7 +71,7 @@ func loadConfig() (config, error) {
 		return c, errors.New("set both UNKEY_ROOT_KEY and UNKEY_API_ID to use Unkey keys, or neither for built-in keys")
 	}
 	if os.Getenv("ADMIN_EMAIL") != "" || os.Getenv("ADMIN_PASSWORD") != "" {
-		return c, errors.New("ADMIN_EMAIL and ADMIN_PASSWORD are gone: uncrm no longer seeds a password. Unset them and open the setup link uncrm logs at start (docs/self-hosting.md)")
+		return c, errors.New("ADMIN_EMAIL and ADMIN_PASSWORD are gone: Keyring no longer seeds a password. Unset them and open the setup link Keyring logs at start (docs/self-hosting.md)")
 	}
 	if c.SetupToken != "" && len(c.SetupToken) < auth.MinSetupTokenLen {
 		return c, fmt.Errorf("SETUP_TOKEN must be at least %d characters; generate one with openssl rand -hex 32", auth.MinSetupTokenLen)
@@ -145,7 +145,7 @@ func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(log)
 	if err := run(log); err != nil {
-		log.Error("uncrm stopped", "err", err)
+		log.Error("Keyring stopped", "err", err)
 		os.Exit(1)
 	}
 }
@@ -205,7 +205,7 @@ func run(log *slog.Logger) error {
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.SecurityHeaders(cfg.Auth.PublicURL, mux), ReadHeaderTimeout: 10 * time.Second}
 	served := make(chan error, 1)
 	go func() { served <- srv.ListenAndServe() }()
-	log.Info("uncrm listening", "port", cfg.Port, "version", version, "enrichment", enricher != nil, "keys", authn.Keys.Mode(),
+	log.Info("Keyring listening", "port", cfg.Port, "version", version, "enrichment", enricher != nil, "keys", authn.Keys.Mode(),
 		"public_url", cfg.Auth.PublicURL.String(), "password_login", cfg.Auth.PasswordLogin, "providers", len(cfg.Auth.Providers))
 
 	select {
@@ -234,6 +234,6 @@ func announceSetup(ctx context.Context, log *slog.Logger, users *auth.Users, fix
 	}
 	link := users.SetupURL(token)
 	log.Warn("nobody can sign in yet: open the setup link to create the first account", "setup_url", link)
-	fmt.Fprintf(os.Stderr, "\n  uncrm has no account that can sign in yet. Open this link to create the first one:\n\n    %s\n\n  It works once and stays valid until someone uses it.\n\n", link)
+	fmt.Fprintf(os.Stderr, "\n  Keyring has no account that can sign in yet. Open this link to create the first one:\n\n    %s\n\n  It works once and stays valid until someone uses it.\n\n", link)
 	return nil
 }

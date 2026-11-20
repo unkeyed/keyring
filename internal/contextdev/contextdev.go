@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 const baseURL = "https://api.context.dev/v1"
@@ -38,7 +38,7 @@ func New(apiKey string) *Client {
 	return &Client{key: apiKey, base: baseURL, http: &http.Client{Timeout: 90 * time.Second}}
 }
 
-// personResponse is the part of the /people/enrich 200 body uncrm reads.
+// personResponse is the part of the /people/enrich 200 body Keyring reads.
 type personResponse struct {
 	Match struct {
 		Status string   `json:"status"`
@@ -103,7 +103,7 @@ func (c *Client) Person(ctx context.Context, email crm.Email, linkedInURL string
 	return f, nil
 }
 
-// socialHosts names the profile sites uncrm shows by name. A profile on any
+// socialHosts names the profile sites Keyring shows by name. A profile on any
 // other site is keyed by its host.
 var socialHosts = map[string]string{
 	"x.com": "x", "twitter.com": "x", "github.com": "github", "youtube.com": "youtube",
@@ -139,7 +139,7 @@ func personSocials(socialURLs, websiteURLs []string) (string, crm.Socials) {
 	return linkedIn, socials
 }
 
-// brandResponse is the part of the /brand/retrieve 200 body uncrm reads.
+// brandResponse is the part of the /brand/retrieve 200 body Keyring reads.
 // Its email and phone are left out on purpose: they are often a social
 // handle or one employee's own address, not the company's.
 type brandResponse struct {
@@ -188,7 +188,7 @@ type brandLogo struct {
 }
 
 const (
-	// sharpWidth is twice the largest logo tile uncrm draws (52px), so a
+	// sharpWidth is twice the largest logo tile Keyring draws (52px), so a
 	// raster this wide stays crisp on a 2x screen.
 	sharpWidth = 104
 	// minWidth drops rasters too small for any tile.
@@ -196,7 +196,7 @@ const (
 )
 
 const (
-	// The relative luminance of uncrm's light and dark surfaces
+	// The relative luminance of Keyring's light and dark surfaces
 	// (--surface in web/src/index.css: oklch(1 0 0) and oklch(0.205 0 0)).
 	lightSurface = 1.0
 	darkSurface  = 0.0086
@@ -204,7 +204,7 @@ const (
 	minContrast = 3.0
 )
 
-// readsOn reports whether the art stands out on uncrm's light and dark
+// readsOn reports whether the art stands out on Keyring's light and dark
 // surfaces. context.dev's mode says which theme an image suits, but it is
 // sometimes wrong (Stripe's purple icon is labelled "dark" and reads fine
 // on white), so the logo's own colours decide; the label is the fallback

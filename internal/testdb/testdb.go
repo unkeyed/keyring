@@ -19,13 +19,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/uncrm/uncrm/internal/db"
+	"github.com/unkeyed/keyring/internal/db"
 )
 
 // DefaultURL is the docker compose database.
-const DefaultURL = "postgres://uncrm:uncrm@localhost:5432/uncrm?sslmode=disable"
+const DefaultURL = "postgres://keyring:keyring@localhost:5432/keyring?sslmode=disable"
 
-// New creates a database named uncrm_test_<random>, applies every migration
+// New creates a database named keyring_test_<random>, applies every migration
 // and returns a pool on it. The database is dropped when the test ends.
 func New(t testing.TB) *pgxpool.Pool {
 	t.Helper()
@@ -39,7 +39,7 @@ func New(t testing.TB) *pgxpool.Pool {
 	}
 	defer admin.Close(context.Background())
 
-	name := "uncrm_test_" + randomHex(8)
+	name := "keyring_test_" + randomHex(8)
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
 		t.Fatalf("testdb: create %s: %v", name, err)
 	}

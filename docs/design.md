@@ -1,8 +1,8 @@
-# uncrm design: plain state tables, idempotent upserts, one service package
+# Keyring design: plain state tables, idempotent upserts, one service package
 
 ## Problem
 
-uncrm takes sign-ups from six auth providers plus a generic endpoint, merges them into one contact per person, enriches people and companies through context.dev, and serves the result to a React UI, a REST API and an MCP server. It ships as one container on Unkey Deploy, which can restart or run several replicas at any time. Providers retry webhooks and do not order them. The top product value is ease of use, and the codebase is open source, so a first-time contributor has to be able to read the backend in one sitting.
+Keyring takes sign-ups from six auth providers plus a generic endpoint, merges them into one contact per person, enriches people and companies through context.dev, and serves the result to a React UI, a REST API and an MCP server. It ships as one container on Unkey Deploy, which can restart or run several replicas at any time. Providers retry webhooks and do not order them. The top product value is ease of use, and the codebase is open source, so a first-time contributor has to be able to read the backend in one sitting.
 
 The constraints that shape the design are these. Retries must land once. The same person arriving through two providers must become one contact. Free-mail domains must not create companies. Enrichment must survive crashes and run safely on several replicas, and it must also work with no key at all. API keys come from Postgres or Unkey. REST, MCP and the UI must share one service layer.
 
@@ -13,7 +13,7 @@ The direction is to keep state in plain tables and make every write an idempoten
 README quickstart:
 
 ```sh
-docker run -e DATABASE_URL=postgres://... -e PUBLIC_URL=https://crm.acme.com -p 8080:8080 ghcr.io/uncrm/uncrm
+docker run -e DATABASE_URL=postgres://... -e PUBLIC_URL=https://crm.acme.com -p 8080:8080 ghcr.io/unkeyed/keyring
 # open the setup link from the log, register a passkey, Settings > Providers > Clerk:
 #   copy https://<host>/webhooks/clerk into Clerk, paste Clerk's whsec_ secret back.
 # optional: CONTEXT_DEV_API_KEY=... turns on enrichment; UNKEY_ROOT_KEY + UNKEY_API_ID switch keys to Unkey.
@@ -22,7 +22,7 @@ docker run -e DATABASE_URL=postgres://... -e PUBLIC_URL=https://crm.acme.com -p 
 Any auth system without an adapter:
 
 ```sh
-curl -X POST https://crm.acme.com/v1/signups -H "Authorization: Bearer uncrm_..." \
+curl -X POST https://crm.acme.com/v1/signups -H "Authorization: Bearer keyring_..." \
   -d '{"email":"ada@stripe.com","name":"Ada Lovelace"}'
 # 201 {"contact_id":42,"created":true,"duplicate":false}; the same call again gives 200 with "duplicate":true
 ```
@@ -63,7 +63,7 @@ Data structures first. See `internal/db/migrations/001_init.sql` and `internal/c
 Packages, with the dependency direction left to right:
 
 ```
-cmd/uncrm          config from env, wiring, graceful shutdown
+cmd/keyring          config from env, wiring, graceful shutdown
 internal/httpapi   REST = the UI's API. route table, decode, call crm, encode
 internal/mcpserver MCP tools, same crm calls
 internal/auth      API keys (builtin | unkey) and human sessions -> crm.Actor

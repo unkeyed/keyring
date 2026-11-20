@@ -91,7 +91,7 @@ export function Account() {
   return (
     <>
       <SettingsHeader title="Account">
-        How you sign in to uncrm. A passkey or a connected login signs you in on its own. A password always needs a second step.
+        How you sign in to Keyring. A passkey or a connected login signs you in on its own. A password always needs a second step.
       </SettingsHeader>
       <div className="space-y-3 empty:hidden">
         <UrlNotice providers={providers} />
@@ -388,7 +388,7 @@ function Password({ a }: { a: AccountData }) {
     <section>
       <SettingsSubhead>Password</SettingsSubhead>
       <p className="-mt-1 mb-3 text-sm text-muted">
-        A password never signs you in alone. After it, uncrm asks for a code from your authenticator app or a passkey.
+        A password never signs you in alone. After it, Keyring asks for a code from your authenticator app or a passkey.
       </p>
       <Card className="p-4">
         {!hasSecondFactor ? (

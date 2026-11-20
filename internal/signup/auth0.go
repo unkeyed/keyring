@@ -17,7 +17,7 @@ func init() {
 			"2. Set **Webhook Endpoint** to `{{webhook_url}}`.\n" +
 			"3. Set **Authorization Method** to **Bearer** and paste this token: `{{secret}}`\n" +
 			"4. Under events, select `user.created`, `user.updated` and `user.deleted`, then save and enable the stream.\n\n" +
-			"No **Event Streams** in your Dashboard? Use the [Post-Login Action](https://github.com/uncrm/uncrm/blob/main/docs/providers/auth0.md#setup-with-a-post-login-action-fallback) " +
+			"No **Event Streams** in your Dashboard? Use the [Post-Login Action](https://github.com/unkeyed/keyring/blob/main/docs/providers/auth0.md#setup-with-a-post-login-action-fallback) " +
 			"instead, with the same URL and token.",
 	})
 }

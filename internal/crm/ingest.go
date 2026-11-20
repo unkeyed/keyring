@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/uncrm/uncrm/internal/signup"
+	"github.com/unkeyed/keyring/internal/signup"
 )
 
 // Ingest records one sign-up fact in one transaction. The generic

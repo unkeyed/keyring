@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/uncrm/uncrm/internal/db"
-	"github.com/uncrm/uncrm/internal/testdb"
+	"github.com/unkeyed/keyring/internal/db"
+	"github.com/unkeyed/keyring/internal/testdb"
 )
 
 // testdb.New already migrated the database, so these runs find every file

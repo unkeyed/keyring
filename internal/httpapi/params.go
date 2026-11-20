@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // params reads a request's query string. The first bad or unknown parameter

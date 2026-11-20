@@ -14,7 +14,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // Passkeys are discoverable WebAuthn credentials with user verification
@@ -74,7 +74,7 @@ func (p *passkeyUser) WebAuthnDisplayName() string {
 	return p.email
 }
 
-var errNoPasskeyUser = fmt.Errorf("%w: this passkey is not registered on this uncrm", crm.ErrInvalid)
+var errNoPasskeyUser = fmt.Errorf("%w: this passkey is not registered on this Keyring", crm.ErrInvalid)
 
 func passkeyUserByID(ctx context.Context, db dbtx, id int64) (*passkeyUser, error) {
 	return loadPasskeyUser(ctx, db, db.QueryRow(ctx, `SELECT id, webauthn_handle, email, name FROM users WHERE id = $1`, id))

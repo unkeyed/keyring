@@ -20,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // Human sign-in. A person signs in with one of:
@@ -95,7 +95,7 @@ type User struct {
 func NewUsers(db *pgxpool.Pool, cfg Config) (*Users, error) {
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:          cfg.PublicURL.Hostname(),
-		RPDisplayName: "uncrm",
+		RPDisplayName: "Keyring",
 		RPOrigins:     []string{origin(cfg.PublicURL)},
 	})
 	if err != nil {
@@ -153,7 +153,7 @@ func verifyPassword(encoded, password string) bool {
 
 // dummyHash gives an unknown email the same PBKDF2 work as a known one.
 var dummyHash = sync.OnceValue(func() string {
-	h, _ := hashPassword("uncrm timing equalizer")
+	h, _ := hashPassword("Keyring timing equalizer")
 	return h
 })
 
@@ -299,7 +299,7 @@ func (u *Users) Remove(ctx context.Context, by crm.Actor, id int64, keys KeyStor
 		return fmt.Errorf("%w: only a signed-in person can remove a teammate", ErrUnauthorized)
 	}
 	return pgx.BeginFunc(ctx, u.db, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.users'))`); err != nil {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('keyring.users'))`); err != nil {
 			return err
 		}
 		// The row lock waits out a key the teammate is creating right now and

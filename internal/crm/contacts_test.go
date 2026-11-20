@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/uncrm/uncrm/internal/signup"
+	"github.com/unkeyed/keyring/internal/signup"
 )
 
 func TestManualEditSurvivesIngestAndEnrichment(t *testing.T) {

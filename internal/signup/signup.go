@@ -26,7 +26,7 @@ const (
 	Deleted Kind = "deleted"
 )
 
-// Signup is one provider fact about one user, in uncrm's vocabulary.
+// Signup is one provider fact about one user, in Keyring's vocabulary.
 //
 // Email is passed through as the provider sent it; crm.Ingest normalizes it,
 // so no adapter can forget to. Email may be empty only for Deleted.
@@ -52,7 +52,7 @@ type Delivery struct {
 	ReceivedAt time.Time
 }
 
-// ErrIgnored means the delivery verified but carries nothing uncrm stores
+// ErrIgnored means the delivery verified but carries nothing Keyring stores
 // (an organization event, a phone-only user, an anonymous Supabase user).
 // The webhook still answers 200 so the provider stops retrying.
 var ErrIgnored = errors.New("signup: event ignored")
@@ -68,9 +68,9 @@ type Provider struct {
 	Name  string
 	Title string
 
-	// IssueSecret is true when uncrm generates the secret and the user pastes
+	// IssueSecret is true when Keyring generates the secret and the user pastes
 	// it into the provider (Auth0, Supabase, Better Auth). False when the
-	// provider issues it and the user pastes it into uncrm (Clerk, WorkOS, Stytch).
+	// provider issues it and the user pastes it into Keyring (Clerk, WorkOS, Stytch).
 	IssueSecret bool
 
 	// Setup is Markdown for the Settings page. "{{webhook_url}}" and

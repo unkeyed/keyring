@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/uncrm/uncrm/internal/crm"
-	"github.com/uncrm/uncrm/internal/signup"
+	"github.com/unkeyed/keyring/internal/crm"
+	"github.com/unkeyed/keyring/internal/signup"
 )
 
 func (s *server) healthz(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {

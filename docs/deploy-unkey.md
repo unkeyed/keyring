@@ -1,12 +1,12 @@
-# Deploy uncrm to Unkey Deploy
+# Deploy Keyring to Unkey Deploy
 
-This guide puts uncrm on [Unkey Deploy](https://www.unkey.com/docs/compute/get-started/deploy-from-github) (Unkey's docs also call it Unkey Compute), connected to a Postgres database you host elsewhere. At the end, uncrm runs at an `unkey.app` URL and your auth provider sends it every sign-up.
+This guide puts Keyring on [Unkey Deploy](https://www.unkey.com/docs/compute/get-started/deploy-from-github) (Unkey's docs also call it Unkey Compute), connected to a Postgres database you host elsewhere. At the end, Keyring runs at an `unkey.app` URL and your auth provider sends it every sign-up.
 
 You need:
 
 - An Unkey account with a Compute plan. Unkey needs a plan before it deploys anything.
 - A Postgres database. Unkey Deploy has no managed database and no persistent disk.
-- For the GitHub path, a GitHub account and your own fork of `uncrm/uncrm`.
+- For the GitHub path, a GitHub account and your own fork of `unkeyed/keyring`.
 
 ## 1. Create the database
 
@@ -15,10 +15,10 @@ Create a Postgres database with any managed provider, such as Neon, Supabase, Pl
 Copy the connection URL. Most managed providers require TLS, so keep `sslmode=require` if the provider includes it:
 
 ```text
-postgres://uncrm:secret@ep-example-123.us-east-1.aws.neon.tech/uncrm?sslmode=require
+postgres://keyring:secret@ep-example-123.us-east-1.aws.neon.tech/keyring?sslmode=require
 ```
 
-uncrm creates its tables the first time it starts. You do not run any SQL yourself.
+Keyring creates its tables the first time it starts. You do not run any SQL yourself.
 
 ## 2. Create the Unkey project
 
@@ -31,25 +31,25 @@ Unkey stores variables per environment. Set these on the **production** environm
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | The connection URL from step 1. Sensitive. |
-| `PUBLIC_URL` | Your deployment's URL from step 6, such as `https://uncrm-acme.unkey.app`. Set it after the first deploy and redeploy. |
+| `PUBLIC_URL` | Your deployment's URL from step 6, such as `https://keyring-acme.unkey.app`. Set it after the first deploy and redeploy. |
 | `SETUP_TOKEN` | 32 or more random characters, for example from `openssl rand -hex 32`. Sensitive. You open the setup link with it in step 6. |
 | `CONTEXT_DEV_API_KEY` | Optional. Your [context.dev](https://context.dev) key, which turns on enrichment. Sensitive. |
 | `UNKEY_ROOT_KEY` | Optional. See [Store API keys in Unkey](#store-api-keys-in-unkey). Sensitive. |
 | `UNKEY_API_ID` | Optional. Set it together with `UNKEY_ROOT_KEY`. |
 
-Do not set `PORT`. Unkey sets it, and uncrm listens on it.
+Do not set `PORT`. Unkey sets it, and Keyring listens on it.
 
 Unkey applies a variable change only to the next deployment. After you change a variable, redeploy. [Configuration](configuration.md) describes each variable in full.
 
-## 4. Deploy uncrm
+## 4. Deploy Keyring
 
 Choose one of the two paths. The GitHub path rebuilds on every push. The image path deploys a published release and needs no fork.
 
 ### Deploy from GitHub
 
-1. Fork `uncrm/uncrm` on GitHub.
+1. Fork `unkeyed/keyring` on GitHub.
 2. In your Unkey project, deploy a new app from a **GitHub repository**. Install the Unkey GitHub App when Unkey asks, and pick your fork.
-3. In the app's build settings, set the **Dockerfile** path to `Dockerfile`. Without a path, Unkey tries to detect the build on its own instead of using uncrm's Dockerfile.
+3. In the app's build settings, set the **Dockerfile** path to `Dockerfile`. Without a path, Unkey tries to detect the build on its own instead of using Keyring's Dockerfile.
 4. Deploy.
 
 From now on, each push to your fork's default branch deploys to production. Pushes to other branches create preview deployments.
@@ -58,7 +58,7 @@ Preview deployments use the **preview** environment and its own variables. If yo
 
 ### Deploy the prebuilt image
 
-The image `ghcr.io/uncrm/uncrm` is public. Each release is tagged with its version, for example `0.1.0`, and the newest release is also `latest`.
+The image `ghcr.io/unkeyed/keyring` is public. Each release is tagged with its version, for example `0.1.0`, and the newest release is also `latest`.
 
 1. Install the Unkey CLI and log in:
 
@@ -70,7 +70,7 @@ The image `ghcr.io/uncrm/uncrm` is public. Each release is tagged with its versi
 2. Deploy the image to production. Replace `<project-slug>` with the slug from step 2:
 
    ```sh
-   unkey deploy ghcr.io/uncrm/uncrm:latest --project=<project-slug> --env=production
+   unkey deploy ghcr.io/unkeyed/keyring:latest --project=<project-slug> --env=production
    ```
 
    Without `--env=production`, the CLI deploys to the preview environment.
@@ -83,13 +83,13 @@ In the environment's runtime settings, add a health check with method `GET` and 
 
 `/healthz` checks only that the process runs. It does not query the database, so a database outage does not restart every instance.
 
-You can also set the health check through Unkey's API. Replace `uncrm` and `default` with your project and app slugs:
+You can also set the health check through Unkey's API. Replace `keyring` and `default` with your project and app slugs:
 
 ```sh
 curl -X POST https://api.unkey.com/v2/environments.updateSettings \
 	-H "Authorization: Bearer $UNKEY_ROOT_KEY" \
 	-H "Content-Type: application/json" \
-	-d '{"project":"uncrm","app":"default","environment":"production","healthcheck":{"method":"GET","path":"/healthz"}}'
+	-d '{"project":"keyring","app":"default","environment":"production","healthcheck":{"method":"GET","path":"/healthz"}}'
 ```
 
 Redeploy after you add the health check.
@@ -100,11 +100,11 @@ Find your deployment's URL. Unkey shows it on the deployment page. It has the fo
 
 Open `<PUBLIC_URL>/setup/<SETUP_TOKEN>`. Enter your name and email and register a passkey. You are the first user, and the link stops working. The deployment logs print the same link. [Sign-in](sign-in.md) explains how to add Google, GitHub, or your own identity provider.
 
-If the page does not load, open the deployment's logs. uncrm logs the name of any missing or invalid variable and exits, for example `DATABASE_URL is required`.
+If the page does not load, open the deployment's logs. Keyring logs the name of any missing or invalid variable and exits, for example `DATABASE_URL is required`.
 
 ## 7. Connect your auth provider
 
-In uncrm, open **Settings > Providers** and pick your provider. Each provider sends its webhooks to `https://<your-domain>/webhooks/<provider>`:
+In Keyring, open **Settings > Providers** and pick your provider. Each provider sends its webhooks to `https://<your-domain>/webhooks/<provider>`:
 
 | Provider | Webhook URL | Guide |
 |---|---|---|
@@ -119,9 +119,9 @@ Send a test event from the provider. **Settings > Providers** shows the delivery
 
 ## Store API keys in Unkey
 
-By default, uncrm stores the API keys that agents use in its own database. To manage them in Unkey's API key product instead:
+By default, Keyring stores the API keys that agents use in its own database. To manage them in Unkey's API key product instead:
 
-1. In the Unkey dashboard, create an API for uncrm's keys and copy its ID. It starts with `api_`.
+1. In the Unkey dashboard, create an API for Keyring's keys and copy its ID. It starts with `api_`.
 2. Create a root key with these permissions on that API: `create_key`, `read_key`, `read_api`, `verify_key`, and `delete_key`.
 3. Set `UNKEY_ROOT_KEY` to the root key and `UNKEY_API_ID` to the API ID, then redeploy.
 

@@ -9,7 +9,7 @@ import (
 )
 
 type Config struct {
-	// PublicURL is where people open uncrm. Its host is the WebAuthn relying
+	// PublicURL is where people open Keyring. Its host is the WebAuthn relying
 	// party ID, its origin the only accepted WebAuthn origin, and OAuth
 	// callbacks live under it. When it is https, cookies are Secure and named
 	// with the __Host- prefix.
@@ -18,7 +18,7 @@ type Config struct {
 	// AllowedEmailDomains lets anyone with a provider-verified address at one
 	// of these domains join by social sign-in without an invite. Lower case.
 	AllowedEmailDomains []string
-	// ClientIPHeader names a header that a trusted proxy in front of uncrm
+	// ClientIPHeader names a header that a trusted proxy in front of Keyring
 	// sets to the client's address. Empty means use the TCP peer address.
 	ClientIPHeader string
 	Providers      []ProviderConfig

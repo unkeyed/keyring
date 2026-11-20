@@ -12,7 +12,7 @@ import (
 // output type, so registering every tool proves the domain types are
 // schema-safe.
 func TestToolSchemasInfer(t *testing.T) {
-	addTools(mcp.NewServer(&mcp.Implementation{Name: "uncrm", Version: "test"}, nil), nil, nil)
+	addTools(mcp.NewServer(&mcp.Implementation{Name: "keyring", Version: "test"}, nil), nil, nil)
 }
 
 // An object schema with no properties that forbids additional ones accepts
@@ -21,7 +21,7 @@ func TestToolSchemasInfer(t *testing.T) {
 // returns one would fail output validation.
 func TestToolSchemasHaveNoEmptyObjects(t *testing.T) {
 	ctx := context.Background()
-	srv := mcp.NewServer(&mcp.Implementation{Name: "uncrm", Version: "test"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "keyring", Version: "test"}, nil)
 	addTools(srv, nil, nil)
 	st, ct := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {

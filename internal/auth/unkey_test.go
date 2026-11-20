@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // fakeUnkey models the slice of Unkey's v2 API the store uses. Like the real
@@ -129,17 +129,17 @@ func (f *fakeUnkey) verifyCalls() int {
 	return f.verifies
 }
 
-// unkeyToken pads name to the shape of a real Unkey key, "uncrm_" and the
+// unkeyToken pads name to the shape of a real Unkey key, "keyring_" and the
 // base58 of 32 bytes.
 func unkeyToken(name string) string {
 	return name + strings.Repeat("Z", 44-len(name)+len(keyPrefix))
 }
 
 var (
-	ours    = unkeyToken("uncrm_ours")
-	nope    = unkeyToken("uncrm_nope")
-	expired = unkeyToken("uncrm_expired")
-	billing = unkeyToken("uncrm_billing") // another API's key in the same workspace
+	ours    = unkeyToken("keyring_ours")
+	nope    = unkeyToken("keyring_nope")
+	expired = unkeyToken("keyring_expired")
+	billing = unkeyToken("keyring_billing") // another API's key in the same workspace
 )
 
 func newTestUnkeyStore(srv *httptest.Server) *unkeyKeys {
@@ -241,7 +241,7 @@ func TestUnkeyCreateListRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if k.Name != "zapier" || k.ID == "" || k.Prefix != token[:10] {
+	if k.Name != "zapier" || k.ID == "" || k.Prefix != token[:len(keyPrefix)+4] {
 		t.Fatalf("created %+v from token %q", k, token)
 	}
 	if _, err := keys.Verify(ctx, token); err != nil {
@@ -272,7 +272,7 @@ func TestUnkeyRefusesMalformedKeysWithoutACall(t *testing.T) {
 	ctx := context.Background()
 	fake, srv := newFakeUnkey(t)
 	keys := newTestUnkeyStore(srv)
-	for _, token := range []string{"x", "uncrm_short", "sk_live_" + strings.Repeat("a", 44), "uncrm_" + strings.Repeat("a", 43) + "!", "uncrm_" + strings.Repeat("a", 200)} {
+	for _, token := range []string{"x", "keyring_short", "sk_live_" + strings.Repeat("a", 44), "keyring_" + strings.Repeat("a", 43) + "!", "keyring_" + strings.Repeat("a", 200)} {
 		if _, err := keys.Verify(ctx, token); !errors.Is(err, ErrInvalidKey) {
 			t.Errorf("verify %q: %v, want ErrInvalidKey", token, err)
 		}

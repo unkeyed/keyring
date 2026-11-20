@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
-	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/unkeyed/keyring/internal/crm"
 )
 
 // Authenticator apps: RFC 6238 TOTP, SHA-1, 6 digits, 30-second steps, the
@@ -79,7 +79,7 @@ func (u *Users) BeginTOTP(ctx context.Context, cur Current) (TOTPEnrolment, erro
 		return TOTPEnrolment{}, errTOTPEnabled
 	}
 	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer: "uncrm (" + u.cfg.PublicURL.Host + ")", AccountName: email,
+		Issuer: "Keyring (" + u.cfg.PublicURL.Host + ")", AccountName: email,
 		Period: totpPeriod, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1,
 	})
 	if err != nil {

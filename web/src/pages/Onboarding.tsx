@@ -6,7 +6,7 @@ const or = new Intl.ListFormat("en", { type: "disjunction" });
 
 export function signupCurl(origin: string): string {
   return `curl -X POST ${origin}/v1/signups \\
-  -H "Authorization: Bearer $UNCRM_API_KEY" \\
+  -H "Authorization: Bearer $KEYRING_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"email": "ada@example.com", "name": "Ada Lovelace"}'`;
 }
@@ -26,7 +26,7 @@ export function Onboarding() {
       </div>
       <h2 className="mt-3 text-xl font-semibold">Bring in your first sign-up</h2>
       <p className="mt-1.5 text-sm text-muted">
-        uncrm records everyone who signs up to your product. Pick one way in. New contacts appear here on their own, no reload needed.
+        Keyring records everyone who signs up to your product. Pick one way in. New contacts appear here on their own, no reload needed.
       </p>
 
       <ol className="mt-8 space-y-4">

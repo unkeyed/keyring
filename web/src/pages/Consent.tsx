@@ -7,13 +7,13 @@ import { Badge, Button, ErrorNote, Icon, PageSpinner } from "../ui";
 import { ReauthProvider, useReauthMutation } from "./settings/Reauth";
 import { AuthShell } from "./Login";
 
-/** Why /oauth/authorize refused. uncrm explains here rather than redirecting, since nobody has approved the app's address yet. */
+/** Why /oauth/authorize refused. Keyring explains here rather than redirecting, since nobody has approved the app's address yet. */
 const refusals: Record<string, string> = {
-  invalid_client: "This app is not registered with uncrm, so uncrm cannot tell who is asking. Start connecting again from the app.",
-  invalid_redirect_uri: "The app asked uncrm to send you to an address it never registered, so uncrm stopped here instead.",
-  invalid_request: "The app did not protect its sign-in with PKCE, which uncrm requires. Update the app, or ask its maker to support PKCE.",
-  unsupported_response_type: "The app asked for a kind of sign-in uncrm does not offer. uncrm supports only the authorization code flow.",
-  invalid_target: "The app asked for access to something other than this uncrm's MCP server. Check the server URL in the app's settings.",
+  invalid_client: "This app is not registered with Keyring, so Keyring cannot tell who is asking. Start connecting again from the app.",
+  invalid_redirect_uri: "The app asked Keyring to send you to an address it never registered, so Keyring stopped here instead.",
+  invalid_request: "The app did not protect its sign-in with PKCE, which Keyring requires. Update the app, or ask its maker to support PKCE.",
+  unsupported_response_type: "The app asked for a kind of sign-in Keyring does not offer. Keyring supports only the authorization code flow.",
+  invalid_target: "The app asked for access to something other than this Keyring's MCP server. Check the server URL in the app's settings.",
 };
 
 /**
@@ -89,7 +89,7 @@ function Decide({ handle, req, me }: { handle: string; req: ConsentRequest; me: 
   }
 
   return (
-    <AuthShell title="Connect an app to uncrm">
+    <AuthShell title="Connect an app to Keyring">
       <div className="space-y-4">
         <div className="flex items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-control bg-subtle text-muted">
@@ -98,7 +98,7 @@ function Decide({ handle, req, me }: { handle: string; req: ConsentRequest; me: 
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="text-base font-semibold [overflow-wrap:anywhere]">{req.client_name}</span>
-              <Badge tone="warn" title="Any app can register under any name. uncrm cannot check this one.">
+              <Badge tone="warn" title="Any app can register under any name. Keyring cannot check this one.">
                 Unverified
               </Badge>
             </div>
