@@ -35,4 +35,16 @@ export function initials(label: string): string {
   return ((words[0]?.[0] ?? "?") + (words[1]?.[0] ?? "")).toUpperCase();
 }
 
-export const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+const regions = new Intl.DisplayNames(undefined, { type: "region" });
+
+/** "PT" reads as "Portugal". Anything that is not a two-letter code shows as stored. */
+export function countryName(code: string): string {
+  if (!/^[a-z]{2}$/i.test(code)) return code;
+  try {
+    return regions.of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+export const plural =(n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
