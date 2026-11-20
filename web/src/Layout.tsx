@@ -1,9 +1,10 @@
+import { useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { api, ApiError } from "./api";
 import { useMe, useStatus } from "./queries";
 import { useTheme, type ThemeMode } from "./theme";
-import { Avatar, Button, cx, ErrorNote, Icon, Spinner, type IconName } from "./ui";
+import { Avatar, Button, buttonClass, Crumbs, cx, EmptyState, ErrorNote, Icon, Logo, NavMenu, PageHeader, Spinner, useModal, useWide, type IconName } from "./ui";
 
 const nav: { to: string; label: string; icon: IconName }[] = [
   { to: "/contacts", label: "Contacts", icon: "users" },
@@ -20,6 +21,8 @@ const themes: { mode: ThemeMode; icon: IconName; label: string }[] = [
 export function Layout() {
   const me = useMe();
   const location = useLocation();
+  const wide = useWide();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   if (me.isPending) {
     return (
@@ -33,7 +36,7 @@ export function Layout() {
   }
   if (me.isError) {
     return (
-      <div className="mx-auto mt-24 max-w-sm space-y-3">
+      <div className="mx-auto mt-24 max-w-sm space-y-3 px-4">
         <ErrorNote error={me.error} />
         <Button onClick={() => void me.refetch()}>Try again</Button>
       </div>
@@ -41,21 +44,52 @@ export function Layout() {
   }
 
   return (
-    <div className="flex h-full">
-      <Sidebar label={me.data.label} />
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
-        <Outlet />
-      </main>
-    </div>
+    <NavMenu.Provider value={wide ? null : () => setMenuOpen(true)}>
+      <div className="flex h-full">
+        {wide ? (
+          <aside className="flex w-14 shrink-0 flex-col border-r border-line bg-bg lg:w-52">
+            <NavBody label={me.data.label} rail />
+          </aside>
+        ) : (
+          <MenuSheet open={menuOpen} onClose={() => setMenuOpen(false)} label={me.data.label} />
+        )}
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+          <Outlet />
+        </main>
+      </div>
+    </NavMenu.Provider>
   );
 }
 
-function Sidebar({ label }: { label: string }) {
+/** On a phone the navigation slides in from the left, over the page. */
+function MenuSheet({ open, onClose, label }: { open: boolean; onClose: () => void; label: string }) {
+  const ref = useModal(open);
+  return (
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      onClick={(e) => e.target === ref.current && onClose()}
+      aria-label="Menu"
+      className="m-0 h-dvh max-h-none w-72 max-w-[85vw] border-0 border-r border-line bg-bg p-0 text-fg shadow-floating"
+    >
+      {open && (
+        <div className="flex h-full flex-col">
+          <NavBody label={label} onNavigate={onClose} close={<Button variant="ghost" size="sm" onClick={onClose} aria-label="Close menu" className="ml-auto w-8 px-0"><Icon name="x" /></Button>} />
+        </div>
+      )}
+    </dialog>
+  );
+}
+
+/**
+ * The navigation, account and theme controls. As a rail (tablet) it shows
+ * icons only until the lg breakpoint, where labels appear.
+ */
+function NavBody({ label, rail, onNavigate, close }: { label: string; rail?: boolean; onNavigate?: () => void; close?: ReactNode }) {
   const [theme, setTheme] = useTheme();
-  const status = useStatus();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const halted = status.data?.enrichment_halt;
+  const wideOnly = rail ? "hidden lg:block" : "block";
 
   const logout = async () => {
     try {
@@ -67,80 +101,140 @@ function Sidebar({ label }: { label: string }) {
   };
 
   return (
-    <aside className="flex w-14 shrink-0 flex-col border-r border-line bg-bg lg:w-52">
-      <div className="flex h-12 items-center gap-2 px-4">
-        <span className="grid size-6 place-items-center rounded-control bg-primary text-xs font-bold text-primary-fg">u</span>
-        <span className="hidden text-sm font-semibold lg:inline">uncrm</span>
+    <>
+      <div className={cx("flex h-12 shrink-0 items-center gap-2", rail ? "justify-center lg:justify-start lg:px-4" : "pr-2 pl-4")}>
+        <Logo />
+        <span className={cx(wideOnly, "text-sm font-semibold")}>uncrm</span>
+        {close}
       </div>
       <nav aria-label="Main" className="flex flex-col gap-0.5 px-2 py-2">
         {nav.map((n) => (
           <NavLink
             key={n.to}
             to={n.to}
-            title={n.label}
+            title={rail ? n.label : undefined}
+            onClick={onNavigate}
             className={({ isActive }) =>
               cx(
-                "flex h-8 items-center gap-2.5 rounded-control px-2.5 text-sm font-medium",
+                "flex h-8 items-center gap-2.5 rounded-surface px-2.5 text-sm font-medium transition-colors",
+                rail && "justify-center lg:justify-start",
                 isActive ? "bg-subtle text-fg" : "text-muted hover:bg-subtle hover:text-fg",
               )
             }
           >
             <Icon name={n.icon} />
-            <span className="hidden lg:inline">{n.label}</span>
+            <span className={wideOnly}>{n.label}</span>
           </NavLink>
         ))}
       </nav>
 
-      {halted && (
-        <Link
-          to="/settings/enrichment"
-          className="mx-2 mt-2 flex items-start gap-2 rounded-control bg-warn-soft p-2 text-xs text-warn"
-          title={halted.reason}
-        >
-          <Icon name="alert" className="mt-px size-3.5" />
-          <span className="hidden lg:inline">Enrichment paused. See why.</span>
-        </Link>
-      )}
-
-      <div className="mt-auto border-t border-line p-2">
-        <div className="mb-2 hidden items-center rounded-control border border-line p-0.5 lg:flex" role="radiogroup" aria-label="Theme">
-          {themes.map((t) => (
-            <button
-              key={t.mode}
-              type="button"
-              role="radio"
-              aria-checked={theme === t.mode}
-              aria-label={t.label}
-              title={t.label}
-              onClick={() => setTheme(t.mode)}
-              className={cx("flex h-6 flex-1 items-center justify-center rounded", theme === t.mode ? "bg-subtle text-fg" : "text-faint hover:text-fg")}
-            >
-              <Icon name={t.icon} className="size-3.5" />
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-col items-center gap-2 px-1 lg:flex-row">
-          <Avatar label={label} size={22} />
-          <span className="hidden min-w-0 flex-1 truncate text-xs text-muted lg:inline" title={label}>
-            {label}
-          </span>
-          <Button variant="ghost" size="sm" onClick={() => void logout()} aria-label="Log out" title="Log out">
-            <Icon name="logout" className="size-3.5" />
-          </Button>
+      <div className="mt-auto space-y-2 p-2">
+        <EnrichmentNotice rail={rail} onNavigate={onNavigate} />
+        <div className="space-y-2 border-t border-line pt-2">
+          <div className={cx("flex rounded-control border border-line p-0.5", rail && "flex-col lg:flex-row")} role="radiogroup" aria-label="Theme">
+            {themes.map((t) => (
+              <button
+                key={t.mode}
+                type="button"
+                role="radio"
+                aria-checked={theme === t.mode}
+                aria-label={t.label}
+                title={t.label}
+                onClick={() => setTheme(t.mode)}
+                className={cx(
+                  "flex h-6 flex-1 items-center justify-center rounded transition-colors",
+                  theme === t.mode ? "bg-subtle-strong text-fg" : "text-faint hover:text-fg",
+                )}
+              >
+                <Icon name={t.icon} className="size-3.5" />
+              </button>
+            ))}
+          </div>
+          <div className={cx("flex items-center gap-2 px-1", rail && "flex-col lg:flex-row")}>
+            <Avatar label={label} size={24} />
+            <AccountLabel label={label} className={cx(wideOnly, "min-w-0 flex-1")} />
+            <Button variant="ghost" size="sm" onClick={() => void logout()} aria-label="Log out" title="Log out" className="w-7 px-0">
+              <Icon name="logout" className="size-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
-    </aside>
+    </>
   );
 }
 
-export function NotFound() {
+/** An email reads as name, then domain, so neither half is cut off. */
+function AccountLabel({ label, className }: { label: string; className?: string }) {
+  const at = label.indexOf("@");
   return (
-    <div className="mx-auto mt-24 max-w-sm text-center">
-      <p className="text-base font-semibold">Nothing here</p>
-      <p className="mt-1 text-muted">That page does not exist.</p>
-      <Link to="/contacts" className="mt-4 inline-block text-fg underline underline-offset-2 hover:opacity-70">
-        Go to contacts
-      </Link>
+    <div className={cx("text-xs leading-4 [overflow-wrap:anywhere]", className)} title={label}>
+      {at > 0 ? (
+        <>
+          <div className="font-medium">{label.slice(0, at)}</div>
+          <div className="text-muted">{label.slice(at)}</div>
+        </>
+      ) : (
+        <div className="font-medium">{label}</div>
+      )}
     </div>
+  );
+}
+
+/** Says, in the shell, when enrichment is paused. */
+function EnrichmentNotice({ rail, onNavigate }: { rail?: boolean; onNavigate?: () => void }) {
+  const status = useStatus();
+  const halted = status.data?.enrichment_halt;
+  if (!halted) return null;
+  const text = "Enrichment paused";
+  return (
+    <Link
+      to="/settings/enrichment"
+      onClick={onNavigate}
+      aria-label={text}
+      title={halted.reason}
+      className={cx(
+        "flex h-8 items-center gap-2 rounded-surface px-2.5 text-xs transition-colors",
+        rail && "justify-center lg:justify-start",
+        "bg-warn-soft text-warn",
+      )}
+    >
+      <Icon name="alert" className="size-3.5" />
+      <span className={cx(rail ? "hidden lg:inline" : "inline", "min-w-0 flex-1 truncate")}>{text}</span>
+      <Icon name="right" className={cx(rail ? "hidden lg:block" : "block", "size-3.5 text-faint")} />
+    </Link>
+  );
+}
+
+export function NotFound({
+  title = "Page not found",
+  body = "That page does not exist.",
+  parent,
+}: {
+  title?: string;
+  body?: string;
+  /** The list to go back to, as in "Contacts". */
+  parent?: { label: string; to: string };
+}) {
+  const back = parent ?? { label: "Contacts", to: "/contacts" };
+  return (
+    <>
+      <PageHeader title={parent ? <Crumbs parent={parent.label} to={parent.to} current="Not found" /> : "Not found"} />
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-16">
+        <div className="mx-auto max-w-md">
+          <EmptyState
+            icon="search"
+            title={title}
+            action={
+              <Link to={back.to} className={buttonClass()}>
+                <Icon name="left" className="size-3.5" />
+                Back to {back.label.toLowerCase()}
+              </Link>
+            }
+          >
+            {body}
+          </EmptyState>
+        </div>
+      </div>
+    </>
   );
 }
