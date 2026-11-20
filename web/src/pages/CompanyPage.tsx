@@ -2,9 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, parseID, type Company, type CompanyDetail, type CompanyField, type CompanyID } from "../api";
 import { companyLabel, contactLabel, plural } from "../format";
-import { keys } from "../queries";
+import { keys, useStatus } from "../queries";
 import { EditableField } from "../components/EditableField";
-import { EnrichmentNote } from "../components/EnrichmentNote";
 import { NotFound } from "../Layout";
 import { Avatar, Badge, Button, cx, EnrichmentBadge, ErrorNote, Icon, PageHeader, RelativeTime, Spinner } from "../ui";
 
@@ -26,6 +25,7 @@ function CompanyView({ id }: { id: CompanyID }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const company = useQuery({ queryKey: keys.company(id), queryFn: () => api.companies.get(id) });
+  const status = useStatus();
 
   const settle = (c: Company) => {
     qc.setQueryData<CompanyDetail>(keys.company(id), (d) => d && { ...d, ...c });
@@ -57,6 +57,7 @@ function CompanyView({ id }: { id: CompanyID }) {
   const c = company.data;
   const label = companyLabel(c);
   const pinned = new Set(c.manual_fields ?? []);
+  const canEnrich = status.data?.enrichment_enabled && !status.data.enrichment_halt;
   const contacts = c.contacts ?? [];
 
   return (
@@ -72,10 +73,12 @@ function CompanyView({ id }: { id: CompanyID }) {
           </span>
         }
       >
+        {canEnrich && (
         <Button size="sm" onClick={() => enrich.mutate()} disabled={enrich.isPending || c.enrichment === "running"} title="Look this company up on context.dev again">
           <Icon name="refresh" className={cx("size-3.5", enrich.isPending && "animate-spin")} />
           Re-enrich
         </Button>
+        )}
       </PageHeader>
 
       <div className="flex min-h-0 flex-1">
@@ -90,7 +93,7 @@ function CompanyView({ id }: { id: CompanyID }) {
                   <Icon name="external" className="size-3" />
                 </a>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
-                  <EnrichmentBadge state={c.enrichment} />
+                  <EnrichmentBadge state={c.enrichment} status={status.data} />
                   {c.industry && <Badge>{c.industry}</Badge>}
                   {c.employee_range && <Badge>{c.employee_range} employees</Badge>}
                   {c.country && <Badge>{c.country}</Badge>}
@@ -99,7 +102,6 @@ function CompanyView({ id }: { id: CompanyID }) {
             </div>
             {c.description && <p className="mt-5 text-sm leading-relaxed whitespace-pre-wrap text-muted">{c.description}</p>}
             <div className="mt-3 space-y-2">
-              <EnrichmentNote state={c.enrichment} />
               <ErrorNote error={enrich.error} />
             </div>
 

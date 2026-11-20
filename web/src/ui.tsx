@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
-import { ApiError, type JobState } from "./api";
+import { ApiError, type JobState, type Status } from "./api";
 import { absoluteTime, initials, relativeTime } from "./format";
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
@@ -245,7 +245,14 @@ export const enrichmentStates: Record<JobState, { label: string; tone: Tone; hel
   skipped: { label: "Not enriched", tone: "neutral", help: "Free-mail addresses are not enriched." },
 };
 
-export function EnrichmentBadge({ state }: { state: JobState }) {
+/**
+ * A record's enrichment state, when it tells the reader something. Enriched
+ * records say nothing, and so does a queued record while enrichment is off or
+ * paused: the app shell says that once, for every record.
+ */
+export function EnrichmentBadge({ state, status }: { state: JobState; status: Status | undefined }) {
+  if (state === "done") return null;
+  if (state === "pending" && (!status?.enrichment_enabled || status.enrichment_halt)) return null;
   const s = enrichmentStates[state];
   return (
     <Badge tone={s.tone} title={s.help}>

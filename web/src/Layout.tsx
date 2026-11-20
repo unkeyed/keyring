@@ -180,25 +180,26 @@ function AccountLabel({ label, className }: { label: string; className?: string 
   );
 }
 
-/** Says, in the shell, when enrichment is paused. */
+/** The one place that says enrichment is off or paused, instead of every record repeating it. */
 function EnrichmentNotice({ rail, onNavigate }: { rail?: boolean; onNavigate?: () => void }) {
   const status = useStatus();
-  const halted = status.data?.enrichment_halt;
-  if (!halted) return null;
-  const text = "Enrichment paused";
+  const s = status.data;
+  if (!s || (s.enrichment_enabled && !s.enrichment_halt)) return null;
+  const halted = s.enrichment_halt;
+  const text = halted ? "Enrichment paused" : "Enrichment is off";
   return (
     <Link
       to="/settings/enrichment"
       onClick={onNavigate}
       aria-label={text}
-      title={halted.reason}
+      title={halted ? halted.reason : "Turn it on to fill in titles, companies and logos"}
       className={cx(
         "flex h-8 items-center gap-2 rounded-surface px-2.5 text-xs transition-colors",
         rail && "justify-center lg:justify-start",
-        "bg-warn-soft text-warn",
+        halted ? "bg-warn-soft text-warn" : "text-muted hover:bg-subtle hover:text-fg",
       )}
     >
-      <Icon name="alert" className="size-3.5" />
+      <Icon name={halted ? "alert" : "sparkles"} className="size-3.5" />
       <span className={cx(rail ? "hidden lg:inline" : "inline", "min-w-0 flex-1 truncate")}>{text}</span>
       <Icon name="right" className={cx(rail ? "hidden lg:block" : "block", "size-3.5 text-faint")} />
     </Link>

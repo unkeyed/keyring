@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { api, type Company } from "../api";
+import { api, type Company, type Status } from "../api";
 import { companyLabel } from "../format";
 import { keys, useStatus } from "../queries";
 import { Avatar, Button, cx, EnrichmentBadge, ErrorNote, Icon, inputClass, PageHeader, Spinner } from "../ui";
@@ -98,7 +98,7 @@ export function Companies() {
             </thead>
             <tbody>
               {rows.map((c) => (
-                <CompanyRow key={c.id} c={c} onOpen={() => void navigate(`/companies/${c.id}`)} />
+                <CompanyRow key={c.id} c={c} status={status.data} onOpen={() => void navigate(`/companies/${c.id}`)} />
               ))}
             </tbody>
           </table>
@@ -115,7 +115,7 @@ export function Companies() {
   );
 }
 
-function CompanyRow({ c, onOpen }: { c: Company; onOpen: () => void }) {
+function CompanyRow({ c, status, onOpen }: { c: Company; status: Status | undefined; onOpen: () => void }) {
   const label = companyLabel(c);
   return (
     <tr onClick={onOpen} className="h-11 cursor-default border-b border-line hover:bg-subtle">
@@ -134,7 +134,7 @@ function CompanyRow({ c, onOpen }: { c: Company; onOpen: () => void }) {
       <td className="truncate px-3 text-muted">{c.employee_range || <span className="text-faint">—</span>}</td>
       <td className="truncate px-3 text-muted">{c.country || <span className="text-faint">—</span>}</td>
       <td className="px-3 text-right tabular-nums">{c.contact_count.toLocaleString()}</td>
-      <td className="py-1.5 pr-5 pl-3 text-right">{c.enrichment !== "done" && <EnrichmentBadge state={c.enrichment} />}</td>
+      <td className="py-1.5 pr-5 pl-3 text-right"><EnrichmentBadge state={c.enrichment} status={status} /></td>
     </tr>
   );
 }

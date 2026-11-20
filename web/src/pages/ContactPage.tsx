@@ -3,9 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, parseID, type Contact, type ContactDetail, type ContactField, type ContactID, type ContactPatch, type Note } from "../api";
 import { companyLabel, contactLabel } from "../format";
-import { keys, useStages, useTags } from "../queries";
+import { keys, useStages, useStatus, useTags } from "../queries";
 import { EditableField } from "../components/EditableField";
-import { EnrichmentNote } from "../components/EnrichmentNote";
 import { MergeDialog } from "../components/MergeDialog";
 import { Timeline } from "../components/Timeline";
 import { NotFound } from "../Layout";
@@ -33,6 +32,7 @@ function ContactView({ id }: { id: ContactID }) {
   const navigate = useNavigate();
   const contact = useQuery({ queryKey: keys.contact(id), queryFn: () => api.contacts.get(id) });
   const stages = useStages();
+  const status = useStatus();
   const [merging, setMerging] = useState(false);
 
   /** Every write answers with the contact; show it now, then refetch the timeline it added to. */
@@ -78,6 +78,7 @@ function ContactView({ id }: { id: ContactID }) {
   const c = contact.data;
   const label = contactLabel(c);
   const pinned = new Set(c.manual_fields ?? []);
+  const canEnrich = status.data?.enrichment_enabled && !status.data.enrichment_halt;
 
   return (
     <>
@@ -92,10 +93,12 @@ function ContactView({ id }: { id: ContactID }) {
           </span>
         }
       >
+        {canEnrich && (
         <Button size="sm" onClick={() => enrich.mutate()} disabled={enrich.isPending || c.enrichment === "running"} title="Look this person up on context.dev again">
           <Icon name="refresh" className={cx("size-3.5", enrich.isPending && "animate-spin")} />
           Re-enrich
         </Button>
+        )}
         <Button size="sm" onClick={() => setMerging(true)}>
           <Icon name="merge" className="size-3.5" />
           Merge…
@@ -138,13 +141,12 @@ function ContactView({ id }: { id: ContactID }) {
                   ))}
                 </select>
               </label>
-              <EnrichmentBadge state={c.enrichment} />
+              <EnrichmentBadge state={c.enrichment} status={status.data} />
               <span className="text-xs text-faint">
                 First seen <RelativeTime iso={c.first_seen_at} />, last seen <RelativeTime iso={c.last_seen_at} />
               </span>
             </div>
             <div className="mt-3 space-y-2">
-              <EnrichmentNote state={c.enrichment} />
               <ErrorNote error={stage.error ?? enrich.error} />
             </div>
 
