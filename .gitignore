@@ -11,3 +11,6 @@ web/dist/*
 
 site/docs-build/node_modules/
 site/out/
+site/launch-video/frames/
+site/launch-video/node_modules/
+site/launch-video/*.mp4

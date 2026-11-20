@@ -1,0 +1,320 @@
+<!doctype html>
+<!--
+  The Keyring launch video, 1920x1080. Every frame is a pure function of
+  time: render(t) sets the page to second t. render.mjs steps it at 30fps
+  and saves frames, and encode.swift turns them into an H.264 MP4.
+  Open it in a browser to preview: it plays in real time.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Keyring launch video</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --bg: #040406; --raised: #0b0c10; --fg: #fff; --muted: #9194a1; --faint: #5d606c; --line: #2e3038; --soft: #1b1c22;
+    --display: Manrope, Inter, sans-serif; --body: Inter, sans-serif; --mono: "JetBrains Mono", monospace; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--fg); font-family: var(--body); -webkit-font-smoothing: antialiased; }
+  .stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  .blocks { position: absolute; inset: -60px; width: calc(100% + 120px); height: calc(100% + 120px); }
+  .grain { position: absolute; inset: 0; mix-blend-mode: multiply; background-size: 260px 260px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='1' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='discrete' tableValues='0 0 .55 1 1'/%3E%3CfeFuncG type='discrete' tableValues='0 0 .55 1 1'/%3E%3CfeFuncB type='discrete' tableValues='0 0 .55 1 1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 52%, rgba(4,4,6,.62) 0%, rgba(4,4,6,.5) 38%, rgba(4,4,6,.78) 78%, var(--bg) 100%); }
+  .scene { position: absolute; inset: 0; opacity: 0; will-change: opacity, transform; }
+  .center { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .pad { padding: 120px 160px; }
+
+  .brand { display: inline-flex; align-items: center; gap: 22px; font: 500 64px/1 var(--display); letter-spacing: -0.03em; }
+  .mark { display: grid; place-items: center; width: 72px; height: 72px; background: #fff; color: var(--bg); font: 600 38px/1 var(--body); }
+
+  .eyebrow { display: inline-flex; align-items: center; gap: 14px; width: fit-content; padding: 10px 18px; border: 1px solid var(--line); border-radius: 8px; background: rgba(4,4,6,.55); font: 400 22px/1.3 var(--mono); letter-spacing: .03em; text-transform: uppercase; }
+  .glow { position: relative; flex: none; width: 14px; height: 14px; }
+  .glow::before, .glow::after, .glow i { content: ""; position: absolute; inset: 0; border-radius: 3px; }
+  .glow::before { background: #0095e6; filter: blur(7px); }
+  .glow::after { background: #35f1e4; filter: blur(3px); }
+  .glow i { background: #9ffaf2; }
+  .glow.idle::before { background: #3b3e48; }
+  .glow.idle::after { background: #8b8e99; filter: blur(2px); }
+  .glow.idle i { background: #c9cbd3; }
+
+  h1, h2 { font-family: var(--display); font-weight: 400; letter-spacing: -0.04em; }
+  .headline { font-size: 132px; line-height: 1.04; text-align: center; }
+  .headline span { display: inline-block; margin: 0 .1em; letter-spacing: -0.04em; font-family: var(--display); font-weight: 400; }
+  .sub { margin-top: 44px; color: var(--muted); font-size: 34px; letter-spacing: -0.01em; text-align: center; }
+  h2 { font-size: 76px; line-height: 1.08; margin-top: 32px; }
+
+  /* Feed */
+  .feed { width: 1320px; margin-top: 48px; border: 1px solid var(--line); background: rgba(8,9,12,.9); box-shadow: 0 40px 120px rgba(0,0,0,.6); }
+  .feed-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 28px; border-bottom: 1px solid var(--line); }
+  .feed-head .eyebrow { font-size: 18px; padding: 8px 14px; gap: 12px; }
+  .feed-head .glow { width: 12px; height: 12px; }
+  .count { color: var(--muted); font: 20px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .row { display: grid; grid-template-columns: 460px 1fr 170px 190px; align-items: center; gap: 24px; padding: 22px 28px; border-bottom: 1px solid var(--soft); font-size: 24px; }
+  .row:last-child { border-bottom: 0; }
+  .who { display: flex; align-items: center; gap: 20px; }
+  .avatar { display: grid; place-items: center; width: 54px; height: 54px; background: #1c1e25; border: 1px solid var(--line); font: 500 19px/1 var(--body); color: #d4d5db; }
+  .name { font-weight: 500; }
+  .small { margin-top: 4px; color: var(--muted); font-size: 20px; }
+  .src { justify-self: start; padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font: 18px/1.4 var(--mono); }
+  .state { display: inline-flex; align-items: center; gap: 12px; color: #d4d5db; font: 18px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+  .state .glow { width: 11px; height: 11px; }
+  .state .on, .state .off { position: absolute; }
+  .state-wrap { position: relative; display: inline-flex; align-items: center; gap: 12px; }
+
+  /* Providers */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); width: 1500px; margin-top: 56px; border-left: 1px solid var(--line); border-top: 1px solid var(--line); }
+  .cell { display: flex; flex-direction: column; justify-content: space-between; gap: 40px; height: 200px; padding: 30px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(4,4,6,.6); }
+  .cell b { font: 400 42px/1.1 var(--display); letter-spacing: -0.03em; }
+  .cell code { color: var(--faint); font: 20px/1 var(--mono); }
+
+  /* Terminals */
+  .term { width: 1400px; margin-top: 56px; border: 1px solid var(--line); background: rgba(11,12,16,.94); box-shadow: 0 40px 120px rgba(0,0,0,.6); }
+  .term-bar { display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 22px; border-bottom: 1px solid var(--line); color: var(--muted); font: 18px/1 var(--mono); }
+  .dots { display: flex; gap: 8px; } .dots i { display: block; width: 11px; height: 11px; background: var(--line); }
+  .term-body { padding: 34px 36px; min-height: 380px; font: 26px/1.65 var(--mono); color: #d4d5db; white-space: pre-wrap; }
+  .term-body .p { color: var(--faint); }
+  .term-body .w { color: #fff; }
+  .term-body .ok { color: #35f1e4; }
+  .caret { display: inline-block; width: 13px; height: 30px; margin-left: 2px; vertical-align: -5px; background: #fff; }
+  .answer { margin-top: 18px; padding: 22px 26px; border: 1px solid var(--line); background: rgba(4,4,6,.7); font-family: var(--body); font-size: 26px; line-height: 1.5; color: #e7e8ec; white-space: normal; }
+  .answer b { font-weight: 500; color: #fff; }
+  .checks { display: grid; gap: 16px; margin-top: 22px; }
+  .check { display: flex; align-items: center; gap: 18px; font: 26px/1.3 var(--body); color: #e7e8ec; }
+  .tick { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 6px; }
+  .tick svg { width: 20px; height: 20px; color: #35f1e4; }
+
+  /* End card */
+  .end-actions { display: flex; gap: 20px; margin-top: 60px; }
+  .btn { display: inline-flex; align-items: center; gap: 14px; height: 76px; padding: 0 38px; border: 1px solid #fff; font: 500 28px/1 var(--body); letter-spacing: -0.02em; }
+  .btn.primary { background: #fff; color: var(--bg); }
+  .url { margin-top: 64px; font: 400 40px/1 var(--mono); letter-spacing: .02em; }
+  .provided { position: absolute; left: 0; right: 0; bottom: 70px; text-align: center; color: var(--muted); font-size: 26px; }
+  .provided b { color: #fff; font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <svg class="blocks" id="blocks" viewBox="0 0 2040 1200" preserveAspectRatio="none" aria-hidden="true">
+    <defs><filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="40" /></filter></defs>
+    <g filter="url(#soft)" fill="#8b8d96">
+      <path id="b1" d="M180 120h440v160h180v240H660v190H180z" opacity=".75" />
+      <path id="b2" d="M0 470h190v-120h160v320H80v220H0z" opacity=".35" />
+      <path id="b3" d="M1300 140h280V50h280v350h150v290h-230V560h-330V350h-150z" opacity=".85" />
+      <path id="b4" d="M860 760h420v180h-110v190H800V950h60z" opacity=".3" />
+      <path id="b5" d="M1640 820h400v380h-400z" opacity=".3" />
+    </g>
+  </svg>
+  <div class="grain"></div>
+  <div class="vignette"></div>
+
+  <!-- 1. Intro -->
+  <section class="scene center" id="s1">
+    <div class="brand" id="s1-brand"><span class="mark">K</span>keyring</div>
+    <span class="eyebrow" id="s1-eyebrow" style="margin-top: 48px"><span class="glow"><i></i></span>Open source CRM</span>
+  </section>
+
+  <!-- 2. Headline -->
+  <section class="scene center" id="s2">
+    <h1 class="headline" id="s2-h"></h1>
+    <p class="sub" id="s2-sub">Every sign-up from your auth provider becomes an enriched contact.</p>
+  </section>
+
+  <!-- 3. Feed -->
+  <section class="scene center" id="s3">
+    <span class="eyebrow" id="s3-eyebrow"><span class="glow"><i></i></span>Sign-ups arrive on their own</span>
+    <div class="feed" id="s3-feed">
+      <div class="feed-head"><span class="eyebrow"><span class="glow"><i></i></span>New sign-ups</span><span class="count" id="s3-count">0 today</span></div>
+      <div id="s3-rows"></div>
+    </div>
+  </section>
+
+  <!-- 4. Providers -->
+  <section class="scene center" id="s4">
+    <span class="eyebrow" id="s4-eyebrow"><span class="glow"><i></i></span>Works with your auth</span>
+    <h2 id="s4-h">Six providers built in. Anything else over HTTP.</h2>
+    <div class="grid" id="s4-grid"></div>
+  </section>
+
+  <!-- 5. Agents -->
+  <section class="scene center" id="s5">
+    <span class="eyebrow" id="s5-eyebrow"><span class="glow"><i></i></span>Built for agents</span>
+    <h2 id="s5-h">Your agents know your customers too.</h2>
+    <div class="term" id="s5-term">
+      <div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span>claude</span></div>
+      <div class="term-body" id="s5-body"></div>
+    </div>
+  </section>
+
+  <!-- 6. Deploy on Unkey -->
+  <section class="scene center" id="s6">
+    <span class="eyebrow" id="s6-eyebrow"><span class="glow"><i></i></span>Deploy on Unkey</span>
+    <h2 id="s6-h">Running on Unkey in one prompt.</h2>
+    <div class="term" id="s6-term">
+      <div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span>claude · unkey mcp</span></div>
+      <div class="term-body" id="s6-body"></div>
+    </div>
+  </section>
+
+  <!-- 7. End card -->
+  <section class="scene center" id="s7">
+    <div class="brand" id="s7-brand"><span class="mark">K</span>keyring</div>
+    <h1 class="headline" id="s7-h" style="font-size: 92px; margin-top: 56px">Everyone you deal with,<br />kept in one place.</h1>
+    <div class="end-actions" id="s7-actions">
+      <span class="btn primary">Deploy on Unkey</span>
+      <span class="btn">Star on GitHub</span>
+    </div>
+    <div class="url" id="s7-url">kyring.dev</div>
+    <p class="provided" id="s7-provided">Open source, MIT licensed · Provided by <b>Unkey</b></p>
+  </section>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const clamp = (x) => Math.min(1, Math.max(0, x));
+  const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+  const easeInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  // p: eased progress of an animation that starts at a and lasts d seconds.
+  const p = (t, a, d, ease = easeOut) => ease(clamp((t - a) / d));
+  function set(el, { o = 1, y = 0, x = 0, s = 1, blur = 0 } = {}) {
+    el.style.opacity = o;
+    el.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+    el.style.filter = blur > 0.05 ? `blur(${blur}px)` : "none";
+  }
+  // enter: fade and rise in over 0.7s from a.
+  const enter = (el, t, a, rise = 40) => { const k = p(t, a, 0.7); set(el, { o: k, y: (1 - k) * rise, blur: (1 - k) * 8 }); };
+  // scene: visible from a to b, fading in and out.
+  function scene(el, t, a, b) {
+    const k = p(t, a, 0.6) * (1 - p(t, b - 0.6, 0.6, easeInOut));
+    el.style.opacity = k;
+    el.style.transform = `translateY(${(1 - p(t, b - 0.6, 0.6, easeInOut)) * 0 - p(t, b - 0.6, 0.6, easeInOut) * 30}px)`;
+    el.style.visibility = k > 0.001 ? "visible" : "hidden";
+    return k > 0.001;
+  }
+  const type = (text, t, a, cps) => text.slice(0, Math.max(0, Math.floor((t - a) * cps)));
+  const caret = (t, on = true) => (on && Math.floor(t * 2) % 2 === 0 ? '<span class="caret"></span>' : "");
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+  // Static content built once.
+  const words = ["Everyone", "you", "deal", "with,", "<br>", "kept", "in", "one", "place."];
+  $("s2-h").innerHTML = words.map((w) => (w === "<br>" ? "<br>" : `<span>${w}</span>`)).join("");
+  const headWords = [...$("s2-h").querySelectorAll("span")];
+
+  const people = [
+    ["MR", "Maya Reyes", "maya@northwind.dev", "Staff Engineer", "Northwind · Lisbon", "Clerk"],
+    ["JO", "Jonas Olsen", "jonas@lumen.io", "Head of Platform", "Lumen · Oslo", "WorkOS"],
+    ["PK", "Priya Kapoor", "priya@fieldnote.app", "Founder", "Fieldnote · Bengaluru", "Auth0"],
+    ["SD", "Sam Dubois", "sam@hollow.studio", "Product Designer", "Hollow Studio · Paris", "Better Auth"],
+    ["AN", "Ana Novak", "ana@tidal.so", "VP Engineering", "Tidal · Ljubljana", "Supabase"],
+  ];
+  $("s3-rows").innerHTML = people.map(([ini, name, email, role, co, src], i) => `
+    <div class="row" id="r${i}">
+      <div class="who"><span class="avatar">${ini}</span><div><div class="name">${name}</div><div class="small">${email}</div></div></div>
+      <div id="r${i}-role"><div class="name">${role}</div><div class="small">${co}</div></div>
+      <span class="src">${src}</span>
+      <span class="state"><span class="state-wrap"><span class="glow idle" id="r${i}-idle"><i></i></span><span class="glow" id="r${i}-on" style="position:absolute"><i></i></span><span id="r${i}-label">Enriching</span></span></span>
+    </div>`).join("");
+
+  const providers = [["Clerk", "clerk"], ["WorkOS AuthKit", "workos"], ["Better Auth", "better-auth"], ["Supabase Auth", "supabase"], ["Auth0", "auth0"], ["Stytch", "stytch"]];
+  $("s4-grid").innerHTML = providers.map(([n, p], i) => `<div class="cell" id="c${i}"><b>${n}</b><code>/webhooks/${p}</code></div>`).join("");
+
+  const tick = '<span class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>';
+
+  // The timeline, in seconds.
+  const T = { s1: [0, 4.8], s2: [4.4, 10.4], s3: [10.0, 19.2], s4: [18.8, 24.6], s5: [24.2, 32.6], s6: [32.2, 40.6], s7: [40.2, 47] };
+  const DURATION = 47;
+
+  function render(t) {
+    // Background blocks drift slowly the whole time.
+    $("blocks").style.transform = `translate(${Math.sin(t / 9) * 26}px, ${Math.cos(t / 11) * 18}px) scale(${1.02 + Math.sin(t / 13) * 0.015})`;
+
+    if (scene($("s1"), t, ...T.s1)) {
+      const k = p(t, 0.3, 0.9);
+      set($("s1-brand"), { o: k, s: 0.92 + 0.08 * k, blur: (1 - k) * 10 });
+      enter($("s1-eyebrow"), t, 1.3, 24);
+    }
+
+    if (scene($("s2"), t, ...T.s2)) {
+      headWords.forEach((w, i) => { const k = p(t, 4.9 + i * 0.16, 0.7); set(w, { o: k, y: (1 - k) * 36, blur: (1 - k) * 14 }); });
+      enter($("s2-sub"), t, 6.9, 24);
+    }
+
+    if (scene($("s3"), t, ...T.s3)) {
+      enter($("s3-eyebrow"), t, 10.3, 20);
+      enter($("s3-feed"), t, 10.5, 50);
+      let arrived = 0;
+      people.forEach((_, i) => {
+        const a = 11.3 + i * 0.95;
+        const k = p(t, a, 0.55);
+        set($(`r${i}`), { o: k, y: (1 - k) * -18 });
+        if (t >= a) arrived++;
+        const e = p(t, a + 1.1, 0.5);
+        set($(`r${i}-role`), { o: e, blur: (1 - e) * 8 });
+        const pulse = 0.55 + 0.45 * Math.abs(Math.sin((t - a) * 4));
+        $(`r${i}-idle`).style.opacity = (1 - e) * pulse;
+        $(`r${i}-on`).style.opacity = e;
+        $(`r${i}-label`).textContent = e > 0.5 ? "Enriched" : "Enriching";
+      });
+      $("s3-count").textContent = `${arrived} new today`;
+    }
+
+    if (scene($("s4"), t, ...T.s4)) {
+      enter($("s4-eyebrow"), t, 19.0, 20);
+      enter($("s4-h"), t, 19.2, 30);
+      providers.forEach((_, i) => { const k = p(t, 19.8 + i * 0.18, 0.6); set($(`c${i}`), { o: k, y: (1 - k) * 30, s: 0.96 + 0.04 * k }); });
+    }
+
+    if (scene($("s5"), t, ...T.s5)) {
+      enter($("s5-eyebrow"), t, 24.4, 20);
+      enter($("s5-h"), t, 24.6, 30);
+      enter($("s5-term"), t, 24.9, 40);
+      const cmd = "claude mcp add --transport http keyring https://crm.acme.dev/mcp";
+      const ask = "Who signed up from Northwind this week?";
+      const c1 = type(cmd, t, 25.6, 46);
+      let html = `<span class="p">$ </span><span class="w">${esc(c1)}</span>`;
+      if (t < 27.1) html += caret(t);
+      if (t >= 27.2) html += `\n<span class="ok">✓ Signed in to Keyring with OAuth</span>`;
+      if (t >= 27.8) {
+        html += `\n\n<span class="p">› </span><span class="w">${esc(type(ask, t, 27.9, 30))}</span>`;
+        if (t < 29.4) html += caret(t);
+      }
+      if (t >= 29.6) {
+        const k = p(t, 29.6, 0.6);
+        html += `<div class="answer" style="opacity:${k};transform:translateY(${(1 - k) * 14}px)"><b>Maya Reyes</b>, Staff Engineer at Northwind in Lisbon, signed up through Clerk on Tuesday. I tagged her <b>beta</b> and moved her to <b>Trial</b>.</div>`;
+      }
+      $("s5-body").innerHTML = html;
+    }
+
+    if (scene($("s6"), t, ...T.s6)) {
+      enter($("s6-eyebrow"), t, 32.4, 20);
+      enter($("s6-h"), t, 32.6, 30);
+      enter($("s6-term"), t, 32.9, 40);
+      const cmd = "claude mcp add --transport http unkey https://mcp.unkey.com";
+      let html = `<span class="p">$ </span><span class="w">${esc(type(cmd, t, 33.5, 46))}</span>`;
+      if (t < 34.9) html += caret(t);
+      if (t >= 35.1) html += `\n<span class="p">› </span><span class="w">Deploy Keyring to Unkey for me.</span>`;
+      const steps = ["Project and app created on Unkey", "Secrets set as write-only", "Built from your fork in us-east-1", "Firewall and rate limits at the gateway", "Live at https://keyring-acme.unkey.app"];
+      html += `<div class="checks">${steps.map((s, i) => { const k = p(t, 35.7 + i * 0.75, 0.45); return k > 0 ? `<div class="check" style="opacity:${k};transform:translateX(${(1 - k) * -16}px)">${tick}${s}</div>` : ""; }).join("")}</div>`;
+      $("s6-body").innerHTML = html;
+    }
+
+    if (scene($("s7"), t, T.s7[0], T.s7[1] + 1)) {
+      const k = p(t, 40.5, 0.9);
+      set($("s7-brand"), { o: k, s: 0.94 + 0.06 * k, blur: (1 - k) * 8 });
+      enter($("s7-h"), t, 41.0, 30);
+      enter($("s7-actions"), t, 41.6, 24);
+      enter($("s7-url"), t, 42.1, 20);
+      enter($("s7-provided"), t, 42.6, 16);
+    }
+  }
+
+  window.render = render;
+  window.DURATION = DURATION;
+  // Preview in a browser: play in real time unless a renderer drives it.
+  if (!location.hash.includes("render")) {
+    const start = performance.now();
+    const loop = () => { render(((performance.now() - start) / 1000) % DURATION); requestAnimationFrame(loop); };
+    document.fonts.ready.then(loop);
+  }
+</script>
+</body>
+</html>

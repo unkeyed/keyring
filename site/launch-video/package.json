@@ -1,0 +1,13 @@
+{
+  "name": "keyring-launch-video",
+  "private": true,
+  "type": "module",
+  "description": "Renders launch.html into keyring-launch.mp4. npm install, then npm run video (macOS: encodes with AVFoundation).",
+  "scripts": {
+    "frames": "node render.mjs",
+    "video": "node render.mjs && swift encode.swift frames keyring-launch.mp4"
+  },
+  "devDependencies": {
+    "playwright": "1.65.1"
+  }
+}
