@@ -11,6 +11,8 @@ import { ContactPage } from "./pages/ContactPage";
 import { Companies } from "./pages/Companies";
 import { CompanyPage } from "./pages/CompanyPage";
 import { Settings, settingsRoutes } from "./pages/settings/Settings";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import "./index.css";
 
 const router = createBrowserRouter([
