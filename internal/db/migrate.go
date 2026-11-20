@@ -45,11 +45,20 @@ func apply(ctx context.Context, tx pgx.Tx, name, sql string) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('keyring.migrate'))`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
-		name       text PRIMARY KEY,
-		applied_at timestamptz NOT NULL DEFAULT now()
-	)`); err != nil {
+	// CREATE TABLE IF NOT EXISTS needs CREATE on the schema even when the
+	// table exists, so a role that only reads and writes data could not
+	// start on an up-to-date database.
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&exists); err != nil {
 		return err
+	}
+	if !exists {
+		if _, err := tx.Exec(ctx, `CREATE TABLE schema_migrations (
+			name       text PRIMARY KEY,
+			applied_at timestamptz NOT NULL DEFAULT now()
+		)`); err != nil {
+			return err
+		}
 	}
 	var applied bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE name = $1)`, name).Scan(&applied); err != nil {

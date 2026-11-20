@@ -48,7 +48,15 @@ Some providers, such as PlanetScale Postgres, give you a role that can only read
 
 The read/write role needs `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the tables the admin role creates. Granting it the `pg_read_all_data` and `pg_write_all_data` roles covers that, including tables added by later migrations.
 
-When it is unset, Keyring migrates through `DATABASE_URL`, so that role needs the right to create tables.
+When it is unset, Keyring migrates through `DATABASE_URL`. A role that cannot create tables still starts when every migration is already applied, and exits with an error naming `MIGRATION_DATABASE_URL` when one is pending.
+
+To keep the admin URL out of the deployment, leave `MIGRATION_DATABASE_URL` unset there and apply migrations yourself before you deploy a release that adds one:
+
+```sh
+MIGRATION_DATABASE_URL='postgres://admin:pass@host:5432/keyring' keyring migrate
+```
+
+`keyring migrate` applies any pending migrations and exits. With the Docker image, run `docker run --rm -e MIGRATION_DATABASE_URL=... ghcr.io/unkeyed/keyring migrate`.
 
 ## `PORT`
 

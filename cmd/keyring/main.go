@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/unkeyed/keyring/internal/auth"
@@ -152,6 +153,9 @@ func loadAuthConfig(port string) (auth.Config, error) {
 func migrate(ctx context.Context, pool *pgxpool.Pool, migrateDB *pgxpool.Config) error {
 	if migrateDB == nil {
 		if err := db.Migrate(ctx, pool); err != nil {
+			if pgErr := (*pgconn.PgError)(nil); errors.As(err, &pgErr) && pgErr.Code == "42501" {
+				return fmt.Errorf("migrate the database at DATABASE_URL: %w; this role cannot create tables, so apply the migrations as one that can with `MIGRATION_DATABASE_URL=... keyring migrate`, or set MIGRATION_DATABASE_URL here", err)
+			}
 			return fmt.Errorf("migrate the database at DATABASE_URL: %w", err)
 		}
 		return nil
@@ -167,9 +171,48 @@ func migrate(ctx context.Context, pool *pgxpool.Pool, migrateDB *pgxpool.Config)
 	return nil
 }
 
+// runMigrate is `keyring migrate`: apply the migrations and exit, as
+// MIGRATION_DATABASE_URL's role, or DATABASE_URL's when it is unset. It
+// lets a deployment whose DATABASE_URL cannot create tables keep the admin
+// URL out of its environment.
+func runMigrate(log *slog.Logger) error {
+	name := "MIGRATION_DATABASE_URL"
+	url := os.Getenv(name)
+	if url == "" {
+		name = "DATABASE_URL"
+		url = os.Getenv(name)
+	}
+	if url == "" {
+		return errors.New("keyring migrate needs MIGRATION_DATABASE_URL or DATABASE_URL")
+	}
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return fmt.Errorf("%s is not a Postgres connection string; want postgres://user:pass@host:5432/keyring", name)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := db.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("migrate the database at %s: %w", name, err)
+	}
+	log.Info("migrations applied", "via", name)
+	return nil
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(log)
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		if err := runMigrate(log); err != nil {
+			log.Error("migrate failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(log); err != nil {
 		log.Error("Keyring stopped", "err", err)
 		os.Exit(1)
