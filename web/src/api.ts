@@ -260,7 +260,6 @@ export interface CreatedKey extends Key {
 
 export type ProviderID = "google" | "github" | "oidc";
 
-/** A social or OIDC sign-in provider configured by env vars. */
 export interface SignInProvider {
   id: ProviderID;
   name: string;
@@ -516,7 +515,6 @@ export function inviteURL(token: string): string {
   return `${location.origin}/invite/${enc(token)}`;
 }
 
-/** Where each intent may be started: login from the sign-in page, link and reauth signed in, setup and invite with their token. */
 export type OAuthStart = { intent: "login"; next: string } | { intent: "link" | "reauth" } | { intent: "setup" | "invite"; token: string };
 
 /** A full-page navigation, not a fetch: the provider redirects back with ?error= on failure. */

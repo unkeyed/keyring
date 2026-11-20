@@ -37,7 +37,6 @@ import (
 //  6. Anyone else is turned away. Social sign-in never creates an account
 //     for a stranger.
 
-// ExternalIdentity is what a provider tells us about the person.
 type ExternalIdentity struct {
 	Provider      string
 	Subject       string
@@ -226,13 +225,12 @@ func getJSON(ctx context.Context, client *http.Client, url string, out any) erro
 	return json.NewDecoder(res.Body).Decode(out)
 }
 
-// Intents say what a completed OAuth flow does.
 const (
 	IntentLogin  = "login"
-	IntentLink   = "link"   // add the identity to the signed-in user
-	IntentReauth = "reauth" // re-verify the signed-in user's session
-	IntentSetup  = "setup"  // become the first user through a setup link
-	IntentInvite = "invite" // accept an invite
+	IntentLink   = "link"
+	IntentReauth = "reauth"
+	IntentSetup  = "setup"
+	IntentInvite = "invite"
 )
 
 type oauthState struct {
@@ -245,12 +243,11 @@ type oauthState struct {
 	Next      string `json:"next,omitempty"`
 }
 
-// OAuthStart is a request to begin an OAuth flow.
 type OAuthStart struct {
 	Provider string
 	Intent   string
-	Token    string // the setup or invite token
-	Next     string // where a login lands; same-origin paths only
+	Token    string
+	Next     string
 }
 
 // SafeNext keeps a post-login redirect on this origin.
@@ -263,8 +260,6 @@ func SafeNext(next string) string {
 
 var errNoProvider = fmt.Errorf("%w: that sign-in provider is not configured", crm.ErrNotFound)
 
-// StartOAuth returns the provider URL to redirect to and the state to set as
-// the OAuth cookie. cur is the signed-in session, or nil.
 func (u *Users) StartOAuth(ctx context.Context, s OAuthStart, cur *Current) (redirect, state string, err error) {
 	p, ok := u.providers[s.Provider]
 	if !ok {
@@ -302,7 +297,6 @@ func (u *Users) StartOAuth(ctx context.Context, s OAuthStart, cur *Current) (red
 	return redirect, state, err
 }
 
-// OAuthCallback is what the provider sent back to the callback URL.
 type OAuthCallback struct {
 	Provider    string
 	State       string
@@ -311,8 +305,6 @@ type OAuthCallback struct {
 	Error       string // the provider's error parameter, e.g. access_denied
 }
 
-// OAuthResult is where to send the browser after a callback, and the
-// sign-in it produced, if any.
 type OAuthResult struct {
 	SignIn   SignIn
 	Redirect string
@@ -403,7 +395,6 @@ const (
 	socialJoinDomain
 )
 
-// socialFacts is what the database knows about an identity's person.
 type socialFacts struct {
 	ident      ExternalIdentity
 	linkedUser int64 // the user the identity is linked to, or 0
@@ -411,7 +402,6 @@ type socialFacts struct {
 	invited    bool  // a live invite exists for the email
 }
 
-// decideSocial applies the linking rules in order.
 func decideSocial(f socialFacts, allowed []string) (socialAction, error) {
 	switch {
 	case f.linkedUser != 0:
@@ -436,7 +426,6 @@ func domainAllowed(id ExternalIdentity, allowed []string) bool {
 	return id.Provider != "google" || id.HostedDomain == domain
 }
 
-// socialUser finds or creates the user a social sign-in is for.
 func (u *Users) socialUser(ctx context.Context, ident ExternalIdentity) (int64, error) {
 	var id int64
 	err := pgx.BeginFunc(ctx, u.db, func(tx pgx.Tx) error {
@@ -481,8 +470,6 @@ func (u *Users) socialUser(ctx context.Context, ident ExternalIdentity) (int64, 
 	return id, err
 }
 
-// joinWithIdentity creates the first user through a setup link, or a
-// teammate through an invite whose email matches the identity's verified one.
 func (u *Users) joinWithIdentity(ctx context.Context, st oauthState, ident ExternalIdentity, c Client) (SignIn, error) {
 	if !ident.EmailVerified || ident.Email == "" {
 		return SignIn{}, errUnverifiedEmail

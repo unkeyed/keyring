@@ -30,8 +30,6 @@ type Passkey struct {
 	SignCount  uint32
 }
 
-// creationOptions and requestOptions are the parts of the server's
-// {publicKey: ...} options a software authenticator needs.
 type creationOptions struct {
 	PublicKey struct {
 		Challenge string `json:"challenge"`
@@ -57,8 +55,6 @@ type requestOptions struct {
 	} `json:"publicKey"`
 }
 
-// NewPasskey answers a registration ceremony's options with a new
-// credential and returns it with the credential JSON to send back.
 func NewPasskey(origin string, options []byte) (*Passkey, json.RawMessage, error) {
 	var o creationOptions
 	if err := json.Unmarshal(options, &o); err != nil {
@@ -116,7 +112,6 @@ func (p *Passkey) authData(flags byte) []byte {
 	return binary.BigEndian.AppendUint32(out, p.SignCount)
 }
 
-// Sign answers a sign-in ceremony's options.
 func (p *Passkey) Sign(options []byte) (json.RawMessage, error) {
 	var o requestOptions
 	if err := json.Unmarshal(options, &o); err != nil {
@@ -182,8 +177,6 @@ func (p *Passkey) UnmarshalJSON(data []byte) error {
 	*p = Passkey{Origin: f.Origin, RPID: f.RPID, ID: f.ID, UserHandle: f.UserHandle, Key: key, SignCount: f.SignCount}
 	return nil
 }
-
-// A minimal CBOR encoder for the attestation object and COSE key.
 
 type cborPair struct{ k, v []byte }
 

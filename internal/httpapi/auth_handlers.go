@@ -14,10 +14,6 @@ import (
 	"github.com/uncrm/uncrm/internal/crm"
 )
 
-// Sign-in routes (public) and account routes (session only). Every sign-in
-// step answers with signInResponse: either the session cookie is set, or the
-// pending cookie is set and the page asks for one of second_factors.
-
 type signInResponse struct {
 	Status        string   `json:"status"` // "signed_in" or "second_factor"
 	SecondFactors []string `json:"second_factors,omitempty"`
@@ -56,12 +52,10 @@ func cookie(r *http.Request, name string) string {
 	return ""
 }
 
-// current is the session behind a humans route.
 func (s *server) current(r *http.Request) (auth.Current, error) {
 	return s.users.Current(r.Context(), cookie(r, auth.SessionCookie))
 }
 
-// optionalCurrent is the signed-in session of a public route, or nil.
 func (s *server) optionalCurrent(r *http.Request) (*auth.Current, error) {
 	c, err := s.current(r)
 	if errors.Is(err, auth.ErrUnauthorized) {
@@ -168,7 +162,6 @@ func (s *server) secondFactorPasskeyFinish(w http.ResponseWriter, r *http.Reques
 	return s.writeSignIn(w, r, in)
 }
 
-// withError appends ?error= (or &error=) to a same-origin path.
 func withError(path string, err error) string {
 	sep := "?"
 	if strings.Contains(path, "?") {
@@ -186,8 +179,6 @@ func publicMessage(err error) string {
 	return "sign-in failed on the server; try again"
 }
 
-// oauthStart redirects to the provider. Query: intent (login, link,
-// reauth, setup, invite), token for setup and invite, next for login.
 func (s *server) oauthStart(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
 	q := r.URL.Query()
 	start := auth.OAuthStart{Provider: r.PathValue("provider"), Intent: cmp.Or(q.Get("intent"), auth.IntentLogin), Token: q.Get("token"), Next: q.Get("next")}

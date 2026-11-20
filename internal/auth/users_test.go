@@ -509,8 +509,6 @@ func TestRemoveMember(t *testing.T) {
 	}
 }
 
-// TestChangingSignInMethodsEndsOtherSessions covers every change that must
-// sign the user out elsewhere.
 func TestChangingSignInMethodsEndsOtherSessions(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

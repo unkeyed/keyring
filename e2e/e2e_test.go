@@ -203,8 +203,6 @@ var (
 	setupErr  error
 )
 
-// bootstrap signs in, creates an API key and connects Clerk with a fresh
-// secret, once per test binary.
 func bootstrap(t *testing.T) instance {
 	t.Helper()
 	setupOnce.Do(func() { setup, setupErr = connect() })
@@ -251,10 +249,6 @@ type ceremony struct {
 	Options json.RawMessage `json:"options"`
 }
 
-// signIn returns a session for the suite's own account. The first run on an
-// instance creates that account through the setup link in E2E_SETUP_TOKEN
-// with a software passkey and saves the passkey; later runs sign in with it,
-// and fall back to the setup link when the instance no longer knows it.
 func signIn() (string, error) {
 	if raw, err := os.ReadFile(passkeyFile()); err == nil {
 		var pk authtest.Passkey

@@ -21,10 +21,6 @@ const (
 	loginFailureWindow = time.Hour
 )
 
-// loginWait is how long a key must still wait before its next attempt,
-// given its free attempts, its failure count and the time since its last
-// failure. After the free attempts each failure doubles the wait, from 1s up
-// to 15 minutes. An hour without failures forgets the count.
 func loginWait(free, failures int, sinceLast time.Duration) time.Duration {
 	if sinceLast >= loginFailureWindow || failures < free {
 		return 0
@@ -38,7 +34,6 @@ func freeFor(key string) int {
 	return freeAttempts[kind]
 }
 
-// throttled returns a *ThrottledError with the longest wait among keys.
 func (u *Users) throttled(ctx context.Context, keys ...string) error {
 	rows, err := u.db.Query(ctx, `
 		SELECT key, failures, extract(epoch FROM now() - last_failed_at)::float8

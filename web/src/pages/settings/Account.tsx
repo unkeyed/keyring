@@ -23,7 +23,6 @@ import {
 import { assertPasskey, createPasskey } from "../../webauthn";
 import { SettingsHeader, SettingsSubhead } from "./Settings";
 
-/** Opens "Confirm it's you"; retry runs after a successful confirmation. */
 const Reauth = createContext<(retry?: () => void) => void>(() => {});
 
 /**
@@ -64,7 +63,6 @@ const factorNames: Record<string, string> = {
 
 const providerName = (id: string, providers: SignInProvider[]) => providers.find((p) => p.id === id)?.name ?? factorNames[id] ?? id;
 
-/** "password+totp" reads as "Password + Authenticator app". */
 const methodLabel = (method: string, providers: SignInProvider[]) =>
   method
     .split("+")
@@ -89,7 +87,6 @@ const systems: [RegExp, string][] = [
   [/Linux/, "Linux"],
 ];
 
-/** "Chrome on macOS", or the first token of an unfamiliar agent such as "curl/8.4.0". */
 export function deviceName(ua: string): string {
   const browser = browsers.find(([re]) => re.test(ua))?.[1];
   const os = systems.find(([re]) => re.test(ua))?.[1];
@@ -144,7 +141,6 @@ export function Account() {
   );
 }
 
-/** What a provider redirect left in the URL: ?linked=, ?reauth=1 or ?error=. */
 function UrlNotice({ providers }: { providers: SignInProvider[] }) {
   const [params, setParams] = useSearchParams();
   const error = params.get("error");

@@ -70,9 +70,7 @@ var (
 	ErrInvalidInvite = fmt.Errorf("invite link is invalid, expired or already used: %w", crm.ErrNotFound)
 	// ErrReauth asks the person to prove a factor again before changing how
 	// they sign in. Serve it as 403.
-	ErrReauth = errors.New("confirm it's you: sign in again within the last 15 minutes to change how you sign in")
-	// ErrPasswordLoginOff is a password route on an instance without
-	// PASSWORD_LOGIN.
+	ErrReauth           = errors.New("confirm it's you: sign in again within the last 15 minutes to change how you sign in")
 	ErrPasswordLoginOff = fmt.Errorf("%w: password sign-in is turned off on this instance", crm.ErrNotFound)
 )
 
@@ -94,8 +92,6 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// NewUsers checks cfg and builds the relying party and the configured
-// identity providers. Providers discover their endpoints on first use.
 func NewUsers(db *pgxpool.Pool, cfg Config) (*Users, error) {
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:          cfg.PublicURL.Hostname(),
@@ -243,7 +239,6 @@ func (u *Users) Invite(ctx context.Context, by crm.Actor, email string) (token s
 	return token, nil
 }
 
-// InviteEmail is the address a live invite was made for.
 func (u *Users) InviteEmail(ctx context.Context, token string) (string, error) {
 	var email string
 	err := u.db.QueryRow(ctx, `SELECT email FROM invites WHERE token_hash = $1 AND accepted_at IS NULL AND expires_at > now()`,
@@ -275,8 +270,6 @@ func claimPendingInvite(ctx context.Context, tx pgx.Tx, email string) (bool, err
 	return tag.RowsAffected() > 0, err
 }
 
-// createUser inserts a user, or returns crm.ErrConflict when the email
-// already has an account.
 func createUser(ctx context.Context, tx pgx.Tx, email, name string, handle []byte) (int64, error) {
 	var id int64
 	err := tx.QueryRow(ctx, `

@@ -29,10 +29,6 @@ export function safeNext(next: string | null): string {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/contacts";
 }
 
-/**
- * Finishes any sign-in step: into the app with a session, or to the
- * second-factor step with the factors the pending login accepts.
- */
 export function useSignIn() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();

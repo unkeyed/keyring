@@ -25,7 +25,6 @@ import (
 // Every ceremony is a begin request that stores a ceremony challenge and a
 // finish request that takes it. The purpose says what the finish may do.
 
-// Passkey is a registered passkey as the account page lists it.
 type Passkey struct {
 	ID         string     `json:"id"` // base64url credential ID
 	Name       string     `json:"name"`
@@ -36,11 +35,11 @@ type Passkey struct {
 type purpose string
 
 const (
-	purposeLogin        purpose = "login"         // discoverable sign-in
-	purposeSecondFactor purpose = "second_factor" // after a password, for UserID
-	purposeReauth       purpose = "reauth"        // re-verify UserID's session
-	purposeAdd          purpose = "add"           // register another passkey for UserID
-	purposeSignup       purpose = "signup"        // register the first passkey of a new user
+	purposeLogin        purpose = "login"
+	purposeSecondFactor purpose = "second_factor"
+	purposeReauth       purpose = "reauth"
+	purposeAdd          purpose = "add"
+	purposeSignup       purpose = "signup"
 )
 
 type ceremony struct {
@@ -50,7 +49,6 @@ type ceremony struct {
 	Signup  *newUser             `json:"signup,omitempty"`
 }
 
-// newUser is a person joining through a setup link or an invite.
 type newUser struct {
 	Via       string `json:"via"` // "setup" or "invite"
 	TokenHash []byte `json:"token_hash"`
@@ -59,7 +57,6 @@ type newUser struct {
 	Handle    []byte `json:"handle"`
 }
 
-// passkeyUser is a user as go-webauthn sees one.
 type passkeyUser struct {
 	id          int64
 	handle      []byte
@@ -79,7 +76,6 @@ func (p *passkeyUser) WebAuthnDisplayName() string {
 
 var errNoPasskeyUser = fmt.Errorf("%w: this passkey is not registered on this uncrm", crm.ErrInvalid)
 
-// loadPasskeyUser finds a user by id, or by WebAuthn handle when id is 0.
 func loadPasskeyUser(ctx context.Context, db dbtx, id int64, handle []byte) (*passkeyUser, error) {
 	p := &passkeyUser{}
 	err := db.QueryRow(ctx, `SELECT id, webauthn_handle, email, name FROM users WHERE id = $1 OR ($1 = 0 AND webauthn_handle = $2)`,
@@ -115,8 +111,6 @@ func passkeyErr(err error) error {
 
 var userVerified = webauthn.WithUserVerification(protocol.VerificationRequired)
 
-// beginAssertion starts a sign-in ceremony: discoverable when user is nil,
-// limited to user's passkeys otherwise.
 func (u *Users) beginAssertion(ctx context.Context, c ceremony, user *passkeyUser) (string, *protocol.CredentialAssertion, error) {
 	var opts *protocol.CredentialAssertion
 	var sd *webauthn.SessionData
@@ -134,8 +128,6 @@ func (u *Users) beginAssertion(ctx context.Context, c ceremony, user *passkeyUse
 	return handle, opts, err
 }
 
-// finishAssertion verifies a sign-in ceremony begun for want and returns
-// the user it proved, after storing the passkey's new sign count.
 func (u *Users) finishAssertion(ctx context.Context, want purpose, handle string, credential json.RawMessage) (ceremony, *passkeyUser, error) {
 	var c ceremony
 	if err := takeChallenge(ctx, u.db, kindPasskey, handle, &c); err != nil {
@@ -180,13 +172,10 @@ func (u *Users) finishAssertion(ctx context.Context, want purpose, handle string
 	return c, user, nil
 }
 
-// BeginPasskeyLogin starts a usernameless sign-in.
 func (u *Users) BeginPasskeyLogin(ctx context.Context) (string, *protocol.CredentialAssertion, error) {
 	return u.beginAssertion(ctx, ceremony{Purpose: purposeLogin}, nil)
 }
 
-// FinishPasskeyLogin signs in whoever owns the passkey. No second factor
-// follows: the authenticator verified its user.
 func (u *Users) FinishPasskeyLogin(ctx context.Context, handle string, credential json.RawMessage, c Client) (SignIn, error) {
 	_, user, err := u.finishAssertion(ctx, purposeLogin, handle, credential)
 	if err != nil {
@@ -195,7 +184,6 @@ func (u *Users) FinishPasskeyLogin(ctx context.Context, handle string, credentia
 	return u.signIn(ctx, user.id, MethodPasskey, c)
 }
 
-// BeginSecondFactorPasskey starts a passkey check for the pending login.
 func (u *Users) BeginSecondFactorPasskey(ctx context.Context, pending string) (string, *protocol.CredentialAssertion, error) {
 	var p pendingLogin
 	if err := peekChallenge(ctx, u.db, kindSecondFactor, pending, &p); err != nil {
@@ -208,7 +196,6 @@ func (u *Users) BeginSecondFactorPasskey(ctx context.Context, pending string) (s
 	return u.beginAssertion(ctx, ceremony{Purpose: purposeSecondFactor, UserID: p.UserID}, user)
 }
 
-// FinishSecondFactorPasskey completes the pending login with a passkey.
 func (u *Users) FinishSecondFactorPasskey(ctx context.Context, pending, handle string, credential json.RawMessage, c Client) (SignIn, error) {
 	var p pendingLogin
 	if err := peekChallenge(ctx, u.db, kindSecondFactor, pending, &p); err != nil {
@@ -224,7 +211,6 @@ func (u *Users) FinishSecondFactorPasskey(ctx context.Context, pending, handle s
 	return u.completePending(ctx, pending, p, MethodPasskey, c)
 }
 
-// BeginReauthPasskey starts re-verifying the current session.
 func (u *Users) BeginReauthPasskey(ctx context.Context, cur Current) (string, *protocol.CredentialAssertion, error) {
 	user, err := loadPasskeyUser(ctx, u.db, cur.UserID, nil)
 	if err != nil {
@@ -301,7 +287,6 @@ func insertPasskey(ctx context.Context, tx pgx.Tx, userID int64, name string, cr
 	return p, err
 }
 
-// BeginAddPasskey starts registering another passkey for the current user.
 func (u *Users) BeginAddPasskey(ctx context.Context, cur Current) (string, *protocol.CredentialCreation, error) {
 	if !cur.Recent {
 		return "", nil, ErrReauth
@@ -332,8 +317,6 @@ func (u *Users) FinishAddPasskey(ctx context.Context, cur Current, handle string
 	return p, err
 }
 
-// Signup is a person joining with a passkey: through a setup link, giving
-// their email and name, or through an invite, which fixes the email.
 type Signup struct {
 	SetupToken  string `json:"setup_token"`
 	InviteToken string `json:"invite_token"`
@@ -366,9 +349,6 @@ func (u *Users) BeginPasskeySignup(ctx context.Context, s Signup) (string, *prot
 	return u.beginRegistration(ctx, ceremony{Purpose: purposeSignup, Signup: &n}, user)
 }
 
-// FinishPasskeySignup creates the user with their first passkey and signs
-// them in. Using up the setup link or invite, creating the user and storing
-// the passkey commit together.
 func (u *Users) FinishPasskeySignup(ctx context.Context, handle string, credential json.RawMessage, c Client) (SignIn, error) {
 	cer, cred, err := u.finishRegistration(ctx, purposeSignup, handle, credential)
 	if err != nil {

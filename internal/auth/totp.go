@@ -40,8 +40,6 @@ var (
 
 var totpOpts = totp.ValidateOpts{Period: totpPeriod, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1}
 
-// totpStep returns the time step that code matches for secret around now,
-// or 0.
 func totpStep(secret, code string, now time.Time) int64 {
 	step := now.Unix() / totpPeriod
 	for _, s := range []int64{step + 1, step, step - 1} {
@@ -53,13 +51,11 @@ func totpStep(secret, code string, now time.Time) int64 {
 	return 0
 }
 
-// TOTPEnrolment is an authenticator app waiting for its first code.
 type TOTPEnrolment struct {
 	Handle string `json:"handle"`
 	Secret string `json:"secret"`
 	URI    string `json:"uri"`
-	// QR is the URI as a PNG data URL.
-	QR string `json:"qr"`
+	QR     string `json:"qr"`
 }
 
 type totpEnrolment struct {
@@ -145,7 +141,6 @@ func (u *Users) FinishTOTP(ctx context.Context, cur Current, handle, code string
 	return codes, err
 }
 
-// errOr returns err, or fallback when err is nil.
 func errOr(err, fallback error) error {
 	if err != nil {
 		return err
@@ -153,7 +148,6 @@ func errOr(err, fallback error) error {
 	return fallback
 }
 
-// DisableTOTP removes the authenticator app and its recovery codes.
 func (u *Users) DisableTOTP(ctx context.Context, cur Current) error {
 	return u.changeMethods(ctx, cur, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `DELETE FROM totp WHERE user_id = $1`, cur.UserID)
@@ -168,7 +162,6 @@ func (u *Users) DisableTOTP(ctx context.Context, cur Current) error {
 	})
 }
 
-// RegenerateRecoveryCodes replaces the user's recovery codes.
 func (u *Users) RegenerateRecoveryCodes(ctx context.Context, cur Current) ([]string, error) {
 	if !cur.Recent {
 		return nil, ErrReauth
@@ -226,9 +219,6 @@ func replaceRecoveryCodes(ctx context.Context, tx pgx.Tx, userID int64) ([]strin
 	return codes, err
 }
 
-// useCode accepts an authenticator code or a recovery code for userID and
-// returns which it was. Both work once. Failures count against the user and
-// the client's IP.
 func (u *Users) useCode(ctx context.Context, userID int64, code string, c Client) (string, error) {
 	keys := []string{fmt.Sprintf("user:%d", userID), c.ipKey()}
 	if err := u.throttled(ctx, keys...); err != nil {

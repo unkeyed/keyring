@@ -80,7 +80,6 @@ func loadConfig() (config, error) {
 	return c, err
 }
 
-// loadAuthConfig reads how people sign in.
 func loadAuthConfig(port string) (auth.Config, error) {
 	var c auth.Config
 	raw := cmp.Or(os.Getenv("PUBLIC_URL"), "http://localhost:"+port)

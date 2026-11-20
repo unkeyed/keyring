@@ -12,7 +12,6 @@ import (
 	"github.com/uncrm/uncrm/internal/crm"
 )
 
-// dbtx is a pool or a transaction.
 type dbtx interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)

@@ -7,13 +7,11 @@ import (
 	"github.com/uncrm/uncrm/internal/crm"
 )
 
-// pendingLogin is a login whose first factor passed and whose second has not.
 type pendingLogin struct {
 	UserID int64  `json:"user_id"`
 	First  string `json:"first"`
 }
 
-// factors is which second factors a user has.
 type factors struct {
 	totp, passkey bool
 }
@@ -29,10 +27,6 @@ func (u *Users) factorsOf(ctx context.Context, userID int64) (factors, error) {
 var errNoSecondFactor = fmt.Errorf("%w: a password needs a second factor, and this account has none. "+
 	"Sign in with a passkey or a connected login, then add an authenticator app under Settings, Account", crm.ErrInvalid)
 
-// secondFactors decides what must follow a first factor. A passkey needs
-// nothing. A social identity needs an authenticator code only when the user
-// enrolled an app. A password always needs a code or a passkey, so a user
-// with neither cannot sign in with one.
 func secondFactors(first string, f factors) ([]string, error) {
 	var need []string
 	if f.totp {
@@ -52,8 +46,6 @@ func secondFactors(first string, f factors) ([]string, error) {
 	return need, nil
 }
 
-// afterFirstFactor opens a session, or a pending login when the user owes a
-// second factor.
 func (u *Users) afterFirstFactor(ctx context.Context, userID int64, first string, c Client) (SignIn, error) {
 	f, err := u.factorsOf(ctx, userID)
 	if err != nil {
@@ -73,7 +65,6 @@ func (u *Users) afterFirstFactor(ctx context.Context, userID int64, first string
 	return SignIn{Pending: handle, SecondFactors: need}, nil
 }
 
-// PendingFactors is what the pending login behind handle accepts.
 func (u *Users) PendingFactors(ctx context.Context, handle string) ([]string, error) {
 	var p pendingLogin
 	if err := peekChallenge(ctx, u.db, kindSecondFactor, handle, &p); err != nil {
@@ -112,8 +103,6 @@ func (u *Users) completePending(ctx context.Context, handle string, p pendingLog
 	return u.signIn(ctx, p.UserID, joinMethods(p.First, second), c)
 }
 
-// ReauthCode re-verifies the current session with an authenticator or
-// recovery code.
 func (u *Users) ReauthCode(ctx context.Context, cur Current, code string, c Client) error {
 	if _, err := u.useCode(ctx, cur.UserID, code, c); err != nil {
 		return err
@@ -121,7 +110,6 @@ func (u *Users) ReauthCode(ctx context.Context, cur Current, code string, c Clie
 	return u.reauthenticated(ctx, cur)
 }
 
-// Options describes the sign-in page.
 func (u *Users) Options(ctx context.Context) (Options, error) {
 	open, err := u.SetupOpen(ctx)
 	return Options{Providers: u.providerInfo(), PasswordLogin: u.cfg.PasswordLogin, SetupRequired: open}, err

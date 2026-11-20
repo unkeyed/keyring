@@ -18,12 +18,10 @@ import (
 // claims the existing account with their email. That closes setup and
 // deletes every token.
 
-// MinSetupTokenLen is the shortest SETUP_TOKEN main accepts.
 const MinSetupTokenLen = 32
 
 var errSetupClosed = fmt.Errorf("%w: this setup link is invalid, or setup is already done; sign in instead", crm.ErrNotFound)
 
-// SetupOpen reports whether nobody can sign in yet.
 func (u *Users) SetupOpen(ctx context.Context) (bool, error) {
 	return setupOpen(ctx, u.db)
 }
@@ -35,8 +33,6 @@ func setupOpen(ctx context.Context, db dbtx) (bool, error) {
 	return open, err
 }
 
-// PrepareSetup returns a setup token to log, or "" when setup is closed.
-// fixed, from SETUP_TOKEN, is used instead of a random token when set.
 func (u *Users) PrepareSetup(ctx context.Context, fixed string) (string, error) {
 	token := fixed
 	if token == "" {
@@ -61,12 +57,10 @@ func (u *Users) PrepareSetup(ctx context.Context, fixed string) (string, error) 
 	return token, err
 }
 
-// SetupURL is the link that opens the setup page for token.
 func (u *Users) SetupURL(token string) string {
 	return u.cfg.PublicURL.JoinPath("setup", token).String()
 }
 
-// CheckSetupToken reports errSetupClosed unless token can still set up.
 func (u *Users) CheckSetupToken(ctx context.Context, token string) error {
 	return checkSetup(ctx, u.db, hashToken(token))
 }

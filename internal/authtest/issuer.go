@@ -15,7 +15,6 @@ import (
 	"time"
 )
 
-// Identity is who the fake issuer signs in next.
 type Identity struct {
 	Subject       string
 	Email         string
@@ -24,7 +23,6 @@ type Identity struct {
 	HostedDomain  string // hd, as Google sends for Workspace accounts
 }
 
-// GitHubUser is who the fake GitHub signs in next.
 type GitHubUser struct {
 	ID     int64
 	Login  string
@@ -81,14 +79,12 @@ func NewIssuer() *Issuer {
 	return iss
 }
 
-// SetNext sets who the next OIDC authorization signs in.
 func (iss *Issuer) SetNext(id Identity) {
 	iss.mu.Lock()
 	defer iss.mu.Unlock()
 	iss.Next = id
 }
 
-// SetNextGitHub sets who the next GitHub authorization signs in.
 func (iss *Issuer) SetNextGitHub(u GitHubUser) {
 	iss.mu.Lock()
 	defer iss.mu.Unlock()
@@ -228,8 +224,6 @@ func randomBytes(n int) []byte {
 	return b
 }
 
-// Follow requests a provider authorize URL without following the redirect
-// back, and returns the callback URL the provider sent the browser to.
 func Follow(authorizeURL string) (*url.URL, error) {
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Get(authorizeURL)

@@ -11,13 +11,6 @@ import (
 	"github.com/uncrm/uncrm/internal/crm"
 )
 
-// A sign-in method is a way to get a session: a passkey, a linked identity
-// at a configured provider, or a password together with an authenticator
-// app when password sign-in is on. Every change to them runs through
-// changeMethods: it needs a recent sign-in, refuses to leave the user with
-// no method, and ends the user's other sessions.
-
-// LinkedIdentity is a provider login linked to the user.
 type LinkedIdentity struct {
 	Provider   string     `json:"provider"`
 	Email      string     `json:"email"`
@@ -25,7 +18,6 @@ type LinkedIdentity struct {
 	LastUsedAt *time.Time `json:"last_used_at"`
 }
 
-// Account is everything the account page shows about how a person signs in.
 type Account struct {
 	User              User             `json:"user"`
 	Passkeys          []Passkey        `json:"passkeys"`
@@ -33,10 +25,8 @@ type Account struct {
 	TOTP              bool             `json:"totp"`
 	RecoveryCodesLeft int              `json:"recovery_codes_left"`
 	Password          bool             `json:"password"`
-	// Recent is whether the session may change sign-in methods without
-	// re-verifying first.
-	Recent   bool      `json:"recent"`
-	Sessions []Session `json:"sessions"`
+	Recent            bool             `json:"recent"`
+	Sessions          []Session        `json:"sessions"`
 }
 
 func (u *Users) Account(ctx context.Context, cur Current) (Account, error) {
@@ -161,7 +151,6 @@ func (u *Users) RemovePassword(ctx context.Context, cur Current) error {
 	})
 }
 
-// oneRow turns a write that touched no row into missing.
 func oneRow(tag pgconn.CommandTag, err error, missing error) error {
 	if err == nil && tag.RowsAffected() == 0 {
 		return missing

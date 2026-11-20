@@ -15,7 +15,6 @@ import (
 
 const (
 	SessionCookie = "uncrm_session"
-	// PendingCookie holds the handle of a login waiting for its second factor.
 	PendingCookie = "uncrm_pending"
 	// OAuthCookie binds an OAuth redirect to the browser that started it.
 	OAuthCookie = "uncrm_oauth"
@@ -24,12 +23,9 @@ const (
 	// instead of the challenge row.
 	OAuthBackCookie = "uncrm_oauth_back"
 
-	// recentAuth is how long after proving a factor a session may change
-	// how its user signs in.
 	recentAuth = 15 * time.Minute
 )
 
-// Factor names, joined with "+" into a session's method, e.g. "password+totp".
 const (
 	MethodPasskey  = "passkey"
 	MethodPassword = "password"
@@ -47,7 +43,6 @@ type SignIn struct {
 	SecondFactors []string
 }
 
-// Session is one signed-in browser, as the account page lists it.
 type Session struct {
 	ID         int64     `json:"id"`
 	Method     string    `json:"method"`
@@ -57,7 +52,6 @@ type Session struct {
 	Current    bool      `json:"current"`
 }
 
-// Current is the session making a request.
 type Current struct {
 	UserID    int64
 	SessionID int64
@@ -114,7 +108,6 @@ func (u *Users) Session(ctx context.Context, cookie string) (crm.Actor, error) {
 	return userActor(id, email, name), nil
 }
 
-// Current resolves the session behind cookie, or ErrUnauthorized.
 func (u *Users) Current(ctx context.Context, cookie string) (Current, error) {
 	var c Current
 	err := u.db.QueryRow(ctx, `
@@ -144,7 +137,6 @@ func (u *Users) Logout(ctx context.Context, cookie string) error {
 	return err
 }
 
-// Sessions lists the user's sessions, most recently seen first.
 func (u *Users) Sessions(ctx context.Context, cur Current) ([]Session, error) {
 	rows, err := u.db.Query(ctx, `
 		SELECT id, method, user_agent, created_at, last_seen_at, id = $2
@@ -156,7 +148,6 @@ func (u *Users) Sessions(ctx context.Context, cur Current) ([]Session, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Session])
 }
 
-// RevokeSession ends one of the user's own sessions.
 func (u *Users) RevokeSession(ctx context.Context, cur Current, id int64) error {
 	tag, err := u.db.Exec(ctx, `DELETE FROM sessions WHERE id = $1 AND user_id = $2`, id, cur.UserID)
 	if err != nil {
@@ -168,14 +159,11 @@ func (u *Users) RevokeSession(ctx context.Context, cur Current, id int64) error 
 	return nil
 }
 
-// revokeOthers ends every session of the user except the current one. Run
-// after any change to how the user signs in.
 func revokeOthers(ctx context.Context, tx pgx.Tx, cur Current) error {
 	_, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1 AND id <> $2`, cur.UserID, cur.SessionID)
 	return err
 }
 
-// reauthenticated marks the current session as having just proved a factor.
 func (u *Users) reauthenticated(ctx context.Context, cur Current) error {
 	_, err := u.db.Exec(ctx, `UPDATE sessions SET authenticated_at = now() WHERE id = $1`, cur.SessionID)
 	return err
@@ -192,8 +180,6 @@ func (u *Users) setCookie(w http.ResponseWriter, name, value, path string, maxAg
 	})
 }
 
-// SetSessionCookie writes a session cookie: HttpOnly, SameSite=Lax, Secure
-// when PUBLIC_URL is https.
 func (u *Users) SetSessionCookie(w http.ResponseWriter, value string) {
 	u.setCookie(w, SessionCookie, value, "/", cookieMaxAge)
 }

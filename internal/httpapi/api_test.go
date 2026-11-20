@@ -29,8 +29,7 @@ const (
 )
 
 // client calls a test server as a person (session cookie) or an agent
-// (API key), or anonymously when both are empty. pending carries a login
-// waiting for its second factor.
+// (API key), or anonymously when both are empty.
 type client struct {
 	t          *testing.T
 	base       string
@@ -172,8 +171,6 @@ type ceremony struct {
 	Options json.RawMessage `json:"options"`
 }
 
-// signup registers a passkey through POST /auth/signup/passkey/* and
-// returns c signed in as the new user.
 func (c client) signup(body map[string]string) client {
 	c.t.Helper()
 	var begun ceremony
@@ -194,7 +191,6 @@ func (c client) signup(body map[string]string) client {
 	return c
 }
 
-// passkeyLogin signs in with pk through POST /auth/passkey/*.
 func (c client) passkeyLogin(pk *authtest.Passkey) client {
 	c.t.Helper()
 	var begun ceremony
@@ -208,8 +204,6 @@ func (c client) passkeyLogin(pk *authtest.Passkey) client {
 	return c
 }
 
-// login returns c as the first user, created through the setup link with a
-// passkey, and an agent holding a fresh key.
 func login(t *testing.T, c client) (person, agent client) {
 	t.Helper()
 	person = c.signup(map[string]string{"setup_token": c.setupToken, "email": adminEmail})

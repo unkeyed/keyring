@@ -8,14 +8,11 @@ import (
 	"strings"
 )
 
-// Config is how people sign in, parsed from the environment by main.
 type Config struct {
 	// PublicURL is where people open uncrm. Its host is the WebAuthn relying
 	// party ID, its origin the only accepted WebAuthn origin, and OAuth
 	// callbacks live under it. Session cookies are Secure when it is https.
-	PublicURL *url.URL
-	// PasswordLogin lets people set a password. A password sign-in always
-	// needs a second factor.
+	PublicURL     *url.URL
 	PasswordLogin bool
 	// AllowedEmailDomains lets anyone with a provider-verified address at one
 	// of these domains join by social sign-in without an invite. Lower case.
@@ -26,20 +23,17 @@ type Config struct {
 	Providers      []ProviderConfig
 }
 
-// ProviderConfig is one social or OIDC sign-in provider.
 type ProviderConfig struct {
 	ID           string // "google", "github" or "oidc": the URL path segment and identity namespace
-	Name         string // shown on the sign-in button
+	Name         string
 	ClientID     string
 	ClientSecret string
-	// Issuer is the OIDC issuer URL; Google's is fixed, GitHub has none.
-	Issuer string
+	Issuer       string
 	// GitHubURL and GitHubAPIURL default to github.com; tests point them at
 	// a fake.
 	GitHubURL, GitHubAPIURL string
 }
 
-// Client is what a sign-in records about the browser making it.
 type Client struct {
 	// IP is the throttling key for the address: the address itself for
 	// IPv4, its /64 for IPv6, where one host usually owns the whole prefix.
@@ -79,14 +73,12 @@ func (u *Users) ClientOf(r *http.Request) Client {
 	return Client{IP: ip, UserAgent: ua}
 }
 
-// ProviderInfo is a configured provider as the sign-in page shows it.
 type ProviderInfo struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	CallbackURL string `json:"callback_url"`
 }
 
-// Options is what the sign-in page needs before anyone is signed in.
 type Options struct {
 	Providers     []ProviderInfo `json:"providers"`
 	PasswordLogin bool           `json:"password_login"`

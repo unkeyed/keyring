@@ -20,7 +20,6 @@ function toB64url(buf: ArrayBuffer): string {
 const descriptors = (list: PublicKeyCredentialDescriptorJSON[] | undefined): PublicKeyCredentialDescriptor[] | undefined =>
   list?.map((d) => ({ type: "public-key", id: fromB64url(d.id), transports: d.transports as AuthenticatorTransport[] | undefined }));
 
-/** Turns the browser's DOMExceptions into sentences a person can act on. */
 async function ceremony(run: () => Promise<Credential | null>): Promise<PublicKeyCredential> {
   if (!window.PublicKeyCredential) throw new Error("This browser does not support passkeys.");
   try {
@@ -34,7 +33,6 @@ async function ceremony(run: () => Promise<Credential | null>): Promise<PublicKe
   }
 }
 
-/** Proves a passkey: navigator.credentials.get, then the body for the matching finish route. */
 export async function assertPasskey(start: AssertionStart): Promise<CeremonyFinish> {
   const o = start.options.publicKey;
   const cred = await ceremony(() =>
@@ -61,7 +59,6 @@ export async function assertPasskey(start: AssertionStart): Promise<CeremonyFini
   };
 }
 
-/** Creates a passkey: navigator.credentials.create, then the body for the matching finish route. */
 export async function createPasskey(start: RegistrationStart, name?: string): Promise<CeremonyFinish> {
   const o = start.options.publicKey;
   const cred = await ceremony(() =>

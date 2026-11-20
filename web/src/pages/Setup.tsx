@@ -10,7 +10,6 @@ import { AuthShell, OrDivider, ProviderButtons, useSignIn } from "./Login";
 
 const used = (err: unknown) => err instanceof ApiError && err.status === 404;
 
-/** The one-time link the server log prints while nobody can sign in. */
 export function Setup() {
   const { token = "" } = useParams();
   const check = useQuery({

@@ -41,7 +41,6 @@ func newFixture(t *testing.T, mod ...func(*Config)) *fixture {
 	return &fixture{t: t, ctx: context.Background(), pool: pool, users: users, cfg: cfg}
 }
 
-// replica is a second server on the same database.
 func (f *fixture) replica() *Users {
 	f.t.Helper()
 	u, err := NewUsers(f.pool, f.cfg)
@@ -67,8 +66,6 @@ func optionsJSON(t *testing.T, v any) []byte {
 	return b
 }
 
-// signup registers a passkey through a setup link or an invite and returns
-// it with the new session's cookie.
 func (f *fixture) signup(s Signup) (*authtest.Passkey, string, error) {
 	f.t.Helper()
 	handle, opts, err := f.users.BeginPasskeySignup(f.ctx, s)
@@ -83,7 +80,6 @@ func (f *fixture) signup(s Signup) (*authtest.Passkey, string, error) {
 	return pk, in.Session, err
 }
 
-// firstUser runs setup with a passkey.
 func (f *fixture) firstUser(email string) (*authtest.Passkey, string) {
 	f.t.Helper()
 	token, err := f.users.PrepareSetup(f.ctx, "")
@@ -93,7 +89,6 @@ func (f *fixture) firstUser(email string) (*authtest.Passkey, string) {
 	return pk, cookie
 }
 
-// teammate invites email and accepts with a passkey.
 func (f *fixture) teammate(inviterCookie, email string) (*authtest.Passkey, string) {
 	f.t.Helper()
 	token, err := f.users.Invite(f.ctx, f.actor(inviterCookie), email)
@@ -141,8 +136,6 @@ func code(t *testing.T, secret string, at time.Time) string {
 	return c
 }
 
-// enrolTOTP sets up an authenticator app with a code for the current step
-// and returns its secret and recovery codes.
 func (f *fixture) enrolTOTP(cookie string) (string, []string) {
 	f.t.Helper()
 	cur := f.current(cookie)
@@ -166,7 +159,6 @@ func (f *fixture) exec(sql string, args ...any) {
 	f.must(err)
 }
 
-// oauth runs a provider flow end to end against a fake issuer.
 func (f *fixture) oauth(provider, intent, token string, cur *Current) (OAuthResult, error) {
 	f.t.Helper()
 	to, state, err := f.users.StartOAuth(f.ctx, OAuthStart{Provider: provider, Intent: intent, Token: token, Next: "/contacts"}, cur)
