@@ -25,8 +25,12 @@ function add(i, l, r, send = 0) {
 const panGains = (p) => [Math.cos((p + 1) * Math.PI / 4), Math.sin((p + 1) * Math.PI / 4)];
 
 // Arrangement, in seconds, matched to the video's scenes.
-const BPM = 96, BEAT = 60 / BPM, BAR = BEAT * 4;
-const ARP_IN = 4.4, DRUMS_IN = 10.0, RIM_IN = 18.8, RISER_AT = 38.4, END_AT = 40.2, FADE_FROM = 44.5;
+const BPM = 120, BEAT = 60 / BPM, BAR = BEAT * 4;
+// KICK_IN: four-on-the-floor starts with the headline. DRUMS_IN: claps,
+// hats and the full groove arrive with the sign-up feed.
+const ARP_IN = 2.0, KICK_IN = 4.5, DRUMS_IN = 10.0, RIM_IN = 18.8, RISER_AT = 38.2, END_AT = 40.2, FADE_FROM = 44.5;
+// Sidechain pump: pads and bass duck after every kick while it plays.
+const pump = (t) => (t < KICK_IN || t >= RISER_AT ? 1 : 1 - 0.5 * Math.exp(-(((t - KICK_IN) % BEAT + BEAT) % BEAT) / 0.1));
 // Section gain: everything rides under this, then fades at the end.
 const master = (t) => clamp(t / 1.5, 0, 1) * (t > FADE_FROM ? Math.pow(clamp(1 - (t - FADE_FROM) / (DURATION - FADE_FROM), 0, 1), 1.6) : 1);
 
@@ -55,7 +59,7 @@ function pad(start, len, notes, gain, cutoff = 1400) {
         ph += f / SR; ph -= Math.floor(ph);
         const x = 2 * ph - 1;
         y1 += a * (x - y1); y2 += a * (y1 - y2);
-        const v = y2 * env * gain / notes.length;
+        const v = y2 * env * gain * pump(i / SR) / notes.length;
         add(i, v * gl, v * gr, 0.55);
       }
     }
@@ -74,15 +78,49 @@ function pluck(t0, f, gain, pan, decay = 0.35, send = 0.45) {
   }
 }
 
-// Sub bass: a sine on the chord root.
-function sub(start, len, n, gain) {
+// Bass: a short plucky saw-and-sine note, filtered, ducked by the kick.
+function bass(t0, n, len, gain) {
   const f = midi(n - 12);
-  const s0 = Math.floor(start * SR), s1 = Math.floor((start + len) * SR);
+  const s0 = Math.floor(t0 * SR), s1 = Math.floor((t0 + len) * SR);
+  let ph = 0, y1 = 0, y2 = 0;
   for (let i = s0; i < s1 && i < N; i++) {
     const t = (i - s0) / SR;
-    const env = Math.min(1, t / 0.08) * Math.min(1, (len - t) / 0.25);
-    const v = Math.sin(TAU * f * t) * env * gain;
-    add(i, v, v, 0.05);
+    const fc = 220 + 1300 * Math.exp(-t / 0.06);
+    const a = 1 - Math.exp(-TAU * fc / SR);
+    ph += f / SR; ph -= Math.floor(ph);
+    y1 += a * ((2 * ph - 1) - y1); y2 += a * (y1 - y2);
+    const env = Math.min(1, t / 0.004) * Math.min(1, (len - t) / 0.02);
+    const v = (y2 * 0.7 + Math.sin(TAU * ph) * 0.6) * env * gain * pump(i / SR);
+    add(i, v, v, 0.03);
+  }
+}
+
+// Clap: three quick band-passed noise bursts and a short tail.
+function clap(t0, gain) {
+  const s0 = Math.floor(t0 * SR);
+  let low = 0, band = 0;
+  const fq = 2 * Math.sin(Math.PI * 1300 / SR);
+  for (let k = 0; k < 0.25 * SR; k++) {
+    const t = k / SR;
+    const burst = [0, 0.011, 0.022].reduce((m, o) => m + (t >= o ? Math.exp(-(t - o) / 0.004) : 0), 0);
+    const env = Math.min(1.2, burst) + 0.6 * Math.exp(-t / 0.06) * (t > 0.022 ? 1 : 0);
+    const inp = rand();
+    low += fq * band; const high = inp - low - 0.6 * band; band += fq * high;
+    const v = band * env * gain;
+    add(s0 + k, v * 0.95, v, 0.3);
+  }
+}
+
+// Open hat: longer high-passed noise on the offbeat.
+function openHat(t0, gain, pan) {
+  const [gl, gr] = panGains(pan);
+  const s0 = Math.floor(t0 * SR);
+  let prev = 0, prev2 = 0;
+  for (let k = 0; k < 0.2 * SR; k++) {
+    const t = k / SR;
+    const n = rand(); const hp = n - 2 * prev + prev2; prev2 = prev; prev = n;
+    const v = hp * Math.exp(-t / 0.055) * gain;
+    add(s0 + k, v * gl, v * gr, 0.2);
   }
 }
 
@@ -181,31 +219,42 @@ function riser(t0, len, gain) {
 
 // --- Arrangement ---
 
-// Pads across the whole video.
+// Pads across the whole video, opening up as the sections build.
 for (let b = 0; b * BAR * 2 < END_AT - 0.5; b++) {
   const t = b * BAR * 2;
-  pad(t, BAR * 2, chordAt(t), 0.16, t < DRUMS_IN ? 1100 : 1700);
+  pad(t, BAR * 2, chordAt(t), 0.15, t < KICK_IN ? 1200 : t < DRUMS_IN ? 1800 : 2600);
 }
-// Arp from the headline: eighth notes over the chord, two octaves up.
-for (let t = ARP_IN, i = 0; t < END_AT - 0.05; t += BEAT / 2, i++) {
+// Sixteenth-note arp, two octaves up, its level rising into the feed.
+for (let t = ARP_IN, i = 0; t < END_AT - 0.05; t += BEAT / 2 / 2, i++) {
   const c = chordAt(t);
-  const n = c[[0, 2, 4, 3, 1, 3, 4, 2][i % 8]] + 24;
-  const g = t < DRUMS_IN ? 0.05 + 0.03 * clamp((t - ARP_IN) / 3, 0, 1) : 0.075;
-  pluck(t, midi(n), g, i % 2 ? 0.45 : -0.45, 0.28);
+  const n = c[[0, 2, 4, 2, 3, 1, 4, 3][i % 8]] + 24;
+  const g = t < KICK_IN ? 0.02 + 0.025 * clamp((t - ARP_IN) / 2.5, 0, 1) : t < DRUMS_IN ? 0.05 : 0.06;
+  pluck(t, midi(n), g * (i % 4 === 0 ? 1.25 : 1), i % 2 ? 0.5 : -0.5, 0.16);
 }
-// Bass and drums from the feed.
-for (let t = DRUMS_IN; t < END_AT - 0.05; t += BAR * 2) sub(t, Math.min(BAR * 2, END_AT - t) - 0.05, chordAt(t)[0], 0.12);
-for (let t = DRUMS_IN, i = 0; t < RISER_AT; t += BEAT, i++) {
-  if (i % 2 === 0) kick(t, 0.3);
-  if (t >= RIM_IN && i % 2 === 1) rim(t, 0.07);
-  hat(t + BEAT / 2, 0.05, 0.3);
-  if (t >= RIM_IN) hat(t + BEAT / 4 * 3, 0.025, -0.3);
+// Offbeat bass from the kick: root, root, octave, root on the "and"s.
+for (let t = KICK_IN, i = 0; t < RISER_AT - 0.05; t += BEAT, i++) {
+  const root = chordAt(t)[0];
+  bass(t + BEAT / 2, [root, root, root + 12, root][i % 4], BEAT / 2 - 0.02, t < DRUMS_IN ? 0.12 : 0.16);
+}
+// Drums: four on the floor from the headline; claps, open hats and
+// sixteenth hats from the feed; a rim click from the providers.
+for (let t = KICK_IN, i = 0; t < RISER_AT - 0.01; t += BEAT, i++) {
+  kick(t, 0.34);
+  if (t >= DRUMS_IN) {
+    if (i % 2 === 1) clap(t, 0.22);
+    openHat(t + BEAT / 2, 0.06, 0.25);
+    hat(t + BEAT / 4, 0.03, -0.3);
+    hat(t + (BEAT * 3) / 4, 0.03, -0.3);
+    if (t >= RIM_IN && i % 4 === 3) rim(t + (BEAT * 3) / 4, 0.06);
+  } else {
+    hat(t + BEAT / 2, 0.035, 0.25);
+  }
 }
 riser(RISER_AT - 0.2, END_AT - RISER_AT + 0.2, 0.09);
 // End card: kick, a wide Cmaj9 and a bell.
 kick(END_AT, 0.5);
 pad(END_AT, DURATION - END_AT - 2.2, [36, 48, 52, 55, 59, 62, 67], 0.26, 2200);
-sub(END_AT, 5.5, 48, 0.18);
+bass(END_AT, 48, 2.5, 0.14);
 bell(END_AT + 0.05, midi(76), 0.12, 0, 2.2);
 bell(END_AT + 0.4, midi(79), 0.07, 0.4, 2.0);
 
