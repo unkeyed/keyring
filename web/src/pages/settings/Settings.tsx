@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate, NavLink, Outlet, type RouteObject } from "react-router";
 import { cx, PageHeader } from "../../ui";
+import { Account } from "./Account";
 import { Agents } from "./Agents";
 import { ApiKeys } from "./ApiKeys";
 import { Enrichment } from "./Enrichment";
@@ -9,6 +10,7 @@ import { Stages } from "./Stages";
 import { Team } from "./Team";
 
 const tabs: { path: string; label: string; element: ReactNode }[] = [
+  { path: "account", label: "Account", element: <Account /> },
   { path: "providers", label: "Providers", element: <Providers /> },
   { path: "keys", label: "API keys", element: <ApiKeys /> },
   { path: "agents", label: "Agents & MCP", element: <Agents /> },
@@ -18,7 +20,7 @@ const tabs: { path: string; label: string; element: ReactNode }[] = [
 ];
 
 export const settingsRoutes: RouteObject[] = [
-  { index: true, element: <Navigate to="providers" replace /> },
+  { index: true, element: <Navigate to={tabs[0].path} replace /> },
   ...tabs.map((t) => ({ path: t.path, element: t.element })),
 ];
 

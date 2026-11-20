@@ -245,7 +245,7 @@ export interface Key {
   last_used_at?: Timestamp;
 }
 
-/** A person who can log into the UI. */
+/** A person who can sign into the UI. */
 export interface User {
   id: number;
   email: Email;
@@ -258,19 +258,106 @@ export interface CreatedKey extends Key {
   key: string;
 }
 
+export type ProviderID = "google" | "github" | "oidc";
+
+/** A social or OIDC sign-in provider configured by env vars. */
+export interface SignInProvider {
+  id: ProviderID;
+  name: string;
+  /** The redirect URI to register at the provider. */
+  callback_url: string;
+}
+
+export interface AuthOptions {
+  providers: SignInProvider[];
+  password_login: boolean;
+  /** True while nobody can sign in; the server log prints a one-time setup link. */
+  setup_required: boolean;
+}
+
+export type SecondFactor = "totp" | "recovery_code" | "passkey";
+
+/** Every sign-in step ends in a session, or in a pending login (uncrm_pending cookie) that owes a second factor. */
+export type SignInResponse = { status: "signed_in" } | { status: "second_factor"; second_factors: SecondFactor[] };
+
+/** A WebAuthn ceremony: options carry binary fields as base64url. */
+export interface CeremonyStart<O> {
+  handle: string;
+  options: { publicKey: O };
+}
+export type AssertionStart = CeremonyStart<PublicKeyCredentialRequestOptionsJSON>;
+export type RegistrationStart = CeremonyStart<PublicKeyCredentialCreationOptionsJSON>;
+
+export interface CeremonyFinish {
+  handle: string;
+  /** The PublicKeyCredential as JSON, binary fields base64url. */
+  credential: object;
+  name?: string;
+}
+
+export interface Passkey {
+  /** The credential ID, base64url. */
+  id: string;
+  name: string;
+  created_at: Timestamp;
+  last_used_at: Timestamp | null;
+}
+
+export interface LinkedIdentity {
+  provider: string;
+  email: Email;
+  created_at: Timestamp;
+  last_used_at: Timestamp | null;
+}
+
+export interface Session {
+  id: number;
+  /** The factors that opened it, joined with "+": "password+totp", "github". */
+  method: string;
+  user_agent: string;
+  created_at: Timestamp;
+  last_seen_at: Timestamp;
+  current: boolean;
+}
+
+export interface Account {
+  user: User;
+  passkeys: Passkey[];
+  identities: LinkedIdentity[];
+  totp: boolean;
+  recovery_codes_left: number;
+  password: boolean;
+  /** Signed in within 15 minutes, so sign-in methods may change without confirming again. */
+  recent: boolean;
+  sessions: Session[];
+}
+
+export interface TOTPEnrolment {
+  handle: string;
+  /** Base32, for typing into an app by hand. */
+  secret: string;
+  uri: string;
+  /** The otpauth URI as a PNG data URL. */
+  qr: string;
+}
+
 /** The job state after an enrich request: usually "pending", "skipped" for free mail. */
 export interface EnrichResult {
   state: JobState;
 }
 
-/** Error body for every non-2xx: {"error": "<message>"}, plus request_id on a 5xx. */
+/** Error body for every non-2xx: {"error": "<message>"}, plus request_id on a 5xx and code on a 403 that wants a fresh sign-in. */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly code?: "reauth_required";
+  constructor(status: number, message: string, code?: "reauth_required") {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
+
+export const needsReauth = (err: unknown) => err instanceof ApiError && err.code === "reauth_required";
 
 type Query = Record<string, string | number | undefined>;
 
@@ -288,13 +375,15 @@ async function request<T>(method: string, path: string, opts: { query?: Query; b
   });
   if (!res.ok) {
     let message = res.statusText || `HTTP ${res.status}`;
+    let code: "reauth_required" | undefined;
     try {
       const body: unknown = await res.json();
       if (body && typeof body === "object" && "error" in body && typeof body.error === "string") message = body.error;
+      if (body && typeof body === "object" && "code" in body && body.code === "reauth_required") code = body.code;
     } catch {
       // Not JSON (a proxy error page, say); keep the status text.
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, code);
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -305,20 +394,50 @@ const enc = encodeURIComponent;
 
 export const api = {
   auth: {
-    /** Public. has_users is false until ADMIN_EMAIL and ADMIN_PASSWORD seed the first account. */
-    setup: () => request<{ has_users: boolean }>("GET", "/auth/setup"),
-    /** Sets the session cookie. */
-    login: (email: string, password: string) => request<void>("POST", "/auth/login", { body: { email, password } }),
+    options: () => request<AuthOptions>("GET", "/auth/options"),
+    /** Usernameless: the passkey names the account. A passkey needs no second factor. */
+    passkeyBegin: () => request<AssertionStart>("POST", "/auth/passkey/begin"),
+    passkeyFinish: (body: CeremonyFinish) => request<SignInResponse>("POST", "/auth/passkey/finish", { body }),
+    /** Only with PASSWORD_LOGIN on. Never a session alone: success asks for a second factor. */
+    password: (email: string, password: string) => request<SignInResponse>("POST", "/auth/password", { body: { email, password } }),
+    secondFactor: () => request<SignInResponse>("GET", "/auth/second-factor"),
+    /** An authenticator code or a recovery code. A wrong code leaves the login pending. */
+    secondFactorCode: (code: string) => request<SignInResponse>("POST", "/auth/second-factor/code", { body: { code } }),
+    secondFactorPasskeyBegin: () => request<AssertionStart>("POST", "/auth/second-factor/passkey/begin"),
+    secondFactorPasskeyFinish: (body: CeremonyFinish) => request<SignInResponse>("POST", "/auth/second-factor/passkey/finish", { body }),
+    /** 404 once the link is used, or when it never existed. */
+    checkSetup: (token: string) => request<void>("GET", `/auth/setup/${enc(token)}`),
+    invite: (token: string) => request<{ email: Email }>("GET", `/auth/invites/${enc(token)}`),
+    signupBegin: (body: { setup_token: string; email: string; name: string } | { invite_token: string; name: string }) =>
+      request<RegistrationStart>("POST", "/auth/signup/passkey/begin", { body }),
+    /** Creates the account with its passkey, uses up the link, and signs in. */
+    signupFinish: (body: CeremonyFinish) => request<SignInResponse>("POST", "/auth/signup/passkey/finish", { body }),
     logout: () => request<void>("POST", "/auth/logout"),
-    /** Creates the user and sets the session cookie. */
-    acceptInvite: (token: string, name: string, password: string) =>
-      request<void>("POST", "/auth/invites/accept", { body: { token, name, password } }),
   },
 
   me: {
     get: () => request<Actor>("GET", "/v1/me"),
-    changePassword: (old_password: string, new_password: string) =>
-      request<void>("POST", "/v1/me/password", { body: { old_password, new_password } }),
+  },
+
+  /** Every change to a sign-in method can fail with reauth_required (see needsReauth). */
+  account: {
+    get: () => request<Account>("GET", "/v1/account"),
+    addPasskeyBegin: () => request<RegistrationStart>("POST", "/v1/account/passkeys/begin"),
+    addPasskey: (body: CeremonyFinish) => request<Passkey>("POST", "/v1/account/passkeys", { body }),
+    removePasskey: (id: string) => request<void>("DELETE", `/v1/account/passkeys/${enc(id)}`),
+    unlink: (provider: string) => request<void>("DELETE", `/v1/account/identities/${enc(provider)}`),
+    totpBegin: () => request<TOTPEnrolment>("POST", "/v1/account/totp/begin"),
+    /** Returns 10 recovery codes, shown once. */
+    totpFinish: (handle: string, code: string) =>
+      request<{ recovery_codes: string[] }>("POST", "/v1/account/totp", { body: { handle, code } }),
+    totpDisable: () => request<void>("DELETE", "/v1/account/totp"),
+    regenerateRecoveryCodes: () => request<{ recovery_codes: string[] }>("POST", "/v1/account/recovery-codes"),
+    setPassword: (password: string) => request<void>("PUT", "/v1/account/password", { body: { password } }),
+    removePassword: () => request<void>("DELETE", "/v1/account/password"),
+    revokeSession: (id: number) => request<void>("DELETE", `/v1/account/sessions/${id}`),
+    reauthPasskeyBegin: () => request<AssertionStart>("POST", "/v1/account/reauth/passkey/begin"),
+    reauthPasskey: (body: CeremonyFinish) => request<void>("POST", "/v1/account/reauth/passkey", { body }),
+    reauthCode: (code: string) => request<void>("POST", "/v1/account/reauth/code", { body: { code } }),
   },
 
   signups: {
@@ -381,8 +500,10 @@ export const api = {
   },
 
   users: {
-    /** Everyone who can log in, oldest first. */
+    /** Everyone who can sign in, oldest first. */
     list: () => request<User[]>("GET", "/v1/users"),
+    /** Ends their sessions too. The last person cannot be removed (409). */
+    remove: (id: number) => request<void>("DELETE", `/v1/users/${id}`),
   },
 
   invites: {
@@ -393,4 +514,12 @@ export const api = {
 
 export function inviteURL(token: string): string {
   return `${location.origin}/invite/${enc(token)}`;
+}
+
+/** Where each intent may be started: login from the sign-in page, link and reauth signed in, setup and invite with their token. */
+export type OAuthStart = { intent: "login"; next: string } | { intent: "link" | "reauth" } | { intent: "setup" | "invite"; token: string };
+
+/** A full-page navigation, not a fetch: the provider redirects back with ?error= on failure. */
+export function oauthURL(provider: string, start: OAuthStart): string {
+  return `/auth/oauth/${enc(provider)}/start?${new URLSearchParams(start)}`;
 }

@@ -6,6 +6,7 @@ import { ApiError } from "./api";
 import { Layout, NotFound } from "./Layout";
 import { Login } from "./pages/Login";
 import { AcceptInvite } from "./pages/AcceptInvite";
+import { Setup } from "./pages/Setup";
 import { Contacts } from "./pages/Contacts";
 import { ContactPage } from "./pages/ContactPage";
 import { Companies } from "./pages/Companies";
@@ -18,6 +19,7 @@ import "./index.css";
 const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
   { path: "/invite/:token", element: <AcceptInvite /> },
+  { path: "/setup/:token", element: <Setup /> },
   {
     element: <Layout />,
     children: [
@@ -32,11 +34,14 @@ const router = createBrowserRouter([
   },
 ]);
 
+/** Pages for people without a session, where a 401 is an answer rather than an expired session. */
+const signedOutPages = ["/login", "/invite/", "/setup/"];
+
 /** A 401 anywhere means the session ended: go to login and come back after. */
 function onError(err: unknown) {
   if (!(err instanceof ApiError) || err.status !== 401) return;
   const { pathname, search } = router.state.location;
-  if (pathname === "/login" || pathname.startsWith("/invite/")) return;
+  if (signedOutPages.some((p) => pathname.startsWith(p))) return;
   queryClient.clear();
   void router.navigate(`/login?next=${encodeURIComponent(pathname + search)}`, { replace: true });
 }

@@ -14,9 +14,18 @@ export const keys = {
   status: ["status"] as const,
   keys: ["keys"] as const,
   users: ["users"] as const,
+  account: ["account"] as const,
+  authOptions: ["auth-options"] as const,
+  secondFactor: ["second-factor"] as const,
+  invite: (token: string) => ["invite", token] as const,
+  setup: (token: string) => ["setup", token] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: api.me.get, staleTime: Infinity });
+
+export const useAuthOptions = () => useQuery({ queryKey: keys.authOptions, queryFn: api.auth.options, staleTime: 60_000 });
+
+export const useAccount = () => useQuery({ queryKey: keys.account, queryFn: api.account.get });
 
 export const useStages = () =>
   useQuery({ queryKey: keys.stages, queryFn: async () => (await api.stages.list()) ?? [], staleTime: 60_000 });

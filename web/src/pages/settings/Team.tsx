@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router";
 import { api, inviteURL, type Email } from "../../api";
-import { keys, useMe } from "../../queries";
-import { Avatar, Badge, Button, Card, CopyField, ErrorNote, Field, inputClass, PageSpinner, RelativeTime } from "../../ui";
+import { keys, useAuthOptions, useMe } from "../../queries";
+import { Avatar, Badge, Button, Card, ConfirmButton, CopyField, ErrorNote, inputClass, PageSpinner, RelativeTime } from "../../ui";
 import { SettingsHeader, SettingsSubhead } from "./Settings";
 
 /** An invite made on this page. The API cannot list invites, so only these are shown. */
@@ -15,7 +16,7 @@ export function Team() {
   const [sent, setSent] = useState<SentInvite[]>([]);
   return (
     <>
-      <SettingsHeader title="Team">Everyone on the team can log in, and see and edit every contact. Invite a teammate with a one-time link.</SettingsHeader>
+      <SettingsHeader title="Team">Everyone on the team can sign in, and see and edit every contact. Invite a teammate with a one-time link.</SettingsHeader>
       <Members />
 
       <SettingsSubhead className="mt-10">Invite a teammate</SettingsSubhead>
@@ -37,44 +38,105 @@ export function Team() {
         </Card>
       )}
 
-      <SettingsSubhead className="mt-10">Your password</SettingsSubhead>
-      <Card className="p-4">
-        <ChangePassword />
-      </Card>
+      <SettingsSubhead className="mt-10">Sign-in methods</SettingsSubhead>
+      <SignInMethods />
     </>
   );
 }
 
 function Members() {
   const me = useMe();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
   const users = useQuery({ queryKey: keys.users, queryFn: async () => (await api.users.list()) ?? [] });
+  const remove = useMutation({
+    mutationFn: api.users.remove,
+    onSuccess: (_, id) => {
+      if (me.data?.id === String(id)) {
+        qc.clear();
+        void navigate("/login", { replace: true });
+        return;
+      }
+      return qc.invalidateQueries({ queryKey: keys.users });
+    },
+  });
   if (users.isPending) return <PageSpinner />;
   if (users.isError) return <ErrorNote error={users.error} />;
   return (
-    <Card>
-      <ul aria-label="Team members" className="divide-y divide-line">
-        {users.data.map((u) => (
-          <li key={u.id} className="flex items-center gap-3 px-4 py-3">
-            <Avatar label={u.name || u.email} size={32} />
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 truncate font-medium" title={u.name || u.email}>
-                  {u.name || u.email}
-                </span>
-                {me.data?.id === String(u.id) && <Badge>You</Badge>}
-              </div>
-              {u.name && (
-                <div className="truncate text-xs text-muted" title={u.email}>
-                  {u.email}
+    <>
+      <Card>
+        <ul aria-label="Team members" className="divide-y divide-line">
+          {users.data.map((u) => (
+            <li key={u.id} className="flex items-center gap-3 px-4 py-3">
+              <Avatar label={u.name || u.email} size={32} />
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate font-medium" title={u.name || u.email}>
+                    {u.name || u.email}
+                  </span>
+                  {me.data?.id === String(u.id) && <Badge>You</Badge>}
                 </div>
-              )}
+                {u.name && (
+                  <div className="truncate text-xs text-muted" title={u.email}>
+                    {u.email}
+                  </div>
+                )}
+              </div>
+              <span className="hidden shrink-0 text-xs text-muted sm:inline">
+                Joined <RelativeTime iso={u.created_at} />
+              </span>
+              <ConfirmButton
+                label={`Remove ${u.name || u.email}`}
+                confirmLabel={me.data?.id === String(u.id) ? "Remove you and sign out?" : "Remove?"}
+                onConfirm={() => remove.mutate(u.id)}
+                disabled={remove.isPending}
+              >
+                Remove
+              </ConfirmButton>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <div className="mt-2 empty:hidden">
+        <ErrorNote error={remove.error} />
+      </div>
+    </>
+  );
+}
+
+function SignInMethods() {
+  const options = useAuthOptions();
+  if (options.isPending) return <PageSpinner />;
+  if (options.isError) return <ErrorNote error={options.error} />;
+  const { providers, password_login } = options.data;
+  return (
+    <Card>
+      <ul aria-label="Sign-in methods" className="divide-y divide-line">
+        <li className="flex items-center gap-3 px-4 py-3">
+          <span className="min-w-0 flex-1 font-medium">Passkeys</span>
+          <Badge tone="success">On</Badge>
+        </li>
+        {providers.map((p) => (
+          <li key={p.id} className="space-y-2 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="min-w-0 flex-1 font-medium">{p.name}</span>
+              <Badge tone="success">On</Badge>
             </div>
-            <span className="hidden shrink-0 text-xs text-muted sm:inline">
-              Joined <RelativeTime iso={u.created_at} />
-            </span>
+            <CopyField value={p.callback_url} label="Copy callback URL" />
+            <p className="text-xs text-muted">Register this callback URL at {p.name}.</p>
           </li>
         ))}
+        <li className="flex items-center gap-3 px-4 py-3">
+          <span className="min-w-0 flex-1 font-medium">Password</span>
+          {password_login ? <Badge tone="success">On, with a second step</Badge> : <Badge>Off</Badge>}
+        </li>
       </ul>
+      <p className="border-t border-line px-4 py-3 text-xs leading-relaxed text-muted">
+        Providers are set by env vars on the server: <code className="font-mono">GOOGLE_CLIENT_ID</code> and <code className="font-mono">GOOGLE_CLIENT_SECRET</code>,{" "}
+        <code className="font-mono">GITHUB_CLIENT_ID</code> and <code className="font-mono">GITHUB_CLIENT_SECRET</code>, or <code className="font-mono">OIDC_ISSUER</code>,{" "}
+        <code className="font-mono">OIDC_CLIENT_ID</code>, <code className="font-mono">OIDC_CLIENT_SECRET</code> and <code className="font-mono">OIDC_NAME</code>. Set{" "}
+        <code className="font-mono">PASSWORD_LOGIN</code> to allow passwords. Restart uncrm after a change.
+      </p>
     </Card>
   );
 }
@@ -102,40 +164,5 @@ function Invite({ onSent }: { onSent: (i: SentInvite) => void }) {
       </form>
       <ErrorNote error={invite.error} />
     </div>
-  );
-}
-
-function ChangePassword() {
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const change = useMutation({
-    mutationFn: () => api.me.changePassword(current, next),
-    onSuccess: () => {
-      setCurrent("");
-      setNext("");
-    },
-  });
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    change.mutate();
-  };
-  return (
-    <form onSubmit={submit} className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Current password">
-          <input type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} className={inputClass} />
-        </Field>
-        <Field label="New password">
-          <input type="password" autoComplete="new-password" required value={next} onChange={(e) => setNext(e.target.value)} className={inputClass} />
-        </Field>
-      </div>
-      <ErrorNote error={change.error} />
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={change.isPending}>
-          Change password
-        </Button>
-        {change.isSuccess && <span className="text-xs text-success">Password changed.</span>}
-      </div>
-    </form>
   );
 }
