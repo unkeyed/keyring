@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type Company, type Status } from "../api";
-import { companyLabel } from "../format";
+import { companyLabel, countryName } from "../format";
 import { keys, useStatus } from "../queries";
-import { Avatar, Button, cx, EnrichmentBadge, ErrorNote, Icon, inputClass, PageHeader, Spinner } from "../ui";
+import { Avatar, Button, cx, EmptyState, EnrichmentBadge, ErrorNote, Icon, inputClass, PageHeader, PageSpinner, useWide } from "../ui";
 
 export function Companies() {
   const [params, setParams] = useSearchParams();
@@ -13,6 +13,7 @@ export function Companies() {
   const searchRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const status = useStatus();
+  const wide = useWide();
 
   useEffect(() => {
     if (draft === q) return;
@@ -52,8 +53,8 @@ export function Companies() {
           </>
         }
       />
-      <div className="flex items-center gap-2 border-b border-line px-5 py-2.5">
-        <div className="relative w-64">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2.5 md:px-5">
+        <div className="relative w-full md:w-64">
           <Icon name="search" className="pointer-events-none absolute top-2 left-2.5 size-4 text-faint" />
           <input
             ref={searchRef}
@@ -68,32 +69,26 @@ export function Companies() {
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {list.isPending ? (
-          <div className="grid h-40 place-items-center">
-            <Spinner />
-          </div>
+          <PageSpinner />
         ) : list.isError && rows.length === 0 ? (
           <div className="p-5">
             <ErrorNote error={list.error} />
           </div>
         ) : rows.length === 0 ? (
-          <div className="mx-auto mt-20 max-w-sm text-center">
-            <p className="font-medium">{q ? "No companies match" : "No companies yet"}</p>
-            <p className="mt-1 text-sm text-muted">
+          <div className="mx-auto max-w-md px-4 py-16">
+            <EmptyState icon={q ? "search" : "building"} title={q ? "No companies match" : "No companies yet"}>
               {q ? "Try a domain like acme.com." : "Companies appear when someone signs up with a work email. Gmail and other free-mail addresses don't create one."}
-            </p>
+            </EmptyState>
           </div>
-        ) : (
+        ) : wide ? (
           <table className="w-full table-fixed border-collapse text-sm" aria-label="Companies">
-            <thead className="sticky top-0 z-10 bg-surface">
-              <tr className="border-b border-line text-left text-xs text-muted">
-                <th scope="col" className="w-[34%] py-2 pr-3 pl-5 font-medium">Company</th>
-                <th scope="col" className="w-[20%] px-3 py-2 font-medium">Industry</th>
-                <th scope="col" className="w-[14%] px-3 py-2 font-medium">Employees</th>
-                <th scope="col" className="w-[12%] px-3 py-2 font-medium">Country</th>
-                <th scope="col" className="w-[10%] px-3 py-2 text-right font-medium">Contacts</th>
-                <th scope="col" className="w-[10%] py-2 pr-5 pl-3 text-right font-medium">
-                  <span className="sr-only">Enrichment</span>
-                </th>
+            <thead className="sticky top-0 z-10 bg-header">
+              <tr className="border-b border-line text-left text-xs whitespace-nowrap text-muted">
+                <th scope="col" className="py-2 pr-3 pl-5 font-medium">Company</th>
+                <th scope="col" className="w-[22%] px-3 py-2 font-medium">Industry</th>
+                <th scope="col" className="hidden w-28 px-3 py-2 font-medium lg:table-cell">Employees</th>
+                <th scope="col" className="w-36 px-3 py-2 font-medium">Country</th>
+                <th scope="col" className="w-24 py-2 pr-5 pl-3 text-right font-medium">Contacts</th>
               </tr>
             </thead>
             <tbody>
@@ -102,6 +97,12 @@ export function Companies() {
               ))}
             </tbody>
           </table>
+        ) : (
+          <ul aria-label="Companies" className="divide-y divide-line">
+            {rows.map((c) => (
+              <CompanyItem key={c.id} c={c} />
+            ))}
+          </ul>
         )}
         {list.hasNextPage && (
           <div className="flex justify-center py-4">
@@ -115,26 +116,49 @@ export function Companies() {
   );
 }
 
+const dash = <span className="text-faint">—</span>;
+
 function CompanyRow({ c, status, onOpen }: { c: Company; status: Status | undefined; onOpen: () => void }) {
   const label = companyLabel(c);
   return (
-    <tr onClick={onOpen} className="h-11 cursor-default border-b border-line hover:bg-subtle">
+    <tr onClick={onOpen} className="h-12 border-b border-line transition-colors hover:bg-subtle">
       <td className="py-1.5 pr-3 pl-5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <Avatar src={c.logo_url} label={label} size={24} square />
-          <div className="min-w-0">
-            <Link to={`/companies/${c.id}`} onClick={(e) => e.stopPropagation()} className="block truncate font-medium hover:underline">
+          <Avatar src={c.logo_url} label={label} size={28} square />
+          <div className="min-w-0 flex-1">
+            <Link to={`/companies/${c.id}`} onClick={(e) => e.stopPropagation()} className="block truncate font-medium hover:underline" title={label}>
               {label}
             </Link>
             {c.name && <div className="truncate text-xs text-muted">{c.domain}</div>}
           </div>
+          <EnrichmentBadge state={c.enrichment} status={status} />
         </div>
       </td>
-      <td className="truncate px-3 text-muted">{c.industry || <span className="text-faint">—</span>}</td>
-      <td className="truncate px-3 text-muted">{c.employee_range || <span className="text-faint">—</span>}</td>
-      <td className="truncate px-3 text-muted">{c.country || <span className="text-faint">—</span>}</td>
-      <td className="px-3 text-right tabular-nums">{c.contact_count.toLocaleString()}</td>
-      <td className="py-1.5 pr-5 pl-3 text-right"><EnrichmentBadge state={c.enrichment} status={status} /></td>
+      <td className="truncate px-3 text-muted">{c.industry || dash}</td>
+      <td className="hidden truncate px-3 text-muted lg:table-cell">{c.employee_range || dash}</td>
+      <td className="truncate px-3 text-muted">{c.country ? countryName(c.country) : dash}</td>
+      <td className="py-1.5 pr-5 pl-3 text-right tabular-nums">{c.contact_count.toLocaleString()}</td>
     </tr>
+  );
+}
+
+function CompanyItem({ c }: { c: Company }) {
+  const label = companyLabel(c);
+  const facts = [c.industry, c.country && countryName(c.country)].filter(Boolean).join(" · ");
+  return (
+    <li>
+      <Link to={`/companies/${c.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors active:bg-subtle">
+        <Avatar src={c.logo_url} label={label} size={32} square />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">{label}</div>
+          {c.name && <div className="truncate text-xs text-muted">{c.domain}</div>}
+          {facts && <div className="truncate text-xs text-faint">{facts}</div>}
+        </div>
+        <span className="flex shrink-0 items-center gap-1 text-xs text-muted tabular-nums" title={`${c.contact_count} contacts`}>
+          <Icon name="users" className="size-3.5 text-faint" />
+          {c.contact_count.toLocaleString()}
+        </span>
+      </Link>
+    </li>
   );
 }
