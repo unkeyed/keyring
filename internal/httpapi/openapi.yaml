@@ -6,7 +6,7 @@ info:
   description: |
     The React UI and your agents call the same routes. Agents send an API key
     (`Authorization: Bearer uncrm_...`, created under Settings > API keys).
-    People send the `uncrm_session` cookie that `POST /auth/login` sets.
+    People send the `uncrm_session` cookie that a sign-in under `/auth` sets.
     Routes for keys, providers, stages and the team accept only the cookie, so
     a leaked agent key cannot mint more access.
 
@@ -44,7 +44,9 @@ tags:
   - name: settings
     description: Session only. Agents get 403.
   - name: auth
-    description: Login for people. Agents use API keys instead.
+    description: Sign-in for people. Agents use API keys instead.
+  - name: account
+    description: How the signed-in person signs in. Session only.
   - name: system
     description: Health, this document and provider webhooks.
 paths:
@@ -790,6 +792,26 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    delete:
+      tags: [settings]
+      operationId: removeUser
+      summary: Remove a teammate with their sessions, passkeys and linked logins. The last person on the team cannot be removed.
+      security:
+        - session: []
+      responses:
+        "204":
+          description: Removed. Their sessions ended.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /v1/invites:
     post:
       tags: [settings]
@@ -846,11 +868,145 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /v1/me/password:
+  /v1/account:
+    get:
+      tags: [account]
+      operationId: getAccount
+      summary: How the signed-in person signs in: passkeys, linked logins, authenticator app, password and sessions.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/account/passkeys/begin:
     post:
-      tags: [settings]
-      operationId: changePassword
-      summary: Change the signed-in person's password (at least 12 characters).
+      tags: [account]
+      operationId: beginAddPasskey
+      summary: Start registering another passkey. Needs a recent sign-in.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: The handle and the options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeremonyStart"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+  /v1/account/passkeys:
+    post:
+      tags: [account]
+      operationId: addPasskey
+      summary: Finish registering a passkey. name is optional.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeremonyFinish"
+      responses:
+        "201":
+          description: The passkey.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Passkey"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/account/passkeys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The passkey's credential ID, base64url.
+        schema:
+          type: string
+    delete:
+      tags: [account]
+      operationId: removePasskey
+      summary: Remove a passkey. Needs a recent sign-in, refuses the last sign-in method, and ends your other sessions.
+      security:
+        - session: []
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/account/identities/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [google, github, oidc]
+    delete:
+      tags: [account]
+      operationId: unlinkIdentity
+      summary: Unlink a provider login. Needs a recent sign-in, refuses the last sign-in method, and ends your other sessions.
+      security:
+        - session: []
+      responses:
+        "204":
+          description: Unlinked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/account/totp/begin:
+    post:
+      tags: [account]
+      operationId: beginTOTP
+      summary: Generate a secret for an authenticator app. Needs a recent sign-in.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: The secret, its otpauth URI and a QR code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TOTPEnrolment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/account/totp:
+    post:
+      tags: [account]
+      operationId: finishTOTP
+      summary: Confirm the authenticator app with a code from it. Returns 10 recovery codes, shown once, and ends your other sessions.
       security:
         - session: []
       requestBody:
@@ -859,47 +1015,256 @@ paths:
           application/json:
             schema:
               type: object
-              required: [old_password, new_password]
+              required: [handle, code]
               additionalProperties: false
               properties:
-                old_password:
+                handle:
                   type: string
-                new_password:
+                code:
                   type: string
-                  minLength: 12
+      responses:
+        "201":
+          description: Enrolled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryCodes"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [account]
+      operationId: disableTOTP
+      summary: Remove the authenticator app and its recovery codes. Needs a recent sign-in and ends your other sessions.
+      security:
+        - session: []
       responses:
         "204":
-          description: Changed.
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/account/recovery-codes:
+    post:
+      tags: [account]
+      operationId: regenerateRecoveryCodes
+      summary: Replace your recovery codes with 10 new ones. Needs a recent sign-in.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: The new codes, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryCodes"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/account/password:
+    put:
+      tags: [account]
+      operationId: setPassword
+      summary: Set or replace your password (at least 12 characters). Only with PASSWORD_LOGIN on, and only when you have a passkey or authenticator app. Needs a recent sign-in and ends your other sessions.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              additionalProperties: false
+              properties:
+                password:
+                  type: string
+      responses:
+        "204":
+          description: Set.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [account]
+      operationId: removePassword
+      summary: Remove your password. Needs a recent sign-in and ends your other sessions.
+      security:
+        - session: []
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/account/sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    delete:
+      tags: [account]
+      operationId: revokeSession
+      summary: Sign out one of your sessions.
+      security:
+        - session: []
+      responses:
+        "204":
+          description: Signed out.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/account/reauth/passkey/begin:
+    post:
+      tags: [account]
+      operationId: beginReauthPasskey
+      summary: Start confirming it is you with one of your passkeys.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: The handle and the options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeremonyStart"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/account/reauth/passkey:
+    post:
+      tags: [account]
+      operationId: reauthPasskey
+      summary: Finish confirming it is you. Your session then counts as recently signed in for 15 minutes.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeremonyFinish"
+      responses:
+        "204":
+          description: Confirmed.
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/account/reauth/code:
+    post:
+      tags: [account]
+      operationId: reauthCode
+      summary: Confirm it is you with an authenticator or recovery code.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              additionalProperties: false
+              properties:
+                code:
+                  type: string
+      responses:
+        "204":
+          description: Confirmed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
-  /auth/setup:
+  /auth/options:
     get:
       tags: [auth]
-      operationId: getSetup
-      summary: Whether any account exists. False until ADMIN_EMAIL and ADMIN_PASSWORD seed the first one.
+      operationId: getAuthOptions
+      summary: What the sign-in page offers: configured providers, password sign-in, and whether setup is still open.
       security: []
       responses:
         "200":
-          description: Setup state.
+          description: Options.
           content:
             application/json:
               schema:
-                type: object
-                required: [has_users]
-                properties:
-                  has_users:
-                    type: boolean
-  /auth/login:
+                $ref: "#/components/schemas/AuthOptions"
+  /auth/passkey/begin:
     post:
       tags: [auth]
-      operationId: login
-      summary: Log in with email and password and receive the uncrm_session cookie.
-      description: After five wrong passwords for one email, further attempts wait with exponential backoff (429).
+      operationId: beginPasskeyLogin
+      summary: Start a usernameless passkey sign-in.
+      security: []
+      responses:
+        "200":
+          description: The handle and the options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeremonyStart"
+  /auth/passkey/finish:
+    post:
+      tags: [auth]
+      operationId: finishPasskeyLogin
+      summary: Finish a passkey sign-in. A passkey needs no second factor.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeremonyFinish"
+      responses:
+        "200":
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /auth/password:
+    post:
+      tags: [auth]
+      operationId: passwordLogin
+      summary: Check an email and password. Never a session on its own: success sets uncrm_pending and asks for a second factor.
+      description: Only with PASSWORD_LOGIN on (404 otherwise). After five wrong passwords for one email, or thirty from one IP, attempts wait with exponential backoff (429).
       security: []
       requestBody:
         required: true
@@ -915,14 +1280,248 @@ paths:
                 password:
                   type: string
       responses:
-        "204":
-          description: Logged in. Set-Cookie carries the session.
+        "200":
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /auth/second-factor:
+    get:
+      tags: [auth]
+      operationId: getSecondFactor
+      summary: The second factors the pending login (uncrm_pending cookie) accepts.
+      security: []
+      responses:
+        "200":
+          description: The pending login.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /auth/second-factor/code:
+    post:
+      tags: [auth]
+      operationId: secondFactorCode
+      summary: Complete the pending login with an authenticator code or a recovery code. A wrong code leaves it pending.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              additionalProperties: false
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /auth/second-factor/passkey/begin:
+    post:
+      tags: [auth]
+      operationId: beginSecondFactorPasskey
+      summary: Start completing the pending login with a passkey.
+      security: []
+      responses:
+        "200":
+          description: The handle and the options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeremonyStart"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /auth/second-factor/passkey/finish:
+    post:
+      tags: [auth]
+      operationId: finishSecondFactorPasskey
+      summary: Complete the pending login with a passkey.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeremonyFinish"
+      responses:
+        "200":
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /auth/oauth/{provider}/start:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [google, github, oidc]
+      - name: intent
+        in: query
+        description: login (default), link or reauth (signed in), setup or invite (with token).
+        schema:
+          type: string
+          enum: [login, link, reauth, setup, invite]
+      - name: token
+        in: query
+        description: The setup or invite token.
+        schema:
+          type: string
+      - name: next
+        in: query
+        description: Where to land after signing in. Same-origin paths only.
+        schema:
+          type: string
+    get:
+      tags: [auth]
+      operationId: startOAuth
+      summary: Redirect to the provider. Sets uncrm_oauth, which binds the flow to this browser.
+      security: []
+      responses:
+        "303":
+          description: To the provider, or back to the page with ?error= when the flow cannot start.
+  /auth/oauth/{provider}/callback:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [google, github, oidc]
+    get:
+      tags: [auth]
+      operationId: oauthCallback
+      summary: The redirect URI to register at the provider. Completes the flow and redirects into the app.
+      description: Social sign-in never creates an account for a stranger. It signs in a user whose email matches the provider-verified email, accepts a live invite for it, or joins an ALLOWED_EMAIL_DOMAINS address; anything else is refused.
+      security: []
+      responses:
+        "303":
+          description: Into the app, to /login?second_factor=1 when a code is due, or back with ?error=.
+  /auth/setup/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [auth]
+      operationId: checkSetup
+      summary: Whether a setup link still works. Setup links exist only while nobody can sign in.
+      security: []
+      responses:
+        "204":
+          description: It works.
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /auth/invites/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [auth]
+      operationId: getInvite
+      summary: The email a live invite is for.
+      security: []
+      responses:
+        "200":
+          description: The invite.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email]
+                properties:
+                  email:
+                    type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /auth/signup/passkey/begin:
+    post:
+      tags: [auth]
+      operationId: beginPasskeySignup
+      summary: Start registering the first passkey of a new account, through a setup link (email and name) or an invite (name).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                setup_token:
+                  type: string
+                invite_token:
+                  type: string
+                email:
+                  type: string
+                name:
+                  type: string
+      responses:
+        "200":
+          description: The handle and the options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeremonyStart"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /auth/signup/passkey/finish:
+    post:
+      tags: [auth]
+      operationId: finishPasskeySignup
+      summary: Create the account with its passkey and sign in. Uses up the setup link or invite.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeremonyFinish"
+      responses:
+        "200":
+          description: Signed in (Set-Cookie carries the session), or a second factor is due (Set-Cookie carries uncrm_pending).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /auth/logout:
     post:
       tags: [auth]
@@ -932,41 +1531,6 @@ paths:
       responses:
         "204":
           description: Logged out.
-  /auth/invites/accept:
-    post:
-      tags: [auth]
-      operationId: acceptInvite
-      summary: Create an account from an invite token and log in.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [token, password]
-              additionalProperties: false
-              properties:
-                token:
-                  type: string
-                name:
-                  type: string
-                password:
-                  type: string
-                  minLength: 12
-      responses:
-        "204":
-          description: Account created. Set-Cookie carries the session.
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "404":
-          description: The invite is unknown, expired or already used.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          $ref: "#/components/responses/Conflict"
 
 components:
   securitySchemes:
@@ -978,7 +1542,7 @@ components:
       type: apiKey
       in: cookie
       name: uncrm_session
-      description: Set by POST /auth/login. Unsafe cross-site browser requests are rejected.
+      description: Set by a completed sign-in under /auth. Unsafe cross-site browser requests are rejected.
   parameters:
     id:
       name: id
@@ -1032,8 +1596,24 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Reauth:
+      description: >-
+        Changing how you sign in needs a sign-in within the last 15 minutes
+        (code reauth_required). Confirm with POST /v1/account/reauth/*, or the
+        reauth OAuth intent, and retry. Also 403 for API keys, as Forbidden.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
+              code:
+                type: string
+                enum: [reauth_required]
     TooManyRequests:
-      description: Too many failed logins for this email. Wait Retry-After seconds.
+      description: Too many failed attempts for this email, account or IP. Wait Retry-After seconds.
       headers:
         Retry-After:
           schema:
@@ -1483,6 +2063,162 @@ components:
             key:
               type: string
               description: The plaintext key. Shown only in this response.
+    SignInResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [signed_in, second_factor]
+        second_factors:
+          type: array
+          description: With second_factor, what the pending login accepts.
+          items:
+            type: string
+            enum: [totp, recovery_code, passkey]
+    CeremonyStart:
+      type: object
+      required: [handle, options]
+      properties:
+        handle:
+          type: string
+          description: Send back with the credential.
+        options:
+          type: object
+          description: "{publicKey: ...} for navigator.credentials.get or .create, with binary fields as base64url."
+    CeremonyFinish:
+      type: object
+      required: [handle, credential]
+      additionalProperties: false
+      properties:
+        handle:
+          type: string
+        credential:
+          type: object
+          description: The PublicKeyCredential as JSON, binary fields base64url.
+        name:
+          type: string
+          description: A name for a new passkey.
+    AuthOptions:
+      type: object
+      required: [providers, password_login, setup_required]
+      properties:
+        providers:
+          type: array
+          items:
+            type: object
+            required: [id, name, callback_url]
+            properties:
+              id:
+                type: string
+                enum: [google, github, oidc]
+              name:
+                type: string
+              callback_url:
+                type: string
+                description: The redirect URI to register at the provider.
+        password_login:
+          type: boolean
+        setup_required:
+          type: boolean
+          description: True while nobody can sign in. The server logs a setup link at start.
+    Passkey:
+      type: object
+      required: [id, name, created_at, last_used_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+    LinkedIdentity:
+      type: object
+      required: [provider, email, created_at, last_used_at]
+      properties:
+        provider:
+          type: string
+        email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+    Session:
+      type: object
+      required: [id, method, user_agent, created_at, last_seen_at, current]
+      properties:
+        id:
+          type: integer
+        method:
+          type: string
+          description: The factors that opened it, joined with +, e.g. password+totp or github.
+        user_agent:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+    Account:
+      type: object
+      required: [user, passkeys, identities, totp, recovery_codes_left, password, recent, sessions]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        passkeys:
+          type: array
+          items:
+            $ref: "#/components/schemas/Passkey"
+        identities:
+          type: array
+          items:
+            $ref: "#/components/schemas/LinkedIdentity"
+        totp:
+          type: boolean
+        recovery_codes_left:
+          type: integer
+        password:
+          type: boolean
+        recent:
+          type: boolean
+          description: Whether this session signed in within 15 minutes and may change sign-in methods.
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+    TOTPEnrolment:
+      type: object
+      required: [handle, secret, uri, qr]
+      properties:
+        handle:
+          type: string
+        secret:
+          type: string
+          description: Base32, for typing into an app by hand.
+        uri:
+          type: string
+          description: The otpauth:// URI.
+        qr:
+          type: string
+          description: The URI as a PNG data URL.
+    RecoveryCodes:
+      type: object
+      required: [recovery_codes]
+      properties:
+        recovery_codes:
+          type: array
+          items:
+            type: string
     User:
       type: object
       required: [id, email, name, created_at]

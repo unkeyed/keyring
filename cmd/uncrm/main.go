@@ -3,14 +3,17 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -35,8 +38,8 @@ type config struct {
 	Port          string           // PORT, default 8080 (Unkey sets it)
 	ContextDevKey string           // CONTEXT_DEV_API_KEY, optional: enrichment off without it
 	Unkey         auth.UnkeyConfig // UNKEY_ROOT_KEY + UNKEY_API_ID, both or neither
-	AdminEmail    string           // ADMIN_EMAIL, seeds the first user
-	AdminPassword string           // ADMIN_PASSWORD
+	Auth          auth.Config      // PUBLIC_URL, PASSWORD_LOGIN, ALLOWED_EMAIL_DOMAINS, CLIENT_IP_HEADER, providers
+	SetupToken    string           // SETUP_TOKEN, optional: the setup link's token instead of a random one
 }
 
 // loadConfig reads and validates the environment. Every config error is
@@ -46,8 +49,7 @@ func loadConfig() (config, error) {
 		Port:          os.Getenv("PORT"),
 		ContextDevKey: os.Getenv("CONTEXT_DEV_API_KEY"),
 		Unkey:         auth.UnkeyConfig{RootKey: os.Getenv("UNKEY_ROOT_KEY"), APIID: os.Getenv("UNKEY_API_ID")},
-		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
-		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+		SetupToken:    os.Getenv("SETUP_TOKEN"),
 	}
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
@@ -68,8 +70,60 @@ func loadConfig() (config, error) {
 	if (c.Unkey.RootKey == "") != (c.Unkey.APIID == "") {
 		return c, errors.New("set both UNKEY_ROOT_KEY and UNKEY_API_ID to use Unkey keys, or neither for built-in keys")
 	}
-	if (c.AdminEmail == "") != (c.AdminPassword == "") {
-		return c, errors.New("set both ADMIN_EMAIL and ADMIN_PASSWORD, or neither")
+	if os.Getenv("ADMIN_EMAIL") != "" || os.Getenv("ADMIN_PASSWORD") != "" {
+		return c, errors.New("ADMIN_EMAIL and ADMIN_PASSWORD are gone: uncrm no longer seeds a password. Unset them and open the setup link uncrm logs at start (docs/self-hosting.md)")
+	}
+	if c.SetupToken != "" && len(c.SetupToken) < auth.MinSetupTokenLen {
+		return c, fmt.Errorf("SETUP_TOKEN must be at least %d characters; generate one with openssl rand -hex 32", auth.MinSetupTokenLen)
+	}
+	c.Auth, err = loadAuthConfig(c.Port)
+	return c, err
+}
+
+// loadAuthConfig reads how people sign in.
+func loadAuthConfig(port string) (auth.Config, error) {
+	var c auth.Config
+	raw := cmp.Or(os.Getenv("PUBLIC_URL"), "http://localhost:"+port)
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" {
+		return c, fmt.Errorf("PUBLIC_URL must be an origin such as https://crm.example.com, got %q", raw)
+	}
+	if u.Scheme == "http" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
+		return c, fmt.Errorf("PUBLIC_URL must use https unless its host is localhost: passkeys need a secure origin and session cookies must not travel in the clear, got %q", raw)
+	}
+	u.Path = ""
+	c.PublicURL = u
+	if v := os.Getenv("PASSWORD_LOGIN"); v != "" {
+		if c.PasswordLogin, err = strconv.ParseBool(v); err != nil {
+			return c, fmt.Errorf("PASSWORD_LOGIN must be true or false, got %q", v)
+		}
+	}
+	for _, d := range strings.Split(os.Getenv("ALLOWED_EMAIL_DOMAINS"), ",") {
+		if d = strings.ToLower(strings.TrimSpace(d)); d != "" {
+			if strings.Contains(d, "@") {
+				return c, fmt.Errorf("ALLOWED_EMAIL_DOMAINS lists domains such as example.com, got %q", d)
+			}
+			c.AllowedEmailDomains = append(c.AllowedEmailDomains, d)
+		}
+	}
+	c.ClientIPHeader = os.Getenv("CLIENT_IP_HEADER")
+	for _, p := range []struct{ id, name, env, issuer string }{
+		{"google", "Google", "GOOGLE", "https://accounts.google.com"},
+		{"github", "GitHub", "GITHUB", ""},
+		{"oidc", cmp.Or(os.Getenv("OIDC_NAME"), "SSO"), "OIDC", os.Getenv("OIDC_ISSUER")},
+	} {
+		id, secret := os.Getenv(p.env+"_CLIENT_ID"), os.Getenv(p.env+"_CLIENT_SECRET")
+		oidc := p.id == "oidc"
+		if id == "" && secret == "" && (!oidc || p.issuer == "") {
+			continue
+		}
+		if id == "" || secret == "" || (oidc && p.issuer == "") {
+			if oidc {
+				return c, errors.New("set all of OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET, or none")
+			}
+			return c, fmt.Errorf("set both %s_CLIENT_ID and %s_CLIENT_SECRET, or neither", p.env, p.env)
+		}
+		c.Providers = append(c.Providers, auth.ProviderConfig{ID: p.id, Name: p.name, ClientID: id, ClientSecret: secret, Issuer: p.issuer})
 	}
 	return c, nil
 }
@@ -114,8 +168,11 @@ func run(log *slog.Logger) error {
 	}
 	svc := crm.New(pool, enricher)
 
-	users := auth.NewUsers(pool)
-	if err := users.SeedAdmin(ctx, cfg.AdminEmail, cfg.AdminPassword); err != nil {
+	users, err := auth.NewUsers(pool, cfg.Auth)
+	if err != nil {
+		return err
+	}
+	if err := announceSetup(ctx, log, users, cfg.SetupToken); err != nil {
 		return err
 	}
 	authn := &auth.Authenticator{Keys: auth.NewKeyStore(pool, cfg.Unkey), Users: users}
@@ -135,7 +192,8 @@ func run(log *slog.Logger) error {
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	served := make(chan error, 1)
 	go func() { served <- srv.ListenAndServe() }()
-	log.Info("uncrm listening", "port", cfg.Port, "version", version, "enrichment", enricher != nil, "keys", authn.Keys.Mode())
+	log.Info("uncrm listening", "port", cfg.Port, "version", version, "enrichment", enricher != nil, "keys", authn.Keys.Mode(),
+		"public_url", cfg.Auth.PublicURL.String(), "password_login", cfg.Auth.PasswordLogin, "providers", len(cfg.Auth.Providers))
 
 	select {
 	case err := <-served:
@@ -150,5 +208,19 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("drain HTTP: %w", err)
 	}
 	log.Info("HTTP drained")
+	return nil
+}
+
+// announceSetup logs the setup link while nobody can sign in, as a log
+// field and as a plain banner on stderr that is easy to spot in
+// docker compose up or make dev.
+func announceSetup(ctx context.Context, log *slog.Logger, users *auth.Users, fixed string) error {
+	token, err := users.PrepareSetup(ctx, fixed)
+	if err != nil || token == "" {
+		return err
+	}
+	link := users.SetupURL(token)
+	log.Warn("nobody can sign in yet: open the setup link to create the first account", "setup_url", link)
+	fmt.Fprintf(os.Stderr, "\n  uncrm has no account that can sign in yet. Open this link to create the first one:\n\n    %s\n\n  It works once and stays valid until someone uses it.\n\n", link)
 	return nil
 }

@@ -9,48 +9,56 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uncrm/uncrm/internal/crm"
 )
 
-// Human login: email + password, DB-backed session cookie.
+// Human sign-in. A person signs in with one of:
 //
-// Bootstrap: on every boot SeedAdmin inserts ADMIN_EMAIL / ADMIN_PASSWORD
-// ON CONFLICT (email) DO NOTHING. Idempotent across replicas and restarts,
-// needs no shell (Unkey Deploy has none) and no log scraping. Once the admin
-// changes their password in the UI the env value stops mattering.
-// Teammates join through one-time invite links the admin creates.
+//   - a passkey (discoverable, user verification required), complete alone;
+//   - a linked Google, GitHub or OIDC identity, followed by an authenticator
+//     code when the person enrolled one;
+//   - email and password, only when Config.PasswordLogin is on, and always
+//     followed by an authenticator code or a passkey.
 //
-// Passwords: PBKDF2-HMAC-SHA256, 600,000 iterations, 16-byte salt, stored as
-// "pbkdf2-sha256$600000$<salt b64>$<hash b64>" (stdlib crypto/pbkdf2), at
-// least 12 characters.
+// A password alone never yields a session. SignIn is the outcome of one step:
+// a session, or a pending login that waits for its second factor.
+//
+// Every piece of state between two requests lives in Postgres
+// (auth_challenges, setup_tokens, login_failures), so any replica can serve
+// any step.
+//
+// Bootstrap: while nobody can sign in, each boot adds a setup link
+// (PrepareSetup). Its holder registers a passkey or signs in with a
+// configured provider and becomes the first user. Teammates join through
+// one-time invite links.
 //
 // Sessions: the cookie holds 32 random bytes; only their SHA-256 is stored.
 // A session expires after 30 days without use. Each use pushes expires_at
-// out again, written at most once an hour. The browser keeps the cookie for
-// the 400 days browsers allow, so the database alone decides expiry and an
-// active user is never logged out. Cookie attributes: SetSessionCookie.
-// CSRF: httpapi wraps cookie routes in http.CrossOriginProtection.
-//
-// Throttling: login_failures counts failures per email in Postgres, so
-// every replica sees the same count. See loginWait for the policy.
+// and last_seen_at out again, written at most every five minutes. The
+// browser keeps the cookie for the 400 days browsers allow, so the database
+// alone decides expiry. CSRF: httpapi wraps cookie routes in
+// http.CrossOriginProtection.
 type Users struct {
-	db *pgxpool.Pool
+	db        *pgxpool.Pool
+	cfg       Config
+	webauthn  *webauthn.WebAuthn
+	providers map[string]provider
 }
-
-const SessionCookie = "uncrm_session"
 
 const (
 	sessionTTL       = 30 * 24 * time.Hour
-	sessionSlideStep = time.Hour
+	sessionSlideStep = 5 * time.Minute
 	cookieMaxAge     = 400 * 24 * time.Hour
 	inviteTTL        = 7 * 24 * time.Hour
 	minPasswordLen   = 12
@@ -60,19 +68,25 @@ var (
 	errBadLogin = fmt.Errorf("%w: wrong email or password", ErrUnauthorized)
 	// ErrInvalidInvite is a token that is unknown, expired or already used.
 	ErrInvalidInvite = fmt.Errorf("invite link is invalid, expired or already used: %w", crm.ErrNotFound)
+	// ErrReauth asks the person to prove a factor again before changing how
+	// they sign in. Serve it as 403.
+	ErrReauth = errors.New("confirm it's you: sign in again within the last 15 minutes to change how you sign in")
+	// ErrPasswordLoginOff is a password route on an instance without
+	// PASSWORD_LOGIN.
+	ErrPasswordLoginOff = fmt.Errorf("%w: password sign-in is turned off on this instance", crm.ErrNotFound)
 )
 
-// ThrottledError is Login's answer while an email is backing off after
-// repeated failures. Serve it as 429 with a Retry-After header.
+// ThrottledError answers a sign-in attempt while its email, IP or user is
+// backing off after repeated failures. Serve it as 429 with Retry-After.
 type ThrottledError struct {
 	RetryAfter time.Duration // whole seconds, at least 1s
 }
 
 func (e *ThrottledError) Error() string {
-	return fmt.Sprintf("too many failed logins, try again in %s", e.RetryAfter)
+	return fmt.Sprintf("too many failed attempts, try again in %s", e.RetryAfter)
 }
 
-// User is a person who can log into the UI.
+// User is a person who can sign into the UI.
 type User struct {
 	ID        int64     `json:"id"`
 	Email     string    `json:"email"`
@@ -80,30 +94,34 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func NewUsers(db *pgxpool.Pool) *Users { return &Users{db: db} }
-
-// SeedAdmin creates the first user. Both empty is a no-op; the login page
-// then explains which env vars to set when the users table is empty.
-// A short ADMIN_PASSWORD fails every boot, even once the admin exists, so
-// the weak value cannot sit unnoticed in the environment.
-func (u *Users) SeedAdmin(ctx context.Context, email, password string) error {
-	if email == "" {
-		return nil
-	}
-	if utf8.RuneCountInString(password) < minPasswordLen {
-		return fmt.Errorf("ADMIN_PASSWORD must be at least %d characters", minPasswordLen)
-	}
-	hash, err := hashPassword(password)
+// NewUsers checks cfg and builds the relying party and the configured
+// identity providers. Providers discover their endpoints on first use.
+func NewUsers(db *pgxpool.Pool, cfg Config) (*Users, error) {
+	wa, err := webauthn.New(&webauthn.Config{
+		RPID:          cfg.PublicURL.Hostname(),
+		RPDisplayName: "uncrm",
+		RPOrigins:     []string{origin(cfg.PublicURL)},
+	})
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("PUBLIC_URL %s cannot be a WebAuthn relying party: %w", cfg.PublicURL, err)
 	}
-	_, err = u.db.Exec(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING`,
-		normalizeEmail(email), hash)
-	return err
+	u := &Users{db: db, cfg: cfg, webauthn: wa, providers: map[string]provider{}}
+	for _, p := range cfg.Providers {
+		u.providers[p.ID] = newProvider(p, u.callbackURL(p.ID))
+	}
+	return u, nil
+}
+
+func origin(u *url.URL) string { return u.Scheme + "://" + u.Host }
+
+func (u *Users) callbackURL(provider string) string {
+	return u.cfg.PublicURL.JoinPath("auth", "oauth", provider, "callback").String()
 }
 
 const pbkdf2Iterations = 600_000
 
+// hashPassword: PBKDF2-HMAC-SHA256, 600,000 iterations, 16-byte salt,
+// stored as "pbkdf2-sha256$600000$<salt b64>$<hash b64>".
 func hashPassword(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -154,154 +172,47 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-const (
-	freeLoginAttempts  = 5
-	maxLoginBackoff    = 15 * time.Minute
-	loginFailureWindow = time.Hour
-)
-
-// loginWait is how long an email must still wait before its next attempt,
-// given its failure count and the time since the last failure. The first
-// five failures cost nothing. After that each failure doubles the wait,
-// from 1s up to 15 minutes. An hour without failures forgets the count.
-func loginWait(failures int, sinceLast time.Duration) time.Duration {
-	if sinceLast >= loginFailureWindow || failures < freeLoginAttempts {
-		return 0
+func checkEmail(email string) error {
+	if local, domain, ok := strings.Cut(email, "@"); !ok || local == "" || domain == "" || strings.Contains(domain, "@") {
+		return fmt.Errorf("%w: %q is not an email address", crm.ErrInvalid, email)
 	}
-	backoff := min(time.Second<<min(failures-freeLoginAttempts, 20), maxLoginBackoff)
-	return max(backoff-sinceLast, 0)
+	return nil
 }
 
-// Login checks the password and returns a new session cookie value and the
-// session's current expiry. Wrong email and wrong password return the same
-// ErrUnauthorized after the same PBKDF2 work. An email in backoff gets a
-// *ThrottledError before any password check.
-func (u *Users) Login(ctx context.Context, email, password string) (cookie string, expires time.Time, err error) {
+// PasswordLogin checks an email and password. Success is never a session:
+// it is a pending login that needs an authenticator code or a passkey.
+// Wrong email and wrong password return the same ErrUnauthorized after the
+// same PBKDF2 work. An email or IP in backoff gets a *ThrottledError before
+// any password check.
+func (u *Users) PasswordLogin(ctx context.Context, email, password string, c Client) (SignIn, error) {
+	if !u.cfg.PasswordLogin {
+		return SignIn{}, ErrPasswordLoginOff
+	}
 	email = normalizeEmail(email)
-	var failures int
-	var sinceLast float64
-	err = u.db.QueryRow(ctx, `SELECT failures, extract(epoch FROM now() - last_failed_at)::float8 FROM login_failures WHERE email = $1`,
-		email).Scan(&failures, &sinceLast)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return "", time.Time{}, err
+	keys := []string{"email:" + email, c.ipKey()}
+	if err := u.throttled(ctx, keys...); err != nil {
+		return SignIn{}, err
 	}
-	if wait := loginWait(failures, time.Duration(sinceLast*float64(time.Second))); wait > 0 {
-		return "", time.Time{}, &ThrottledError{RetryAfter: wait.Truncate(time.Second) + time.Second}
-	}
-
 	var id int64
+	var stored *string
+	err := u.db.QueryRow(ctx, `SELECT id, password_hash FROM users WHERE email = $1`, email).Scan(&id, &stored)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return SignIn{}, err
+	}
 	hash := dummyHash()
-	err = u.db.QueryRow(ctx, `SELECT id, password_hash FROM users WHERE email = $1`, email).Scan(&id, &hash)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return "", time.Time{}, err
+	if stored != nil {
+		hash = *stored
 	}
-	if !verifyPassword(hash, password) || id == 0 {
-		if err := u.recordFailure(ctx, email); err != nil {
-			return "", time.Time{}, err
+	if !verifyPassword(hash, password) || stored == nil {
+		if err := u.fail(ctx, keys...); err != nil {
+			return SignIn{}, err
 		}
-		return "", time.Time{}, errBadLogin
+		return SignIn{}, errBadLogin
 	}
-	if _, err := u.db.Exec(ctx, `DELETE FROM login_failures WHERE email = $1`, email); err != nil {
-		return "", time.Time{}, err
+	if err := u.clear(ctx, keys[0]); err != nil {
+		return SignIn{}, err
 	}
-	return u.newSession(ctx, id)
-}
-
-func (u *Users) recordFailure(ctx context.Context, email string) error {
-	window := loginFailureWindow.Seconds()
-	if _, err := u.db.Exec(ctx, `
-		INSERT INTO login_failures (email, failures, last_failed_at) VALUES ($1, 1, now())
-		ON CONFLICT (email) DO UPDATE SET
-			failures = CASE WHEN login_failures.last_failed_at < now() - make_interval(secs => $2)
-			           THEN 1 ELSE login_failures.failures + 1 END,
-			last_failed_at = now()`, email, window); err != nil {
-		return err
-	}
-	_, err := u.db.Exec(ctx, `DELETE FROM login_failures WHERE last_failed_at < now() - interval '1 day'`)
-	return err
-}
-
-func (u *Users) newSession(ctx context.Context, userID int64) (string, time.Time, error) {
-	if _, err := u.db.Exec(ctx, `DELETE FROM sessions WHERE expires_at < now()`); err != nil {
-		return "", time.Time{}, err
-	}
-	token := newToken()
-	var expires time.Time
-	err := u.db.QueryRow(ctx, `
-		INSERT INTO sessions (token_hash, user_id, expires_at)
-		VALUES ($1, $2, now() + make_interval(secs => $3)) RETURNING expires_at`,
-		hashToken(token), userID, sessionTTL.Seconds()).Scan(&expires)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	return token, expires, nil
-}
-
-// Session resolves a cookie value to its user, or ErrUnauthorized, and
-// slides the session's expiry.
-func (u *Users) Session(ctx context.Context, cookie string) (crm.Actor, error) {
-	if cookie == "" {
-		return crm.Actor{}, ErrUnauthorized
-	}
-	var id int64
-	var email, name string
-	err := u.db.QueryRow(ctx, `
-		WITH s AS (
-			SELECT s.token_hash, s.expires_at, u.id, u.email, u.name
-			FROM sessions s JOIN users u ON u.id = s.user_id
-			WHERE s.token_hash = $1 AND s.expires_at > now()
-		), slide AS (
-			UPDATE sessions SET expires_at = now() + make_interval(secs => $2::float8) FROM s
-			WHERE sessions.token_hash = s.token_hash
-			  AND s.expires_at < now() + make_interval(secs => $2::float8 - $3::float8)
-		)
-		SELECT id, email, name FROM s`,
-		hashToken(cookie), sessionTTL.Seconds(), sessionSlideStep.Seconds()).Scan(&id, &email, &name)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return crm.Actor{}, ErrUnauthorized
-	}
-	if err != nil {
-		return crm.Actor{}, err
-	}
-	return userActor(id, email, name), nil
-}
-
-func userActor(id int64, email, name string) crm.Actor {
-	label := name
-	if label == "" {
-		label = email
-	}
-	return crm.Actor{Kind: crm.ActorUser, ID: strconv.FormatInt(id, 10), Label: label}
-}
-
-// Logout ends the session. An unknown or empty cookie is already logged out.
-func (u *Users) Logout(ctx context.Context, cookie string) error {
-	if cookie == "" {
-		return nil
-	}
-	_, err := u.db.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, hashToken(cookie))
-	return err
-}
-
-// SetSessionCookie writes the cookie Login and AcceptInvite return:
-// HttpOnly, SameSite=Lax, Secure when the request arrived over HTTPS
-// (directly or via a proxy's X-Forwarded-Proto).
-func SetSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
-	http.SetCookie(w, &http.Cookie{
-		Name: SessionCookie, Value: value, Path: "/",
-		MaxAge: int(cookieMaxAge.Seconds()), HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteLaxMode,
-	})
-}
-
-func ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name: SessionCookie, Path: "/",
-		MaxAge: -1, HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteLaxMode,
-	})
-}
-
-func isHTTPS(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	return u.afterFirstFactor(ctx, id, MethodPassword, c)
 }
 
 // Invite returns a one-time token valid for 7 days. The UI builds the link.
@@ -311,8 +222,8 @@ func (u *Users) Invite(ctx context.Context, by crm.Actor, email string) (token s
 		return "", fmt.Errorf("%w: only a signed-in person can invite", ErrUnauthorized)
 	}
 	email = normalizeEmail(email)
-	if local, domain, ok := strings.Cut(email, "@"); !ok || local == "" || domain == "" || strings.Contains(domain, "@") {
-		return "", fmt.Errorf("%w: %q is not an email address", crm.ErrInvalid, email)
+	if err := checkEmail(email); err != nil {
+		return "", err
 	}
 	var exists bool
 	if err := u.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)`, email).Scan(&exists); err != nil {
@@ -332,70 +243,50 @@ func (u *Users) Invite(ctx context.Context, by crm.Actor, email string) (token s
 	return token, nil
 }
 
-// AcceptInvite creates the user and logs them in. The token works once:
-// claiming it and creating the user commit together, so of two concurrent
-// accepts exactly one succeeds.
-func (u *Users) AcceptInvite(ctx context.Context, token, name, password string) (cookie string, expires time.Time, err error) {
-	if err := checkPassword(password); err != nil {
-		return "", time.Time{}, err
+// InviteEmail is the address a live invite was made for.
+func (u *Users) InviteEmail(ctx context.Context, token string) (string, error) {
+	var email string
+	err := u.db.QueryRow(ctx, `SELECT email FROM invites WHERE token_hash = $1 AND accepted_at IS NULL AND expires_at > now()`,
+		hashToken(token)).Scan(&email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidInvite
 	}
-	hash, err := hashPassword(password)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	var id int64
-	err = pgx.BeginFunc(ctx, u.db, func(tx pgx.Tx) error {
-		var email string
-		err := tx.QueryRow(ctx, `
-			UPDATE invites SET accepted_at = now()
-			WHERE token_hash = $1 AND accepted_at IS NULL AND expires_at > now()
-			RETURNING email`, hashToken(token)).Scan(&email)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrInvalidInvite
-		}
-		if err != nil {
-			return err
-		}
-		err = tx.QueryRow(ctx, `
-			INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3)
-			ON CONFLICT (email) DO NOTHING RETURNING id`,
-			email, strings.TrimSpace(name), hash).Scan(&id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: %s already has an account, log in instead", crm.ErrConflict, email)
-		}
-		return err
-	})
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	return u.newSession(ctx, id)
+	return email, err
 }
 
-func (u *Users) ChangePassword(ctx context.Context, who crm.Actor, oldPassword, newPassword string) error {
-	id := userID(who)
-	if id == nil {
-		return ErrUnauthorized
-	}
-	if err := checkPassword(newPassword); err != nil {
-		return err
-	}
-	var current string
-	err := u.db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, *id).Scan(&current)
+// claimInvite marks the invite used inside tx and returns its email. Of two
+// concurrent claims exactly one succeeds.
+func claimInvite(ctx context.Context, tx pgx.Tx, tokenHash []byte) (string, error) {
+	var email string
+	err := tx.QueryRow(ctx, `
+		UPDATE invites SET accepted_at = now()
+		WHERE token_hash = $1 AND accepted_at IS NULL AND expires_at > now()
+		RETURNING email`, tokenHash).Scan(&email)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrUnauthorized
+		return "", ErrInvalidInvite
 	}
-	if err != nil {
-		return err
+	return email, err
+}
+
+// claimPendingInvite marks any live invite for email used, so social sign-in
+// can accept an invite without its link.
+func claimPendingInvite(ctx context.Context, tx pgx.Tx, email string) (bool, error) {
+	tag, err := tx.Exec(ctx, `UPDATE invites SET accepted_at = now() WHERE email = $1 AND accepted_at IS NULL AND expires_at > now()`, email)
+	return tag.RowsAffected() > 0, err
+}
+
+// createUser inserts a user, or returns crm.ErrConflict when the email
+// already has an account.
+func createUser(ctx context.Context, tx pgx.Tx, email, name string, handle []byte) (int64, error) {
+	var id int64
+	err := tx.QueryRow(ctx, `
+		INSERT INTO users (email, name, webauthn_handle) VALUES ($1, $2, coalesce($3, uuid_send(gen_random_uuid())))
+		RETURNING id`, email, strings.TrimSpace(name), handle).Scan(&id)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return 0, fmt.Errorf("%w: %s already has an account, sign in instead", crm.ErrConflict, email)
 	}
-	if !verifyPassword(current, oldPassword) {
-		return fmt.Errorf("%w: current password is wrong", crm.ErrInvalid)
-	}
-	hash, err := hashPassword(newPassword)
-	if err != nil {
-		return err
-	}
-	_, err = u.db.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2`, hash, *id)
-	return err
+	return id, err
 }
 
 // List returns every user, oldest first.
@@ -407,44 +298,35 @@ func (u *Users) List(ctx context.Context) ([]User, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[User])
 }
 
-// Via says how a request authenticated, which decides the routes it may use.
-type Via int
-
-const (
-	ViaAPIKey Via = iota + 1
-	ViaSession
-)
-
-// Authenticator resolves an inbound request to an actor.
-type Authenticator struct {
-	Keys  KeyStore
-	Users *Users
-}
-
-// Caller reads "Authorization: Bearer <key>" first, then the session cookie.
-// A present but invalid credential never falls through to the other one.
-// Neither present is ErrUnauthorized, an invalid key ErrInvalidKey, an
-// invalid session ErrUnauthorized. Any other error means the key store or
-// database failed, and the request must fail with it.
-func (a *Authenticator) Caller(r *http.Request) (crm.Actor, Via, error) {
-	if h := r.Header.Get("Authorization"); h != "" {
-		scheme, token, ok := strings.Cut(h, " ")
-		if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" {
-			return crm.Actor{}, 0, ErrUnauthorized
+// Remove deletes a teammate with their sessions, passkeys, identities and
+// authenticator. The last user cannot be removed; the advisory lock keeps two
+// people removing each other from emptying the team.
+func (u *Users) Remove(ctx context.Context, by crm.Actor, id int64) error {
+	if userID(by) == nil {
+		return fmt.Errorf("%w: only a signed-in person can remove a teammate", ErrUnauthorized)
+	}
+	return pgx.BeginFunc(ctx, u.db, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.users'))`); err != nil {
+			return err
 		}
-		actor, err := a.Keys.Verify(r.Context(), strings.TrimSpace(token))
+		var n int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1 AND $2 > 1`, id, n)
 		if err != nil {
-			return crm.Actor{}, 0, err
+			return err
 		}
-		return actor, ViaAPIKey, nil
-	}
-	c, err := r.Cookie(SessionCookie)
-	if err != nil {
-		return crm.Actor{}, 0, ErrUnauthorized
-	}
-	actor, err := a.Users.Session(r.Context(), c.Value)
-	if err != nil {
-		return crm.Actor{}, 0, err
-	}
-	return actor, ViaSession, nil
+		if tag.RowsAffected() == 1 {
+			return nil
+		}
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, id).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("%w: the last person on the team cannot be removed", crm.ErrConflict)
+		}
+		return fmt.Errorf("%w: no user %d", crm.ErrNotFound, id)
+	})
 }

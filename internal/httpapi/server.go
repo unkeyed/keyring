@@ -73,14 +73,40 @@ var routes = []route{
 	{"POST /v1/keys", humans, (*server).createKey},
 	{"DELETE /v1/keys/{id}", humans, (*server).revokeKey},
 	{"GET /v1/users", humans, (*server).listUsers},
+	{"DELETE /v1/users/{id}", humans, (*server).removeUser},
 	{"POST /v1/invites", humans, (*server).createInvite},
 	{"GET /v1/me", humans, (*server).me},
-	{"POST /v1/me/password", humans, (*server).changePassword},
+	{"GET /v1/account", humans, (*server).account},
+	{"POST /v1/account/passkeys/begin", humans, (*server).addPasskeyBegin},
+	{"POST /v1/account/passkeys", humans, (*server).addPasskey},
+	{"DELETE /v1/account/passkeys/{id}", humans, (*server).removePasskey},
+	{"DELETE /v1/account/identities/{provider}", humans, (*server).unlinkIdentity},
+	{"POST /v1/account/totp/begin", humans, (*server).totpBegin},
+	{"POST /v1/account/totp", humans, (*server).totpFinish},
+	{"DELETE /v1/account/totp", humans, (*server).totpDisable},
+	{"POST /v1/account/recovery-codes", humans, (*server).regenerateRecoveryCodes},
+	{"PUT /v1/account/password", humans, (*server).setPassword},
+	{"DELETE /v1/account/password", humans, (*server).removePassword},
+	{"DELETE /v1/account/sessions/{id}", humans, (*server).revokeSession},
+	{"POST /v1/account/reauth/passkey/begin", humans, (*server).reauthPasskeyBegin},
+	{"POST /v1/account/reauth/passkey", humans, (*server).reauthPasskey},
+	{"POST /v1/account/reauth/code", humans, (*server).reauthCode},
 
-	{"GET /auth/setup", public, (*server).setup},
-	{"POST /auth/login", public, (*server).login},
+	{"GET /auth/options", public, (*server).authOptions},
+	{"POST /auth/passkey/begin", public, (*server).passkeyBegin},
+	{"POST /auth/passkey/finish", public, (*server).passkeyFinish},
+	{"POST /auth/password", public, (*server).passwordLogin},
+	{"GET /auth/second-factor", public, (*server).secondFactor},
+	{"POST /auth/second-factor/code", public, (*server).secondFactorCode},
+	{"POST /auth/second-factor/passkey/begin", public, (*server).secondFactorPasskeyBegin},
+	{"POST /auth/second-factor/passkey/finish", public, (*server).secondFactorPasskeyFinish},
+	{"GET /auth/oauth/{provider}/start", public, (*server).oauthStart},
+	{"GET /auth/oauth/{provider}/callback", public, (*server).oauthCallback},
+	{"GET /auth/setup/{token}", public, (*server).checkSetup},
+	{"GET /auth/invites/{token}", public, (*server).inviteInfo},
+	{"POST /auth/signup/passkey/begin", public, (*server).signupPasskeyBegin},
+	{"POST /auth/signup/passkey/finish", public, (*server).signupPasskeyFinish},
 	{"POST /auth/logout", public, (*server).logout},
-	{"POST /auth/invites/accept", public, (*server).acceptInvite},
 }
 
 //go:embed openapi.yaml
@@ -166,27 +192,16 @@ func keyStoreErr(err error) error {
 // Body: {"error": "<message>"}, plus "request_id" on a 5xx, whose cause is
 // logged under the same id.
 func (s *server) writeError(w http.ResponseWriter, r *http.Request, err error) {
+	code := statusOf(err)
 	var throttled *auth.ThrottledError
-	var netErr net.Error
-	code := http.StatusInternalServerError
-	switch {
-	case errors.Is(err, crm.ErrInvalid):
-		code = http.StatusBadRequest
-	case errors.Is(err, auth.ErrUnauthorized), errors.Is(err, auth.ErrInvalidKey), errors.Is(err, signup.ErrBadSignature):
-		code = http.StatusUnauthorized
-	case errors.Is(err, errForbidden):
-		code = http.StatusForbidden
-	case errors.Is(err, crm.ErrNotFound), errors.Is(err, crm.ErrUnknownProvider), errors.Is(err, crm.ErrNotConnected):
-		code = http.StatusNotFound
-	case errors.Is(err, crm.ErrConflict):
-		code = http.StatusConflict
-	case errors.As(err, &throttled):
-		code = http.StatusTooManyRequests
+	if errors.As(err, &throttled) {
 		w.Header().Set("Retry-After", strconv.Itoa(int(throttled.RetryAfter.Seconds())))
-	case errors.Is(err, errUnavailable), errors.As(err, &netErr):
-		code = http.StatusServiceUnavailable
 	}
-	if code < 500 {
+	switch {
+	case errors.Is(err, auth.ErrReauth):
+		writeJSON(w, code, map[string]string{"error": err.Error(), "code": "reauth_required"})
+		return
+	case code < 500:
 		writeJSON(w, code, map[string]string{"error": err.Error()})
 		return
 	}
@@ -197,6 +212,28 @@ func (s *server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		msg = "the database or key store is unavailable; retry shortly"
 	}
 	writeJSON(w, code, map[string]string{"error": msg, "request_id": id})
+}
+
+func statusOf(err error) int {
+	var throttled *auth.ThrottledError
+	var netErr net.Error
+	switch {
+	case errors.Is(err, crm.ErrInvalid):
+		return http.StatusBadRequest
+	case errors.Is(err, auth.ErrUnauthorized), errors.Is(err, auth.ErrInvalidKey), errors.Is(err, signup.ErrBadSignature):
+		return http.StatusUnauthorized
+	case errors.Is(err, errForbidden), errors.Is(err, auth.ErrReauth):
+		return http.StatusForbidden
+	case errors.Is(err, crm.ErrNotFound), errors.Is(err, crm.ErrUnknownProvider), errors.Is(err, crm.ErrNotConnected):
+		return http.StatusNotFound
+	case errors.Is(err, crm.ErrConflict):
+		return http.StatusConflict
+	case errors.As(err, &throttled):
+		return http.StatusTooManyRequests
+	case errors.Is(err, errUnavailable), errors.As(err, &netErr):
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusInternalServerError
 }
 
 func requestID() string {

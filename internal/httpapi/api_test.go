@@ -9,28 +9,37 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uncrm/uncrm/internal/auth"
+	"github.com/uncrm/uncrm/internal/authtest"
 	"github.com/uncrm/uncrm/internal/crm"
 	"github.com/uncrm/uncrm/internal/testdb"
 )
 
 const (
-	adminEmail    = "admin@example.com"
-	adminPassword = "correct-horse-battery"
+	adminEmail = "admin@example.com"
+	testOrigin = "http://localhost:8080"
 )
 
 // client calls a test server as a person (session cookie) or an agent
-// (API key), or anonymously when both are empty.
+// (API key), or anonymously when both are empty. pending carries a login
+// waiting for its second factor.
 type client struct {
-	t       *testing.T
-	base    string
-	session string
-	key     string
+	t          *testing.T
+	base       string
+	session    string
+	pending    string
+	key        string
+	setupToken string
+	passkey    *authtest.Passkey
+	db         *pgxpool.Pool
 }
 
 type reply struct {
@@ -61,6 +70,9 @@ func (c client) do(method, path string, body any) reply {
 	}
 	if c.session != "" {
 		req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: c.session})
+	}
+	if c.pending != "" {
+		req.AddCookie(&http.Cookie{Name: auth.PendingCookie, Value: c.pending})
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -124,32 +136,83 @@ func noNullLists(t *testing.T, what string, body []byte) {
 	walk("$", v)
 }
 
-func newServer(t *testing.T) client {
+func newServer(t *testing.T, mod ...func(*auth.Config)) client {
 	t.Helper()
 	pool := testdb.New(t)
-	users := auth.NewUsers(pool)
-	if err := users.SeedAdmin(context.Background(), adminEmail, adminPassword); err != nil {
+	u, _ := url.Parse(testOrigin)
+	cfg := auth.Config{PublicURL: u}
+	for _, m := range mod {
+		m(&cfg)
+	}
+	users, err := auth.NewUsers(pool, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := users.PrepareSetup(context.Background(), "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	authn := &auth.Authenticator{Keys: auth.NewKeyStore(pool, auth.UnkeyConfig{}), Users: users}
 	srv := httptest.NewServer(NewMux(crm.New(pool, nil), authn, slog.New(slog.DiscardHandler)))
 	t.Cleanup(srv.Close)
-	return client{t: t, base: srv.URL}
+	return client{t: t, base: srv.URL, setupToken: token, db: pool}
 }
 
-// login returns c as the seeded admin and an agent holding a fresh key.
-func login(t *testing.T, c client) (person, agent client) {
-	t.Helper()
-	r := c.call("POST", "/auth/login", map[string]string{"email": adminEmail, "password": adminPassword}, http.StatusNoContent, nil)
-	person = c
+func cookieValue(r reply, name string) string {
 	for _, ck := range (&http.Response{Header: r.header}).Cookies() {
-		if ck.Name == auth.SessionCookie {
-			person.session = ck.Value
+		if ck.Name == name && ck.MaxAge >= 0 {
+			return ck.Value
 		}
 	}
-	if person.session == "" {
-		t.Fatal("login set no session cookie")
+	return ""
+}
+
+type ceremony struct {
+	Handle  string          `json:"handle"`
+	Options json.RawMessage `json:"options"`
+}
+
+// signup registers a passkey through POST /auth/signup/passkey/* and
+// returns c signed in as the new user.
+func (c client) signup(body map[string]string) client {
+	c.t.Helper()
+	var begun ceremony
+	c.call("POST", "/auth/signup/passkey/begin", body, http.StatusOK, &begun)
+	pk, cred, err := authtest.NewPasskey(testOrigin, begun.Options)
+	if err != nil {
+		c.t.Fatal(err)
 	}
+	var res struct{ Status string }
+	r := c.call("POST", "/auth/signup/passkey/finish", map[string]any{"handle": begun.Handle, "credential": cred}, http.StatusOK, &res)
+	if res.Status != "signed_in" {
+		c.t.Fatalf("signup answered %q, want signed_in", res.Status)
+	}
+	c.session, c.passkey = cookieValue(r, auth.SessionCookie), pk
+	if c.session == "" {
+		c.t.Fatal("signup set no session cookie")
+	}
+	return c
+}
+
+// passkeyLogin signs in with pk through POST /auth/passkey/*.
+func (c client) passkeyLogin(pk *authtest.Passkey) client {
+	c.t.Helper()
+	var begun ceremony
+	c.call("POST", "/auth/passkey/begin", nil, http.StatusOK, &begun)
+	cred, err := pk.Sign(begun.Options)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	r := c.call("POST", "/auth/passkey/finish", map[string]any{"handle": begun.Handle, "credential": cred}, http.StatusOK, nil)
+	c.session, c.passkey = cookieValue(r, auth.SessionCookie), pk
+	return c
+}
+
+// login returns c as the first user, created through the setup link with a
+// passkey, and an agent holding a fresh key.
+func login(t *testing.T, c client) (person, agent client) {
+	t.Helper()
+	person = c.signup(map[string]string{"setup_token": c.setupToken, "email": adminEmail})
 	var key struct {
 		Key    string `json:"key"`
 		Prefix string `json:"prefix"`
@@ -317,17 +380,23 @@ func TestErrorStatuses(t *testing.T) {
 	}
 }
 
-func TestLoginThrottleAndSessions(t *testing.T) {
+func TestSignInAndOut(t *testing.T) {
 	c := newServer(t)
-	var setup struct {
-		HasUsers bool `json:"has_users"`
+	var opts auth.Options
+	c.call("GET", "/auth/options", nil, http.StatusOK, &opts)
+	if !opts.SetupRequired || opts.PasswordLogin || len(opts.Providers) != 0 {
+		t.Fatalf("options before setup = %+v", opts)
 	}
-	c.call("GET", "/auth/setup", nil, http.StatusOK, &setup)
-	if !setup.HasUsers {
-		t.Fatal("setup says no users after SeedAdmin")
-	}
+	c.call("GET", "/auth/setup/"+c.setupToken, nil, http.StatusNoContent, nil)
 
 	person, _ := login(t, c)
+	c.call("GET", "/auth/options", nil, http.StatusOK, &opts)
+	if opts.SetupRequired {
+		t.Fatal("options still ask for setup after the first user")
+	}
+	c.call("GET", "/auth/setup/"+c.setupToken, nil, http.StatusNotFound, nil)
+	c.call("POST", "/auth/signup/passkey/begin", map[string]string{"setup_token": c.setupToken, "email": "eve@example.com"}, http.StatusNotFound, nil)
+
 	var me crm.Actor
 	person.call("GET", "/v1/me", nil, http.StatusOK, &me)
 	if me.Kind != crm.ActorUser || me.Label != adminEmail {
@@ -336,11 +405,46 @@ func TestLoginThrottleAndSessions(t *testing.T) {
 	person.call("POST", "/auth/logout", nil, http.StatusNoContent, nil)
 	person.call("GET", "/v1/me", nil, http.StatusUnauthorized, nil)
 
+	again := c.passkeyLogin(person.passkey)
+	again.call("GET", "/v1/me", nil, http.StatusOK, nil)
+	c.call("POST", "/auth/password", map[string]string{"email": adminEmail, "password": "anything-at-all"}, http.StatusNotFound, nil)
+}
+
+func TestPasswordNeedsASecondFactor(t *testing.T) {
+	c := newServer(t, func(cfg *auth.Config) { cfg.PasswordLogin = true })
+	person, _ := login(t, c)
+	person.call("PUT", "/v1/account/password", map[string]string{"password": "correct-horse-battery"}, http.StatusNoContent, nil)
+
+	var res struct {
+		Status        string   `json:"status"`
+		SecondFactors []string `json:"second_factors"`
+	}
+	r := c.call("POST", "/auth/password", map[string]string{"email": adminEmail, "password": "correct-horse-battery"}, http.StatusOK, &res)
+	if res.Status != "second_factor" || cookieValue(r, auth.SessionCookie) != "" {
+		t.Fatalf("password sign-in answered %+v with a session cookie %q; a password alone must never sign in", res, cookieValue(r, auth.SessionCookie))
+	}
+	pending := c
+	pending.pending = cookieValue(r, auth.PendingCookie)
+	pending.call("GET", "/auth/second-factor", nil, http.StatusOK, &res)
+	if !slices.Equal(res.SecondFactors, []string{"passkey"}) {
+		t.Fatalf("second factors %v, want passkey", res.SecondFactors)
+	}
+	var begun ceremony
+	pending.call("POST", "/auth/second-factor/passkey/begin", nil, http.StatusOK, &begun)
+	cred, err := person.passkey.Sign(begun.Options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = pending.call("POST", "/auth/second-factor/passkey/finish", map[string]any{"handle": begun.Handle, "credential": cred}, http.StatusOK, &res)
+	if res.Status != "signed_in" || cookieValue(r, auth.SessionCookie) == "" {
+		t.Fatalf("second factor answered %+v", res)
+	}
+
 	wrong := map[string]string{"email": adminEmail, "password": "wrong-password-123"}
 	for range 5 {
-		c.call("POST", "/auth/login", wrong, http.StatusUnauthorized, nil)
+		c.call("POST", "/auth/password", wrong, http.StatusUnauthorized, nil)
 	}
-	r := c.call("POST", "/auth/login", wrong, http.StatusTooManyRequests, nil)
+	r = c.call("POST", "/auth/password", wrong, http.StatusTooManyRequests, nil)
 	if r.header.Get("Retry-After") == "" || r.header.Get("Retry-After") == "0" {
 		t.Fatalf("429 Retry-After = %q, want whole seconds", r.header.Get("Retry-After"))
 	}
@@ -351,17 +455,129 @@ func TestInviteFlow(t *testing.T) {
 	person, _ := login(t, c)
 	var inv struct{ Token string }
 	person.call("POST", "/v1/invites", map[string]string{"email": "grace@example.com"}, http.StatusCreated, &inv)
-
-	r := c.call("POST", "/auth/invites/accept", map[string]string{"token": inv.Token, "name": "Grace", "password": "cobol-forever-1959"}, http.StatusNoContent, nil)
-	if !strings.Contains(r.header.Get("Set-Cookie"), auth.SessionCookie+"=") {
-		t.Fatal("accepting an invite set no session cookie")
+	var info struct{ Email string }
+	c.call("GET", "/auth/invites/"+inv.Token, nil, http.StatusOK, &info)
+	if info.Email != "grace@example.com" {
+		t.Fatalf("invite email %q", info.Email)
 	}
-	c.call("POST", "/auth/invites/accept", map[string]string{"token": inv.Token, "name": "Grace", "password": "cobol-forever-1959"}, http.StatusNotFound, nil)
+
+	grace := c.signup(map[string]string{"invite_token": inv.Token, "name": "Grace"})
+	var me crm.Actor
+	grace.call("GET", "/v1/me", nil, http.StatusOK, &me)
+	if me.Label != "Grace" {
+		t.Fatalf("invited user's session is %+v", me)
+	}
+	c.call("POST", "/auth/signup/passkey/begin", map[string]string{"invite_token": inv.Token, "name": "Grace"}, http.StatusNotFound, nil)
+	c.call("GET", "/auth/invites/"+inv.Token, nil, http.StatusNotFound, nil)
 
 	var users []auth.User
 	person.call("GET", "/v1/users", nil, http.StatusOK, &users)
 	if len(users) != 2 || users[1].Name != "Grace" {
 		t.Fatalf("users = %+v, want the admin and Grace", users)
+	}
+
+	person.call("DELETE", fmt.Sprintf("/v1/users/%d", users[1].ID), nil, http.StatusNoContent, nil)
+	grace.call("GET", "/v1/me", nil, http.StatusUnauthorized, nil)
+	person.call("DELETE", fmt.Sprintf("/v1/users/%d", users[0].ID), nil, http.StatusConflict, nil)
+}
+
+func TestAccountChangesNeedARecentSignIn(t *testing.T) {
+	c := newServer(t)
+	person, _ := login(t, c)
+	var account auth.Account
+	person.call("GET", "/v1/account", nil, http.StatusOK, &account)
+	if !account.Recent || len(account.Passkeys) != 1 || len(account.Sessions) != 1 || !account.Sessions[0].Current {
+		t.Fatalf("account = %+v", account)
+	}
+
+	if _, err := c.db.Exec(context.Background(), `UPDATE sessions SET authenticated_at = now() - interval '1 hour'`); err != nil {
+		t.Fatal(err)
+	}
+	r := person.call("POST", "/v1/account/totp/begin", nil, http.StatusForbidden, nil)
+	var e struct{ Code string }
+	if err := json.Unmarshal(r.body, &e); err != nil || e.Code != "reauth_required" {
+		t.Fatalf("stale session changing sign-in methods: %s, want code reauth_required", r.body)
+	}
+
+	var begun ceremony
+	person.call("POST", "/v1/account/reauth/passkey/begin", nil, http.StatusOK, &begun)
+	cred, err := person.passkey.Sign(begun.Options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	person.call("POST", "/v1/account/reauth/passkey", map[string]any{"handle": begun.Handle, "credential": cred}, http.StatusNoContent, nil)
+	person.call("POST", "/v1/account/totp/begin", nil, http.StatusOK, nil)
+}
+
+func TestOAuthSignInSetsCookiesAndRedirects(t *testing.T) {
+	iss := authtest.NewIssuer()
+	defer iss.Close()
+	c := newServer(t, func(cfg *auth.Config) {
+		cfg.Providers = []auth.ProviderConfig{{ID: "oidc", Name: "Acme SSO", ClientID: "uncrm", ClientSecret: "s3cret", Issuer: iss.URL}}
+	})
+	login(t, c)
+	jar, _ := cookiejar.New(nil)
+	browser := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	get := func(u string) *http.Response {
+		t.Helper()
+		res, err := browser.Get(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	base, _ := url.Parse(c.base)
+	toServer := func(loc string) string {
+		u, err := url.Parse(loc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.Scheme, u.Host = base.Scheme, base.Host
+		return u.String()
+	}
+
+	iss.SetNext(authtest.Identity{Subject: "mallory", Email: "mallory@evil.com", EmailVerified: true})
+	res := get(c.base + "/auth/oauth/oidc/start?next=/contacts")
+	res = get(res.Header.Get("Location"))
+	res = get(toServer(res.Header.Get("Location")))
+	if loc := res.Header.Get("Location"); !strings.HasPrefix(loc, "/login?error=") {
+		t.Fatalf("a stranger's callback redirected to %q, want /login?error=", loc)
+	}
+
+	iss.SetNext(authtest.Identity{Subject: "admin", Email: adminEmail, EmailVerified: true})
+	res = get(c.base + "/auth/oauth/oidc/start?next=/contacts")
+	if res.StatusCode != http.StatusSeeOther || !strings.HasPrefix(res.Header.Get("Location"), iss.URL+"/authorize") {
+		t.Fatalf("start = %d to %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	callback := toServer(get(res.Header.Get("Location")).Header.Get("Location"))
+
+	stranger := &http.Client{CheckRedirect: browser.CheckRedirect}
+	other, err := stranger.Get(callback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Body.Close()
+	if loc := other.Header.Get("Location"); !strings.HasPrefix(loc, "/login?error=") {
+		t.Fatalf("callback in another browser redirected to %q, want an error", loc)
+	}
+
+	res = get(callback)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/contacts" {
+		t.Fatalf("callback = %d to %q, want 303 to /contacts", res.StatusCode, res.Header.Get("Location"))
+	}
+	var session string
+	for _, ck := range jar.Cookies(base) {
+		if ck.Name == auth.SessionCookie {
+			session = ck.Value
+		}
+	}
+	signedIn := c
+	signedIn.session = session
+	var me crm.Actor
+	signedIn.call("GET", "/v1/me", nil, http.StatusOK, &me)
+	if me.Label != adminEmail {
+		t.Fatalf("OIDC sign-in is %+v", me)
 	}
 }
 
@@ -375,7 +591,12 @@ func (downKeys) Verify(context.Context, string) (crm.Actor, error) {
 
 func TestKeyStoreOutageIs503(t *testing.T) {
 	pool := testdb.New(t)
-	authn := &auth.Authenticator{Keys: downKeys{}, Users: auth.NewUsers(pool)}
+	u, _ := url.Parse(testOrigin)
+	users, err := auth.NewUsers(pool, auth.Config{PublicURL: u})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authn := &auth.Authenticator{Keys: downKeys{}, Users: users}
 	srv := httptest.NewServer(NewMux(crm.New(pool, nil), authn, slog.New(slog.DiscardHandler)))
 	t.Cleanup(srv.Close)
 	r := client{t: t, base: srv.URL, key: "uncrm_whatever"}.do("GET", "/v1/contacts", nil)
