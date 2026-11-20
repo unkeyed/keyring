@@ -215,9 +215,9 @@ export function Contacts() {
             </EmptyState>
           </div>
         ) : wide ? (
-          <table className="w-full table-fixed border-collapse text-sm" aria-label="Contacts">
+          <table className="w-full table-fixed border-separate border-spacing-0 text-sm" aria-label="Contacts">
             <thead className="sticky top-0 z-10 bg-header">
-              <tr className="border-b border-line text-left text-xs whitespace-nowrap text-muted">
+              <tr className="text-left text-xs whitespace-nowrap text-muted [&>th]:border-b [&>th]:border-line">
                 <th scope="col" className="py-2 pr-3 pl-5 font-medium">Person</th>
                 <th scope="col" className="w-[24%] px-3 py-2 font-medium">Company</th>
                 <th scope="col" className="w-24 px-3 py-2 font-medium">Stage</th>
@@ -280,7 +280,7 @@ function ContactRow({ c, index, selected, onOpen, onHover }: { c: Contact; index
       aria-current={selected || undefined}
       onClick={onOpen}
       onMouseMove={selected ? undefined : onHover}
-      className={cx("h-12 scroll-mt-9 border-b border-line transition-colors", selected ? "bg-subtle" : "hover:bg-subtle")}
+      className={cx("h-12 scroll-mt-9 transition-colors [&>td]:border-b [&>td]:border-line", selected ? "bg-subtle" : "hover:bg-subtle")}
     >
       <td className={cx("py-1.5 pr-3 pl-5", selected && "shadow-[inset_2px_0_0_var(--fg)]")}>
         <div className="flex min-w-0 items-center gap-2.5">

@@ -81,9 +81,9 @@ export function Companies() {
             </EmptyState>
           </div>
         ) : wide ? (
-          <table className="w-full table-fixed border-collapse text-sm" aria-label="Companies">
+          <table className="w-full table-fixed border-separate border-spacing-0 text-sm" aria-label="Companies">
             <thead className="sticky top-0 z-10 bg-header">
-              <tr className="border-b border-line text-left text-xs whitespace-nowrap text-muted">
+              <tr className="text-left text-xs whitespace-nowrap text-muted [&>th]:border-b [&>th]:border-line">
                 <th scope="col" className="py-2 pr-3 pl-5 font-medium">Company</th>
                 <th scope="col" className="w-[22%] px-3 py-2 font-medium">Industry</th>
                 <th scope="col" className="hidden w-28 px-3 py-2 font-medium lg:table-cell">Employees</th>
@@ -121,7 +121,7 @@ const dash = <span className="text-faint">—</span>;
 function CompanyRow({ c, status, onOpen }: { c: Company; status: Status | undefined; onOpen: () => void }) {
   const label = companyLabel(c);
   return (
-    <tr onClick={onOpen} className="h-12 border-b border-line transition-colors hover:bg-subtle">
+    <tr onClick={onOpen} className="h-12 transition-colors hover:bg-subtle [&>td]:border-b [&>td]:border-line">
       <td className="py-1.5 pr-3 pl-5">
         <div className="flex min-w-0 items-center gap-2.5">
           <Avatar src={c.logo_url} label={label} size={28} square />
