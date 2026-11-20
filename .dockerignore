@@ -1,5 +1,4 @@
 .git
-.audit
 bin
 web/node_modules
 web/dist

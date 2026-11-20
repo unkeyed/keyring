@@ -1,7 +1,0 @@
---- PASS: TestHealthz (0.00s)
---- PASS: TestOpenAPIIsPublic (0.00s)
---- PASS: TestClerkWebhookCreatesOneContact (0.15s)
---- PASS: TestGenericSignupIsIdempotent (0.00s)
---- PASS: TestContactsListAndSearch (0.00s)
---- PASS: TestMCPSearchContacts (0.01s)
-ok  	github.com/uncrm/uncrm/e2e	0.314s

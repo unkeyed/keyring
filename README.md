@@ -104,7 +104,7 @@ Scripts, backends and REST agents authenticate with API keys. The MCP server doe
 - Postgres holds all state. Keyring applies its migrations when it starts.
 - `internal/signup` has one file per auth provider that verifies and parses its webhooks.
 - `internal/crm` does every read and write, and REST, MCP, and the UI all call it.
-- Every write is an upsert on a natural key, so retries, replays, and replicas end in the same state. [docs/design.md](docs/design.md) explains why.
+- Every write is an upsert on a natural key, so retries, replays, and replicas end in the same state.
 
 ## License
 

@@ -1,6 +1,6 @@
 # Contributing to Keyring
 
-This page covers running Keyring from source, the checks a change has to pass, and the most common contribution: a new auth provider. Read [docs/design.md](docs/design.md) before a larger change. It explains how the packages fit together and why.
+This page covers running Keyring from source, the checks a change has to pass, and the most common contribution: a new auth provider.
 
 ## Run Keyring from source
 

@@ -23,9 +23,8 @@ const origin = "https://kyring.dev";
 const sections = [
   { title: "Get started", pages: ["self-hosting", "deploy-unkey", "configuration", "sign-in", "agents"] },
   { title: "Auth providers", pages: ["providers/clerk", "providers/workos", "providers/better-auth", "providers/supabase", "providers/auth0", "providers/stytch"] },
-  { title: "Internals", pages: ["design"] },
 ];
-const navLabels = { "self-hosting": "Self-host", "deploy-unkey": "Deploy on Unkey", agents: "Agents", design: "Design" };
+const navLabels = { "self-hosting": "Self-host", "deploy-unkey": "Deploy on Unkey", agents: "Agents" };
 
 const escape = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
