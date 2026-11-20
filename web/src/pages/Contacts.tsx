@@ -3,8 +3,10 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, parseID, type CompanyID, type Contact, type ContactQuery } from "../api";
 import { companyLabel, contactLabel } from "../format";
-import { keys, useProviders, useStages, useStatus, useTags } from "../queries";
-import { Avatar, Badge, Button, cx, EmptyState, ErrorNote, Icon, inputClass, Kbd, PageHeader, PageSpinner, RelativeTime, selectClass, useWide } from "../ui";
+import { keys, usePrefetch, useProviders, useStages, useStatus, useTags } from "../queries";
+import { Avatar, Badge, Button, cx, EmptyState, ErrorNote, Icon, inputClass, Kbd, ListSkeleton, listShortcuts, PageHeader, ProgressBar, RelativeTime, selectClass, SearchKbd, ShortcutsHelp, useWide } from "../ui";
+import { NewContactDialog } from "../components/CreateDialogs";
+import { useRowNav } from "../components/RowNav";
 import { Onboarding } from "./Onboarding";
 
 const ranges = {
@@ -104,79 +106,51 @@ export function Contacts() {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor || undefined,
     placeholderData: (prev) => prev,
-    // New sign-ups show up without a reload; faster while waiting for the first.
-    // Paged-in lists stay put, since a refetch would re-request every page.
+    // New sign-ups show up without a reload; faster while waiting for the very
+    // first. Paged-in lists stay put, since a refetch would re-request every page.
     refetchInterval: (q) => {
       const pages = q.state.data?.pages ?? [];
       if (pages.length > 1) return false;
-      return pages[0]?.items?.length ? 15_000 : 4_000;
+      if (pages[0]?.items?.length) return 15_000;
+      return filtered ? false : 4_000;
     },
   });
   const rows = list.data?.pages.flatMap((p) => p.items ?? []) ?? [];
   const empty = list.isSuccess && rows.length === 0;
+  const stale = list.isPlaceholderData;
 
-  const [selected, setSelected] = useState(0);
+  const [creating, setCreating] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  const filterKey = params.toString();
-  useEffect(() => setSelected(0), [filterKey]);
-
-  // Declared after the reset above, so coming Back reselects the row that was opened.
-  useEffect(() => {
-    if (lastOpened == null || rows.length === 0) return;
-    const i = rows.findIndex((r) => r.id === lastOpened);
-    if (i >= 0) setSelected(i);
-    lastOpened = null;
-  }, [rows]);
-
-  const sel = Math.min(selected, Math.max(rows.length - 1, 0));
-
-  useEffect(() => {
-    listRef.current?.querySelector(`[data-row="${sel}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+  const prefetch = usePrefetch();
 
   const open = (c: Contact) => {
     lastOpened = c.id;
-    void navigate(`/contacts/${c.id}`);
+    void navigate(`/contacts/${c.id}`, { viewTransition: true });
   };
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const t = e.target as HTMLElement;
-      const typing = t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName);
-      if (typing) {
-        if (e.key === "Escape" && t === searchRef.current) searchRef.current.blur();
-        if ((e.key === "ArrowDown" || e.key === "Enter") && t === searchRef.current && rows.length) {
-          e.preventDefault();
-          searchRef.current.blur();
-          if (e.key === "Enter") open(rows[sel]);
-        }
-        return;
-      }
-      if (document.querySelector("dialog[open]")) return;
-      const onControl = t.closest("button, a") !== null;
-      if (e.key === "/") {
-        e.preventDefault();
-        searchRef.current?.focus();
-        searchRef.current?.select();
-      } else if (e.key === "j" || e.key === "ArrowDown") {
-        e.preventDefault();
-        const next = Math.min(sel + 1, rows.length - 1);
-        setSelected(next);
-        if (next >= rows.length - 5 && list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
-      } else if (e.key === "k" || e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelected(Math.max(sel - 1, 0));
-      } else if ((e.key === "Enter" || e.key === "o") && rows[sel] && !onControl) {
-        e.preventDefault();
-        open(rows[sel]);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+  const nav = useRowNav({
+    count: rows.length,
+    listRef,
+    searchRef,
+    onOpen: (i) => rows[i] && open(rows[i]),
+    onNew: () => setCreating(true),
+    onNearEnd: () => list.hasNextPage && !list.isFetchingNextPage && void list.fetchNextPage(),
   });
+
+  const filterKey = params.toString();
+  const { select, focusRow } = nav;
+  useEffect(() => select(0), [filterKey, select]);
+
+  // Declared after the reset above, so coming Back returns to the row that was opened.
+  useEffect(() => {
+    if (lastOpened == null || !list.data) return;
+    const i = list.data.pages.flatMap((p) => p.items ?? []).findIndex((r) => r.id === lastOpened);
+    lastOpened = null;
+    if (i < 0) return;
+    select(i);
+    focusRow(i);
+  }, [list.data, select, focusRow]);
 
   const total = status.data?.contacts;
   const clear = () => setParams({}, { replace: true });
@@ -191,17 +165,22 @@ export function Contacts() {
           </>
         }
       >
-        <span className={cx("hidden items-center gap-1 text-xs text-faint", (filtered || !empty) && "xl:flex")}>
-          <Kbd>/</Kbd> search <Kbd>j</Kbd>
-          <Kbd>k</Kbd> move <Kbd>↵</Kbd> open
-        </span>
+        {(filtered || !empty) && <ShortcutsHelp shortcuts={listShortcuts("contact")} />}
+        <Button variant="primary" size="sm" onClick={() => setCreating(true)} aria-label="New contact" title="New contact (n)">
+          <Icon name="plus" className="size-3.5" />
+          <span className="hidden sm:inline">New contact</span>
+          <span className="ml-0.5 hidden md:contents">
+            <Kbd inverse>N</Kbd>
+          </span>
+        </Button>
       </PageHeader>
+      <NewContactDialog open={creating} onClose={() => setCreating(false)} />
 
-      {(filtered || !empty) && <Toolbar filters={filters} setFilter={setFilter} searchRef={searchRef} filtered={filtered} wide={wide} onClear={clear} />}
+      {(filtered || !empty) && <Toolbar filters={filters} setFilter={setFilter} searchRef={searchRef} filtered={filtered} wide={wide} onClear={clear} busy={stale} />}
 
-      <div ref={listRef} className="min-h-0 flex-1 overflow-auto">
+      <div ref={listRef} aria-busy={stale || list.isPending} className={cx("relative min-h-0 flex-1 overflow-auto transition-opacity", stale && "opacity-60")}>
         {list.isPending ? (
-          <PageSpinner />
+          <ListSkeleton />
         ) : list.isError && rows.length === 0 ? (
           <div className="p-5">
             <ErrorNote error={list.error} />
@@ -228,14 +207,14 @@ export function Contacts() {
             </thead>
             <tbody>
               {rows.map((c, i) => (
-                <ContactRow key={c.id} c={c} index={i} selected={i === sel} onOpen={() => open(c)} onHover={() => setSelected(i)} />
+                <ContactRow key={c.id} c={c} row={nav.rowProps(i)} onOpen={() => open(c)} onPrefetch={() => prefetch.contact(c.id)} />
               ))}
             </tbody>
           </table>
         ) : (
           <ul aria-label="Contacts" className="divide-y divide-line">
             {rows.map((c, i) => (
-              <ContactItem key={c.id} c={c} index={i} onOpen={() => (lastOpened = c.id)} />
+              <ContactItem key={c.id} c={c} row={nav.rowProps(i)} onOpen={() => (lastOpened = c.id)} onPrefetch={() => prefetch.contact(c.id)} />
             ))}
           </ul>
         )}
@@ -272,21 +251,23 @@ function TagCell({ tags }: { tags: string[] }) {
   );
 }
 
-function ContactRow({ c, index, selected, onOpen, onHover }: { c: Contact; index: number; selected: boolean; onOpen: () => void; onHover: () => void }) {
+type RowProps = ReturnType<ReturnType<typeof useRowNav>["rowProps"]>;
+
+function ContactRow({ c, row, onOpen, onPrefetch }: { c: Contact; row: RowProps; onOpen: () => void; onPrefetch: () => void }) {
   const label = contactLabel(c);
   return (
     <tr
-      data-row={index}
-      aria-current={selected || undefined}
+      {...row}
+      onFocus={() => (row.onFocus(), onPrefetch())}
+      onMouseEnter={onPrefetch}
       onClick={onOpen}
-      onMouseMove={selected ? undefined : onHover}
-      className={cx("h-12 scroll-mt-9 transition-colors [&>td]:border-b [&>td]:border-line", selected ? "bg-subtle" : "hover:bg-subtle")}
+      className="group/row h-12 scroll-mt-9 transition-colors outline-none hover:bg-subtle focus-visible:bg-subtle [&>td]:border-b [&>td]:border-line"
     >
-      <td className={cx("py-1.5 pr-3 pl-5", selected && "shadow-[inset_2px_0_0_var(--fg)]")}>
+      <td className="py-1.5 pr-3 pl-5 group-focus-visible/row:shadow-[inset_2px_0_0_var(--fg)]">
         <div className="flex min-w-0 items-center gap-2.5">
           <Avatar src={c.avatar_url} label={label} size={28} />
           <div className="min-w-0">
-            <Link to={`/contacts/${c.id}`} onClick={(e) => e.stopPropagation()} className="block truncate font-medium hover:underline" tabIndex={-1} title={label}>
+            <Link to={`/contacts/${c.id}`} viewTransition onClick={(e) => e.stopPropagation()} className="block truncate font-medium hover:underline" tabIndex={-1} title={label}>
               {label}
             </Link>
             {c.name && (
@@ -306,7 +287,7 @@ function ContactRow({ c, index, selected, onOpen, onHover }: { c: Contact; index
       <td className="px-3">
         <TagCell tags={c.tags ?? []} />
       </td>
-      <td className="hidden truncate px-3 text-xs text-muted xl:table-cell">{(c.providers ?? []).join(", ") || <span className="text-faint">api</span>}</td>
+      <td className="hidden truncate px-3 text-xs text-muted xl:table-cell">{(c.providers ?? []).join(", ") || <span className="text-faint">manual</span>}</td>
       <td className="py-1.5 pr-5 pl-3 text-right text-xs whitespace-nowrap text-muted">
         <RelativeTime iso={c.first_seen_at} />
       </td>
@@ -314,11 +295,19 @@ function ContactRow({ c, index, selected, onOpen, onHover }: { c: Contact; index
   );
 }
 
-function ContactItem({ c, index, onOpen }: { c: Contact; index: number; onOpen: () => void }) {
+function ContactItem({ c, row, onOpen, onPrefetch }: { c: Contact; row: RowProps; onOpen: () => void; onPrefetch: () => void }) {
   const label = contactLabel(c);
   return (
-    <li data-row={index}>
-      <Link to={`/contacts/${c.id}`} onClick={onOpen} className="flex items-center gap-3 px-4 py-2.5 transition-colors active:bg-subtle">
+    <li>
+      <Link
+        to={`/contacts/${c.id}`}
+        viewTransition
+        {...row}
+        onFocus={() => (row.onFocus(), onPrefetch())}
+        onPointerDown={onPrefetch}
+        onClick={onOpen}
+        className="flex items-center gap-3 px-4 py-2.5 transition-colors outline-none focus-visible:bg-subtle active:bg-subtle"
+      >
         <Avatar src={c.avatar_url} label={label} size={32} />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{label}</div>
@@ -340,6 +329,7 @@ function Toolbar({
   filtered,
   wide,
   onClear,
+  busy,
 }: {
   filters: Filters;
   setFilter: (p: Partial<Record<keyof Filters, string>>) => void;
@@ -347,6 +337,7 @@ function Toolbar({
   filtered: boolean;
   wide: boolean;
   onClear: () => void;
+  busy: boolean;
 }) {
   const stages = useStages();
   const tags = useTags();
@@ -364,21 +355,23 @@ function Toolbar({
     return () => window.clearTimeout(t);
   });
 
-  const select = cx(selectClass, "w-full md:w-auto");
+  const select = cx(selectClass, "w-full md:w-auto md:min-w-0 md:max-w-40 md:flex-1");
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2.5 md:px-5">
-      <div className="relative min-w-0 flex-1 md:w-64 md:flex-none">
+    <div className="relative flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2.5 md:px-5">
+      <ProgressBar active={busy} />
+      <div className="relative min-w-0 flex-1 md:max-w-64 md:min-w-44 md:flex-[1.5]">
         <Icon name="search" className="pointer-events-none absolute top-2 left-2.5 size-4 text-faint" />
         <input
           ref={searchRef}
           type="search"
           aria-label="Search contacts"
-          placeholder="Search name, email, company"
+          placeholder="Search contacts"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          className={cx(inputClass, "pl-8")}
+          className={cx(inputClass, "peer pl-8 lg:pr-8")}
         />
+          <SearchKbd />
       </div>
       {!wide && (
         <Button onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters} aria-controls="contact-filters">

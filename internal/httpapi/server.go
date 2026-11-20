@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/uncrm/uncrm/internal/auth"
 	"github.com/uncrm/uncrm/internal/crm"
@@ -48,21 +49,27 @@ var routes = []route{
 
 	{"POST /v1/signups", anyone, (*server).createSignup},
 	{"GET /v1/contacts", anyone, (*server).searchContacts},
+	{"POST /v1/contacts", anyone, (*server).createContact},
 	{"GET /v1/contacts/{id}", anyone, (*server).getContact},
 	{"PATCH /v1/contacts/{id}", anyone, (*server).updateContact},
+	{"DELETE /v1/contacts/{id}", anyone, (*server).deleteContact},
+	{"POST /v1/contacts/bulk", anyone, (*server).bulkUpdateContacts},
 	{"DELETE /v1/contacts/{id}/manual_fields/{field}", anyone, (*server).resetContactField},
 	{"POST /v1/contacts/{id}/merge", anyone, (*server).mergeContacts},
 	{"POST /v1/contacts/{id}/notes", anyone, (*server).addNote},
 	{"DELETE /v1/notes/{id}", anyone, (*server).deleteNote},
 	{"POST /v1/contacts/{id}/enrich", anyone, (*server).enrichContact},
 	{"GET /v1/companies", anyone, (*server).searchCompanies},
+	{"POST /v1/companies", anyone, (*server).createCompany},
 	{"GET /v1/companies/{id}", anyone, (*server).getCompany},
 	{"PATCH /v1/companies/{id}", anyone, (*server).updateCompany},
+	{"DELETE /v1/companies/{id}", anyone, (*server).deleteCompany},
 	{"DELETE /v1/companies/{id}/manual_fields/{field}", anyone, (*server).resetCompanyField},
 	{"POST /v1/companies/{id}/enrich", anyone, (*server).enrichCompany},
 	{"GET /v1/activity", anyone, (*server).listActivity},
 	{"GET /v1/tags", anyone, (*server).listTags},
 	{"GET /v1/stages", anyone, (*server).listStages},
+	{"GET /v1/stages/counts", anyone, (*server).listStageCounts},
 	{"GET /v1/status", anyone, (*server).status},
 
 	{"PUT /v1/stages", humans, (*server).setStages},
@@ -72,6 +79,10 @@ var routes = []route{
 	{"GET /v1/keys", humans, (*server).listKeys},
 	{"POST /v1/keys", humans, (*server).createKey},
 	{"DELETE /v1/keys/{id}", humans, (*server).revokeKey},
+	{"GET /v1/apps", humans, (*server).listApps},
+	{"DELETE /v1/apps/{id}", humans, (*server).revokeApp},
+	{"GET /v1/oauth/requests/{id}", humans, (*server).consentRequest},
+	{"POST /v1/oauth/requests/{id}", humans, (*server).decideConsent},
 	{"GET /v1/users", humans, (*server).listUsers},
 	{"DELETE /v1/users/{id}", humans, (*server).removeUser},
 	{"POST /v1/invites", humans, (*server).createInvite},
@@ -117,16 +128,18 @@ type server struct {
 	authn *auth.Authenticator
 	keys  auth.KeyStore
 	users *auth.Users
+	oauth *auth.OAuthServer
 	log   *slog.Logger
 }
 
-// NewMux mounts every route on a new mux; main adds /mcp and the UI's "/"
-// to the same mux. Unmatched /v1/ paths get a JSON 404 instead of falling
+// NewMux mounts every route and the OAuth endpoints (mountOAuth) on a new
+// mux; main adds /mcp and the UI's "/" to the same mux. Unmatched /v1/ paths get a JSON 405 with Allow when
+// another method serves the path, else a JSON 404, instead of falling
 // through to the UI. Browser-reachable routes are wrapped in
 // http.CrossOriginProtection, which rejects cross-site unsafe requests and
 // lets non-browser clients (no Sec-Fetch-Site / Origin) through.
 func NewMux(svc *crm.Service, authn *auth.Authenticator, log *slog.Logger) *http.ServeMux {
-	s := &server{svc: svc, authn: authn, keys: authn.Keys, users: authn.Users, log: log}
+	s := &server{svc: svc, authn: authn, keys: authn.Keys, users: authn.Users, oauth: authn.OAuth, log: log}
 	csrf := http.NewCrossOriginProtection()
 	mux := http.NewServeMux()
 	for _, rt := range routes {
@@ -136,8 +149,24 @@ func NewMux(svc *crm.Service, authn *auth.Authenticator, log *slog.Logger) *http
 		}
 		mux.Handle(rt.pattern, h)
 	}
+	s.mountOAuth(mux)
 	mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such route; the API is described at GET /v1/openapi.yaml"})
+		var allow []string
+		for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+			probe := *r
+			probe.Method = m
+			if _, pattern := mux.Handler(&probe); pattern != "/v1/" {
+				allow = append(allow, m)
+			}
+		}
+		if len(allow) == 0 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such route; the API is described at GET /v1/openapi.yaml"})
+			return
+		}
+		w.Header().Set("Allow", strings.Join(allow, ", "))
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+			"error": fmt.Sprintf("%s is not allowed on %s; use %s", r.Method, r.URL.Path, strings.Join(allow, " or ")),
+		})
 	})
 	return mux
 }
@@ -189,15 +218,20 @@ func keyStoreErr(err error) error {
 }
 
 // writeError is the single error-to-status mapping for REST.
-// Body: {"error": "<message>"}, plus "request_id" on a 5xx, whose cause is
-// logged under the same id.
+// Body: {"error": "<message>"}, plus "id" of the existing record on a 409
+// from a create, and "request_id" on a 5xx, whose cause is logged under the
+// same id.
 func (s *server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	code := statusOf(err)
 	var throttled *auth.ThrottledError
 	if errors.As(err, &throttled) {
 		w.Header().Set("Retry-After", strconv.Itoa(int(throttled.RetryAfter.Seconds())))
 	}
+	var exists *crm.ExistsError
 	switch {
+	case errors.As(err, &exists):
+		writeJSON(w, code, map[string]any{"error": err.Error(), "id": exists.ID})
+		return
 	case errors.Is(err, auth.ErrReauth):
 		writeJSON(w, code, map[string]string{"error": err.Error(), "code": "reauth_required"})
 		return

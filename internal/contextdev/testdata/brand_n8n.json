@@ -1,0 +1,258 @@
+{
+    "code": 200,
+    "brand": {
+        "email": "",
+        "links": {
+            "blog": null,
+            "login": null,
+            "terms": null,
+            "signup": null,
+            "careers": "https://n8n.io/careers/",
+            "contact": "https://n8n.io/contact/",
+            "pricing": "https://n8n.io/pricing/",
+            "privacy": "https://n8n.io/legal/privacy/"
+        },
+        "logos": [
+            {
+                "url": "https://media.brand.dev/cbf1c081-1258-4ad0-9381-e1a4428a7073.svg",
+                "mode": "light",
+                "type": "logo",
+                "colors": [
+                    {
+                        "hex": "#040404",
+                        "name": "Armor Wash"
+                    }
+                ],
+                "resolution": {
+                    "width": 120,
+                    "height": 48,
+                    "aspect_ratio": 2.5
+                }
+            },
+            {
+                "url": "https://media.brand.dev/86717aa8-1acd-4f14-99d1-c2f1d50b6737.svg",
+                "mode": "light",
+                "type": "logo",
+                "colors": [
+                    {
+                        "hex": "#040404",
+                        "name": "Armor Wash"
+                    }
+                ],
+                "resolution": {
+                    "width": 32,
+                    "height": 14,
+                    "aspect_ratio": 2.29
+                }
+            },
+            {
+                "url": "https://media.brand.dev/f234c3d6-280d-40ca-974a-a0451f51c552.svg",
+                "mode": "light",
+                "type": "logo",
+                "colors": [
+                    {
+                        "hex": "#040404",
+                        "name": "Armor Wash"
+                    }
+                ],
+                "resolution": {
+                    "width": 240,
+                    "height": 48,
+                    "aspect_ratio": 5
+                }
+            }
+        ],
+        "phone": "",
+        "title": "n8n",
+        "colors": [
+            {
+                "hex": "#ffbcca",
+                "name": "Rosie",
+                "source": "site"
+            },
+            {
+                "hex": "#040404",
+                "name": "Armor Wash",
+                "source": "logo"
+            }
+        ],
+        "domain": "n8n.io",
+        "slogan": "No-code speed. Code flexibility. Workflow automation for any app or API.",
+        "address": {
+            "city": "Berlin",
+            "street": "Novalisstraße 10",
+            "country": "Germany",
+            "state_code": "BE",
+            "postal_code": "10115",
+            "country_code": "DE",
+            "state_province": "Berlin"
+        },
+        "is_nsfw": false,
+        "socials": [
+            {
+                "url": "https://linkedin.com/company/n8n",
+                "type": "linkedin"
+            },
+            {
+                "url": "https://discord.gg/n8n",
+                "type": "discord"
+            },
+            {
+                "url": "https://x.com/n8n_io",
+                "type": "x"
+            },
+            {
+                "url": "https://facebook.com/n8nio",
+                "type": "facebook"
+            },
+            {
+                "url": "https://youtube.com/c/n8n-io",
+                "type": "youtube"
+            }
+        ],
+        "backdrops": [
+            {
+                "url": "https://media.brand.dev/810100c7-3ef2-4ed8-bc01-69e7e99e3576.jpg",
+                "colors": [
+                    {
+                        "hex": "#ae6578",
+                        "name": "Refined Rose"
+                    },
+                    {
+                        "hex": "#545454",
+                        "name": "Brilliant Liquorice"
+                    },
+                    {
+                        "hex": "#f5f3f3",
+                        "name": "White Convolvulus"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 333,
+                    "aspect_ratio": 3
+                }
+            },
+            {
+                "url": "https://media.brand.dev/8679a67d-44bf-40ca-a51c-4c0f8b640697.jpg",
+                "colors": [
+                    {
+                        "hex": "#7c7c7c",
+                        "name": "Namara Grey"
+                    },
+                    {
+                        "hex": "#242424",
+                        "name": "Verified Black"
+                    },
+                    {
+                        "hex": "#f6f6f6",
+                        "name": "Cascading White"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 169,
+                    "aspect_ratio": 5.92
+                }
+            },
+            {
+                "url": "https://media.brand.dev/da03e7b1-5f70-49f3-b4ae-60304130dc2e.jpg",
+                "colors": [
+                    {
+                        "hex": "#9f5d6d",
+                        "name": "Tropical Hibiscus"
+                    },
+                    {
+                        "hex": "#4e4d4d",
+                        "name": "Black Oak"
+                    },
+                    {
+                        "hex": "#f7f2f3",
+                        "name": "Grim White"
+                    }
+                ],
+                "resolution": {
+                    "width": 960,
+                    "height": 365,
+                    "aspect_ratio": 2.63
+                }
+            },
+            {
+                "url": "https://media.brand.dev/136a89b5-1252-4138-baaa-7aeff1c18b9b.jpg",
+                "colors": [
+                    {
+                        "hex": "#7c7c7c",
+                        "name": "Namara Grey"
+                    },
+                    {
+                        "hex": "#3a3a3a",
+                        "name": "Dead Pixel"
+                    },
+                    {
+                        "hex": "#f5f5f5",
+                        "name": "White Smoke"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 166,
+                    "aspect_ratio": 6.02
+                }
+            },
+            {
+                "url": "https://media.brand.dev/bedc67e7-e8cd-4fd1-a084-d9c86631c63d.png",
+                "colors": [
+                    {
+                        "hex": "#747474",
+                        "name": "Bank Vault"
+                    },
+                    {
+                        "hex": "#262626",
+                        "name": "Nero"
+                    },
+                    {
+                        "hex": "#e8e8e8",
+                        "name": "Unicorn Silver"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 525,
+                    "aspect_ratio": 1.9
+                }
+            }
+        ],
+        "employees": {
+            "exact": 1389,
+            "range": "51 to 200"
+        },
+        "industries": {
+            "eic": [
+                {
+                    "industry": "Technology",
+                    "subindustry": "Software (B2B)"
+                },
+                {
+                    "industry": "Technology",
+                    "subindustry": "Developer Tools & APIs"
+                },
+                {
+                    "industry": "Technology",
+                    "subindustry": "Artificial Intelligence & Machine Learning"
+                }
+            ]
+        },
+        "description": "n8n.io is an AI‑powered workflow automation platform that lets businesses build, visualize, and manage complex agent‑driven processes without code. With a visual builder and over 500 native integrations, users can connect any API, tool, or AI model, orchestrate actions, and add human‑in‑the‑loop approvals or rule‑based controls. The platform provides full transparency into each step, enabling teams to audit, debug, and re‑run failed tasks instantly. n8n supports on‑premise or Docker deployments for data‑privacy, and its open‑source code is available on GitHub. Trusted by Fortune 500 companies, n8n helps automate use cases such as refund handling, security investigations, onboarding, lead qualification, and more, empowering developers and non‑technical users alike to create readable, maintainable workflows.",
+        "primary_language": "english"
+    },
+    "status": "ok",
+    "request_id": "0412ccc5-4887-46d8-a0da-db48fc3c55c8",
+    "key_metadata": {
+        "credits_consumed": 10,
+        "credits_remaining": 730
+    },
+    "cache_metadata": {
+        "age_ms": 2389235824,
+        "status": "hit"
+    }
+}

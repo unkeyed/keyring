@@ -13,6 +13,8 @@ import (
 	"github.com/uncrm/uncrm/internal/crm"
 )
 
+// Cookie names. Over https each goes out with the __Host- prefix (see
+// cookieName).
 const (
 	SessionCookie = "uncrm_session"
 	PendingCookie = "uncrm_pending"
@@ -173,37 +175,56 @@ func joinMethods(m ...string) string { return strings.Join(m, "+") }
 
 func (u *Users) secure() bool { return u.cfg.PublicURL.Scheme == "https" }
 
-func (u *Users) setCookie(w http.ResponseWriter, name, value, path string, maxAge time.Duration) {
+// cookieName is the name a cookie goes by on this instance. Over https it
+// carries the __Host- prefix, which browsers accept only from this exact
+// host, Secure, with Path=/ and no Domain, so a sibling subdomain cannot
+// plant a session or a sign-in in progress.
+func (u *Users) cookieName(name string) string {
+	if u.secure() {
+		return "__Host-" + name
+	}
+	return name
+}
+
+// Cookie reads the named cookie from r, or "".
+func (u *Users) Cookie(r *http.Request, name string) string {
+	if c, err := r.Cookie(u.cookieName(name)); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
+func (u *Users) setCookie(w http.ResponseWriter, name, value string, maxAge time.Duration) {
 	http.SetCookie(w, &http.Cookie{
-		Name: name, Value: value, Path: path, MaxAge: int(maxAge.Seconds()),
+		Name: u.cookieName(name), Value: value, Path: "/", MaxAge: int(maxAge.Seconds()),
 		HttpOnly: true, Secure: u.secure(), SameSite: http.SameSiteLaxMode,
 	})
 }
 
 func (u *Users) SetSessionCookie(w http.ResponseWriter, value string) {
-	u.setCookie(w, SessionCookie, value, "/", cookieMaxAge)
+	u.setCookie(w, SessionCookie, value, cookieMaxAge)
 }
 
 func (u *Users) ClearSessionCookie(w http.ResponseWriter) {
-	u.setCookie(w, SessionCookie, "", "/", -1)
+	u.setCookie(w, SessionCookie, "", -1)
 }
 
 func (u *Users) SetPendingCookie(w http.ResponseWriter, value string) {
-	u.setCookie(w, PendingCookie, value, "/auth", challengeTTL)
+	u.setCookie(w, PendingCookie, value, challengeTTL)
 }
 
 func (u *Users) ClearPendingCookie(w http.ResponseWriter) {
-	u.setCookie(w, PendingCookie, "", "/auth", -1)
+	u.setCookie(w, PendingCookie, "", -1)
 }
 
 func (u *Users) SetOAuthCookie(w http.ResponseWriter, state, back string) {
-	u.setCookie(w, OAuthCookie, state, "/auth/oauth", challengeTTL)
+	u.setCookie(w, OAuthCookie, state, challengeTTL)
 	if back != "" {
-		u.setCookie(w, OAuthBackCookie, back, "/auth/oauth", challengeTTL)
+		u.setCookie(w, OAuthBackCookie, back, challengeTTL)
 	}
 }
 
 func (u *Users) ClearOAuthCookie(w http.ResponseWriter) {
-	u.setCookie(w, OAuthCookie, "", "/auth/oauth", -1)
-	u.setCookie(w, OAuthBackCookie, "", "/auth/oauth", -1)
+	u.setCookie(w, OAuthCookie, "", -1)
+	u.setCookie(w, OAuthBackCookie, "", -1)
 }

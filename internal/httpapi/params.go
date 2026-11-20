@@ -56,9 +56,9 @@ func (p *params) time(name string) time.Time {
 	if s == "" {
 		return time.Time{}
 	}
-	t, err := time.Parse(time.RFC3339, s)
+	t, err := crm.ParseTime(s)
 	if err != nil {
-		p.fail("%s must be an RFC 3339 timestamp like 2026-01-02T15:04:05Z, got %q", name, s)
+		p.fail("%s must be an RFC 3339 time like 2026-01-02T15:04:05Z or a date like 2026-01-02, got %q", name, s)
 	}
 	return t
 }

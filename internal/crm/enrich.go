@@ -14,9 +14,10 @@ import (
 
 // Enricher looks people and companies up in an outside service.
 // internal/contextdev implements it. Found=false with a nil error means the
-// service had no match; that is a finished job, not a failure.
+// service had no match; that is a finished job, not a failure. Person gets
+// the contact's LinkedIn URL too, when known, as a second clue.
 type Enricher interface {
-	Person(ctx context.Context, email Email) (PersonFacts, error)
+	Person(ctx context.Context, email Email, linkedInURL string) (PersonFacts, error)
 	Company(ctx context.Context, domain Domain) (CompanyFacts, error)
 }
 
@@ -28,6 +29,7 @@ type PersonFacts struct {
 	Bio         string
 	AvatarURL   string
 	LinkedInURL string
+	Socials     Socials
 	Raw         json.RawMessage
 }
 
@@ -40,6 +42,13 @@ type CompanyFacts struct {
 	Industry      string
 	Country       string
 	LinkedInURL   string
+	Tagline       string
+	Headquarters  string
+	Socials       Socials
+	Links         Links
+	Segments      []string
+	Stock         string
+	Logos         []Logo
 	Raw           json.RawMessage
 }
 
@@ -101,6 +110,8 @@ const (
 	JobSkipped JobState = "skipped"
 )
 
+var JobStates = []JobState{JobPending, JobRunning, JobDone, JobFailed, JobSkipped}
+
 const (
 	maxFailures  = 5
 	leaseFor     = 3 * time.Minute // longer than contextdev's 90s request timeout
@@ -124,18 +135,21 @@ UPDATE enrichment_jobs
         LIMIT 1)
 RETURNING id, contact_id, company_id, claims, failures,
           (SELECT c.email FROM contacts c WHERE c.id = enrichment_jobs.contact_id),
+          COALESCE((SELECT c.linkedin_url FROM contacts c WHERE c.id = enrichment_jobs.contact_id), ''),
           (SELECT co.domain FROM companies co WHERE co.id = enrichment_jobs.company_id)`
 
-// job is a claimed row. claims is the fencing token. email or domain is the
-// subject to look up, matching whichever of contactID and companyID is set.
+// job is a claimed row. claims is the fencing token. email (with the
+// contact's LinkedIn URL) or domain is the subject to look up, matching
+// whichever of contactID and companyID is set.
 type job struct {
-	id        int64
-	contactID *ContactID
-	companyID *CompanyID
-	claims    int
-	failures  int
-	email     Email
-	domain    Domain
+	id          int64
+	contactID   *ContactID
+	companyID   *CompanyID
+	claims      int
+	failures    int
+	email       Email
+	linkedInURL string
+	domain      Domain
 }
 
 // settlement is the row update that ends a claim.
@@ -214,7 +228,7 @@ func (s *Service) enrichOnce(ctx context.Context) (bool, error) {
 	var company *CompanyFacts
 	var callErr error
 	if j.contactID != nil {
-		f, err := s.enricher.Person(ctx, j.email)
+		f, err := s.enricher.Person(ctx, j.email, j.linkedInURL)
 		person, callErr = &f, err
 	} else {
 		f, err := s.enricher.Company(ctx, j.domain)
@@ -229,7 +243,7 @@ func (s *Service) enrichOnce(ctx context.Context) (bool, error) {
 func (s *Service) claim(ctx context.Context) (job, bool, error) {
 	var j job
 	err := s.db.QueryRow(ctx, claimSQL, leaseFor).
-		Scan(&j.id, &j.contactID, &j.companyID, &j.claims, &j.failures, &j.email, &j.domain)
+		Scan(&j.id, &j.contactID, &j.companyID, &j.claims, &j.failures, &j.email, &j.linkedInURL, &j.domain)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return j, false, nil
 	}
@@ -293,25 +307,33 @@ func (s *Service) finish(ctx context.Context, j job, person *PersonFacts, compan
 		var changed []Field
 		if person != nil {
 			changed = observeAll(c.manual, []observation{
-				{FieldName, &c.name, person.Name},
-				{fieldAvatarURL, &c.avatarURL, person.AvatarURL},
-				{FieldTitle, &c.title, person.Title},
-				{FieldLocation, &c.location, person.Location},
-				{FieldBio, &c.bio, person.Bio},
-				{FieldLinkedInURL, &c.linkedInURL, person.LinkedInURL},
+				obs(FieldName, &c.name, person.Name),
+				obs(fieldAvatarURL, &c.avatarURL, person.AvatarURL),
+				obs(FieldTitle, &c.title, person.Title),
+				obs(FieldLocation, &c.location, person.Location),
+				obs(FieldBio, &c.bio, person.Bio),
+				obs(FieldLinkedInURL, &c.linkedInURL, person.LinkedInURL),
+				obs(fieldSocials, &c.socials, person.Socials),
 			})
 			if len(changed) > 0 {
 				err = writeContact(ctx, tx, c)
 			}
 		} else {
 			changed = observeAll(co.manual, []observation{
-				{FieldName, &co.name, company.Name},
-				{FieldDescription, &co.description, company.Description},
-				{fieldLogoURL, &co.logoURL, company.LogoURL},
-				{FieldEmployeeRange, &co.employeeRange, company.EmployeeRange},
-				{FieldIndustry, &co.industry, company.Industry},
-				{FieldCountry, &co.country, company.Country},
-				{FieldLinkedInURL, &co.linkedInURL, company.LinkedInURL},
+				obs(FieldName, &co.name, company.Name),
+				obs(FieldDescription, &co.description, company.Description),
+				obs(fieldLogoURL, &co.logoURL, company.LogoURL),
+				obs(FieldEmployeeRange, &co.employeeRange, company.EmployeeRange),
+				obs(FieldIndustry, &co.industry, company.Industry),
+				obs(FieldCountry, &co.country, company.Country),
+				obs(FieldLinkedInURL, &co.linkedInURL, company.LinkedInURL),
+				obs(FieldTagline, &co.tagline, company.Tagline),
+				obs(FieldHeadquarters, &co.headquarters, company.Headquarters),
+				obs(fieldSocials, &co.socials, company.Socials),
+				obs(fieldLinks, &co.links, company.Links),
+				obs(fieldSegments, &co.segments, company.Segments),
+				obs(fieldStock, &co.stock, company.Stock),
+				obs(fieldLogos, &co.logos, company.Logos),
 			})
 			if len(changed) > 0 {
 				err = writeCompany(ctx, tx, co)
@@ -331,11 +353,14 @@ func (s *Service) finish(ctx context.Context, j job, person *PersonFacts, compan
 	})
 }
 
-// observation is one machine value for one column.
+// observation is one machine value for one column, applied by observeAll.
 type observation struct {
-	f   Field
-	col *string
-	v   string
+	f     Field
+	apply func(manual []Field) bool
+}
+
+func obs[T any](f Field, col *T, v T) observation {
+	return observation{f, func(manual []Field) bool { return observe(manual, f, col, v) }}
 }
 
 // observeAll applies each observation under write rule 2 and returns the
@@ -343,12 +368,22 @@ type observation struct {
 func observeAll(manual []Field, obs []observation) []Field {
 	var changed []Field
 	for _, o := range obs {
-		if observe(manual, o.f, o.col, o.v) {
+		if o.apply(manual) {
 			changed = append(changed, o.f)
 		}
 	}
 	return changed
 }
+
+// Machine-only columns, named for observe and the enriched activity. They
+// are never in manual_fields.
+const (
+	fieldSocials  Field = "socials"
+	fieldLinks    Field = "links"
+	fieldSegments Field = "segments"
+	fieldStock    Field = "stock"
+	fieldLogos    Field = "logos"
+)
 
 // EnrichContact re-queues the contact's job (and its company's) from done,
 // failed or skipped: state = 'pending', run_at = now(), failures = 0.

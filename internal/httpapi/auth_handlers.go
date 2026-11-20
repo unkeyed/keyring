@@ -35,25 +35,16 @@ func (s *server) writeSignIn(w http.ResponseWriter, r *http.Request, in auth.Sig
 }
 
 func (s *server) replaceSession(w http.ResponseWriter, r *http.Request, session string) error {
-	if c, err := r.Cookie(auth.SessionCookie); err == nil {
-		if err := s.users.Logout(r.Context(), c.Value); err != nil {
-			return err
-		}
+	if err := s.users.Logout(r.Context(), s.users.Cookie(r, auth.SessionCookie)); err != nil {
+		return err
 	}
 	s.users.SetSessionCookie(w, session)
 	s.users.ClearPendingCookie(w)
 	return nil
 }
 
-func cookie(r *http.Request, name string) string {
-	if c, err := r.Cookie(name); err == nil {
-		return c.Value
-	}
-	return ""
-}
-
 func (s *server) current(r *http.Request) (auth.Current, error) {
-	return s.users.Current(r.Context(), cookie(r, auth.SessionCookie))
+	return s.users.Current(r.Context(), s.users.Cookie(r, auth.SessionCookie))
 }
 
 func (s *server) optionalCurrent(r *http.Request) (*auth.Current, error) {
@@ -127,7 +118,7 @@ func (s *server) passwordLogin(w http.ResponseWriter, r *http.Request, _ crm.Act
 }
 
 func (s *server) secondFactor(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	f, err := s.users.PendingFactors(r.Context(), cookie(r, auth.PendingCookie))
+	f, err := s.users.PendingFactors(r.Context(), s.users.Cookie(r, auth.PendingCookie))
 	return respond(w, http.StatusOK, signInResponse{Status: "second_factor", SecondFactors: f}, err)
 }
 
@@ -138,7 +129,7 @@ func (s *server) secondFactorCode(w http.ResponseWriter, r *http.Request, _ crm.
 	if err := readJSON(r, &b); err != nil {
 		return err
 	}
-	in, err := s.users.SecondFactorCode(r.Context(), cookie(r, auth.PendingCookie), b.Code, s.users.ClientOf(r))
+	in, err := s.users.SecondFactorCode(r.Context(), s.users.Cookie(r, auth.PendingCookie), b.Code, s.users.ClientOf(r))
 	if err != nil {
 		return err
 	}
@@ -146,7 +137,7 @@ func (s *server) secondFactorCode(w http.ResponseWriter, r *http.Request, _ crm.
 }
 
 func (s *server) secondFactorPasskeyBegin(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	h, opts, err := s.users.BeginSecondFactorPasskey(r.Context(), cookie(r, auth.PendingCookie))
+	h, opts, err := s.users.BeginSecondFactorPasskey(r.Context(), s.users.Cookie(r, auth.PendingCookie))
 	return respond(w, http.StatusOK, ceremonyStart{h, opts}, err)
 }
 
@@ -155,7 +146,7 @@ func (s *server) secondFactorPasskeyFinish(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return err
 	}
-	in, err := s.users.FinishSecondFactorPasskey(r.Context(), cookie(r, auth.PendingCookie), b.Handle, b.Credential, s.users.ClientOf(r))
+	in, err := s.users.FinishSecondFactorPasskey(r.Context(), s.users.Cookie(r, auth.PendingCookie), b.Handle, b.Credential, s.users.ClientOf(r))
 	if err != nil {
 		return err
 	}
@@ -226,12 +217,12 @@ func (s *server) oauthCallback(w http.ResponseWriter, r *http.Request, _ crm.Act
 	}
 	s.users.ClearOAuthCookie(w)
 	res, err := s.users.FinishOAuth(r.Context(), auth.OAuthCallback{
-		Provider: r.PathValue("provider"), State: q.Get("state"), CookieState: cookie(r, auth.OAuthCookie),
+		Provider: r.PathValue("provider"), State: q.Get("state"), CookieState: s.users.Cookie(r, auth.OAuthCookie),
 		Code: q.Get("code"), Error: q.Get("error"),
 	}, cur, s.users.ClientOf(r))
 	if err != nil {
 		s.logIfServer(r, err)
-		if back := cookie(r, auth.OAuthBackCookie); res.Redirect == "/login" && back != "" && auth.SafeNext(back) == back {
+		if back := s.users.Cookie(r, auth.OAuthBackCookie); res.Redirect == "/login" && back != "" && auth.SafeNext(back) == back {
 			res.Redirect = back
 		}
 		http.Redirect(w, r, withError(res.Redirect, err), http.StatusSeeOther)
@@ -286,7 +277,7 @@ func (s *server) signupPasskeyFinish(w http.ResponseWriter, r *http.Request, _ c
 }
 
 func (s *server) logout(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	if err := s.users.Logout(r.Context(), cookie(r, auth.SessionCookie)); err != nil {
+	if err := s.users.Logout(r.Context(), s.users.Cookie(r, auth.SessionCookie)); err != nil {
 		return err
 	}
 	s.users.ClearSessionCookie(w)
@@ -303,6 +294,18 @@ func (s *server) withCurrent(r *http.Request, f func(auth.Current) error) error 
 		return err
 	}
 	return f(cur)
+}
+
+// recentOnly runs f only for a session that proved a factor within the
+// last 15 minutes, so a stolen session cookie cannot mint keys, invite
+// people, swap provider secrets or remove teammates.
+func (s *server) recentOnly(r *http.Request, f func() error) error {
+	return s.withCurrent(r, func(cur auth.Current) error {
+		if !cur.Recent {
+			return auth.ErrReauth
+		}
+		return f()
+	})
 }
 
 func (s *server) account(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
@@ -442,5 +445,7 @@ func (s *server) removeUser(w http.ResponseWriter, r *http.Request, a crm.Actor)
 	if err != nil {
 		return fmt.Errorf("%w: no such user", crm.ErrNotFound)
 	}
-	return noContent(w, s.users.Remove(r.Context(), a, id))
+	return s.recentOnly(r, func() error {
+		return noContent(w, s.users.Remove(r.Context(), a, id, s.keys))
+	})
 }

@@ -56,7 +56,10 @@ func TestJobStatesMatchSchema(t *testing.T) {
 	for _, v := range strings.Split(string(m[1]), ",") {
 		inSchema = append(inSchema, strings.Trim(strings.TrimSpace(v), "'"))
 	}
-	inGo := []string{string(JobPending), string(JobRunning), string(JobDone), string(JobFailed), string(JobSkipped)}
+	var inGo []string
+	for _, st := range JobStates {
+		inGo = append(inGo, string(st))
+	}
 	slices.Sort(inSchema)
 	slices.Sort(inGo)
 	if !slices.Equal(inSchema, inGo) {
@@ -75,7 +78,7 @@ func expireLeases(t *testing.T, pool *pgxpool.Pool) {
 
 func TestExpiredLeaseIsReclaimed(t *testing.T) {
 	s, pool := newService(t, fakeEnricher{
-		person: func(Email) (PersonFacts, error) { return PersonFacts{Found: true, Title: "CEO"}, nil },
+		person: func(Email, string) (PersonFacts, error) { return PersonFacts{Found: true, Title: "CEO"}, nil },
 	})
 	id := ingest(t, s, clerk, created(clerk, "user_1", "ada@stripe.com")).ContactID
 
@@ -104,7 +107,7 @@ func TestStaleWorkerCannotOverwriteNewerClaim(t *testing.T) {
 
 	entered, release := make(chan struct{}), make(chan struct{})
 	stale := New(pool, fakeEnricher{
-		person: func(Email) (PersonFacts, error) {
+		person: func(Email, string) (PersonFacts, error) {
 			close(entered)
 			<-release
 			return PersonFacts{Found: true, Title: "stale"}, nil
@@ -116,7 +119,7 @@ func TestStaleWorkerCannotOverwriteNewerClaim(t *testing.T) {
 		},
 	})
 	fresh := New(pool, fakeEnricher{
-		person:  func(Email) (PersonFacts, error) { return PersonFacts{Found: true, Title: "fresh"}, nil },
+		person:  func(Email, string) (PersonFacts, error) { return PersonFacts{Found: true, Title: "fresh"}, nil },
 		company: func(Domain) (CompanyFacts, error) { return CompanyFacts{Found: true, Name: "Fresh Inc"}, nil },
 	})
 
@@ -153,7 +156,7 @@ func TestHaltPausesEveryReplicaUntilRestart(t *testing.T) {
 
 	badKey := &EnrichError{Kind: EnrichHalted, Msg: "context.dev 401 UNAUTHORIZED"}
 	rejected := fakeEnricher{
-		person:  func(Email) (PersonFacts, error) { return PersonFacts{}, badKey },
+		person:  func(Email, string) (PersonFacts, error) { return PersonFacts{}, badKey },
 		company: func(Domain) (CompanyFacts, error) { return CompanyFacts{}, badKey },
 	}
 	a, b := New(pool, rejected), New(pool, rejected)
@@ -202,7 +205,7 @@ func TestNoKeyLeavesJobsPending(t *testing.T) {
 
 func TestEnrichmentErrorsRetryOrFail(t *testing.T) {
 	s, _ := newService(t, fakeEnricher{
-		person: func(Email) (PersonFacts, error) {
+		person: func(Email, string) (PersonFacts, error) {
 			return PersonFacts{}, &EnrichError{Kind: EnrichPermanent, Msg: "context.dev 400"}
 		},
 		company: func(Domain) (CompanyFacts, error) { return CompanyFacts{}, errors.New("dial tcp: connection refused") },

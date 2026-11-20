@@ -36,12 +36,16 @@ func (s *server) connectProvider(w http.ResponseWriter, r *http.Request, a crm.A
 	if err := readJSON(r, &b); err != nil {
 		return err
 	}
-	secret, err := s.svc.ConnectProvider(r.Context(), a, r.PathValue("name"), b.Secret)
-	return respond(w, http.StatusOK, map[string]string{"secret": secret}, err)
+	return s.recentOnly(r, func() error {
+		secret, err := s.svc.ConnectProvider(r.Context(), a, r.PathValue("name"), b.Secret)
+		return respond(w, http.StatusOK, map[string]string{"secret": secret}, err)
+	})
 }
 
 func (s *server) disconnectProvider(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
-	return noContent(w, s.svc.DisconnectProvider(r.Context(), a, r.PathValue("name")))
+	return s.recentOnly(r, func() error {
+		return noContent(w, s.svc.DisconnectProvider(r.Context(), a, r.PathValue("name")))
+	})
 }
 
 func (s *server) listKeys(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
@@ -62,8 +66,10 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request, a crm.Actor) 
 	if err := readJSON(r, &b); err != nil {
 		return err
 	}
-	plaintext, k, err := s.keys.Create(r.Context(), a, b.Name)
-	return respond(w, http.StatusCreated, createdKey{plaintext, k}, keyStoreErr(err))
+	return s.recentOnly(r, func() error {
+		plaintext, k, err := s.keys.Create(r.Context(), a, b.Name)
+		return respond(w, http.StatusCreated, createdKey{plaintext, k}, keyStoreErr(err))
+	})
 }
 
 func (s *server) revokeKey(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
@@ -82,8 +88,10 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request, a crm.Acto
 	if err := readJSON(r, &b); err != nil {
 		return err
 	}
-	token, err := s.users.Invite(r.Context(), a, b.Email)
-	return respond(w, http.StatusCreated, map[string]string{"token": token}, err)
+	return s.recentOnly(r, func() error {
+		token, err := s.users.Invite(r.Context(), a, b.Email)
+		return respond(w, http.StatusCreated, map[string]string{"token": token}, err)
+	})
 }
 
 func (s *server) me(w http.ResponseWriter, r *http.Request, a crm.Actor) error {

@@ -4,19 +4,48 @@
     "status": "candidate",
     "score": 87,
     "person": {
-      "name": {"full": "Ada Lovelace", "first": "Ada", "last": "Lovelace"},
+      "name": {
+        "full": "Ada Lovelace",
+        "first": "Ada",
+        "last": "Lovelace"
+      },
       "email": "ada@stripe.com",
       "avatar_url": "https://cdn.context.dev/p/ada.png",
       "bio": "Wrote the first published algorithm.",
-      "location": {"display": "London, England", "city": "London", "region": "England", "country": "United Kingdom", "country_code": "GB"},
-      "social_urls": ["https://x.com/ada", "https://www.linkedin.com/in/ada-lovelace", "https://linkedin.com/in/other"],
-      "website_urls": [],
+      "location": {
+        "display": "London, England",
+        "city": "London",
+        "region": "England",
+        "country": "United Kingdom",
+        "country_code": "GB"
+      },
+      "social_urls": [
+        "https://x.com/ada",
+        "https://www.linkedin.com/in/ada-lovelace",
+        "https://linkedin.com/in/other",
+        "github.com/ada",
+        "https://bsky.app/profile/ada.dev",
+        "javascript:alert(1)",
+        "https://x.com/ada_alt",
+        "https://www.goodreads.com/user/show/1-ada"
+      ],
+      "website_urls": [
+        "https://ada.dev",
+        "https://notes.ada.dev"
+      ],
       "current_role": {
         "title": "Head of Engines",
-        "organization": {"name": "Stripe", "domain": "stripe.com"},
+        "organization": {
+          "name": "Stripe",
+          "domain": "stripe.com"
+        },
         "location": "London",
         "description": "",
-        "start_date": {"year": 2020, "month": 1, "day": 1},
+        "start_date": {
+          "year": 2020,
+          "month": 1,
+          "day": 1
+        },
         "end_date": null,
         "is_current": true
       },
@@ -28,6 +57,9 @@
       "checked_at": "2026-11-18T00:00:00Z"
     }
   },
-  "key_metadata": {"credits_consumed": 20, "credits_remaining": 980},
+  "key_metadata": {
+    "credits_consumed": 20,
+    "credits_remaining": 980
+  },
   "request_id": "req_person_1"
 }

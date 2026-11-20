@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/uncrm/uncrm/internal/crm"
 )
@@ -25,10 +28,14 @@ const unkeyCacheTTL = 30 * time.Second
 // https://api.unkey.com/v2/{procedure}, Bearer root key). The Go SDK v3
 // requires go >= 1.26.10; four JSON calls do not justify forcing that.
 //
-//	Verify -> keys.verifyKey {key, keyspaces: [our keyspace id]}
-//	Create -> keys.createKey {apiId, prefix: "uncrm", name}
-//	List   -> apis.listKeys {apiId}
-//	Revoke -> keys.deleteKey {keyId}, after checking apis.listKeys has it
+//	Verify          -> keys.verifyKey {key, keyspaces: [our keyspace id]},
+//	                   only for a token shaped like an uncrm key
+//	Create          -> keys.createKey {apiId, prefix: "uncrm", name, meta: {created_by}}
+//	List            -> apis.listKeys {apiId}
+//	Revoke          -> keys.deleteKey {keyId}, after checking apis.listKeys has it
+//	RevokeCreatedBy -> keys.deleteKey for each key whose meta.created_by
+//	                   matches. A key created before uncrm wrote that meta
+//	                   has no creator and stays until revoked by hand.
 //
 // Cross-API keys. keys.verifyKey takes no apiId; a key from any keyspace in
 // the workspace verifies unless the request restricts it with
@@ -64,6 +71,9 @@ func newUnkeyKeys(cfg UnkeyConfig, baseURL string) *unkeyKeys {
 }
 
 func (k *unkeyKeys) Verify(ctx context.Context, token string) (crm.Actor, error) {
+	if !wellFormedKey(token) {
+		return crm.Actor{}, ErrInvalidKey
+	}
 	sum := sha256.Sum256([]byte(token))
 	k.mu.Lock()
 	hit, cached := k.cache[sum]
@@ -134,11 +144,15 @@ func (k *unkeyKeys) Create(ctx context.Context, by crm.Actor, name string) (stri
 		return "", Key{}, err
 	}
 	req := struct {
-		APIID      string `json:"apiId"`
-		Prefix     string `json:"prefix"`
-		Name       string `json:"name"`
-		ByteLength int    `json:"byteLength"`
-	}{k.cfg.APIID, "uncrm", name, 32}
+		APIID      string     `json:"apiId"`
+		Prefix     string     `json:"prefix"`
+		Name       string     `json:"name"`
+		ByteLength int        `json:"byteLength"`
+		Meta       *unkeyMeta `json:"meta,omitempty"`
+	}{APIID: k.cfg.APIID, Prefix: "uncrm", Name: name, ByteLength: 32}
+	if id := userID(by); id != nil {
+		req.Meta = &unkeyMeta{CreatedBy: strconv.FormatInt(*id, 10)}
+	}
 	var res struct {
 		Data struct {
 			KeyID string `json:"keyId"`
@@ -157,7 +171,15 @@ func (k *unkeyKeys) Create(ctx context.Context, by crm.Actor, name string) (stri
 }
 
 func (k *unkeyKeys) List(ctx context.Context) ([]Key, error) {
-	return k.listKeys(ctx, false)
+	keys, err := k.listKeys(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Key, len(keys))
+	for i, u := range keys {
+		out[i] = u.key()
+	}
+	return out, nil
 }
 
 func (k *unkeyKeys) Revoke(ctx context.Context, id string) error {
@@ -174,6 +196,35 @@ func (k *unkeyKeys) Revoke(ctx context.Context, id string) error {
 	if err := k.call(ctx, "keys.deleteKey", req, &struct{}{}); err != nil {
 		return err
 	}
+	k.forget(id)
+	return nil
+}
+
+// RevokeCreatedBy deletes in Unkey; the transaction only orders it before
+// the user's removal.
+func (k *unkeyKeys) RevokeCreatedBy(ctx context.Context, _ pgx.Tx, userID int64) error {
+	keys, err := k.listKeys(ctx, true)
+	if err != nil {
+		return err
+	}
+	creator := strconv.FormatInt(userID, 10)
+	for _, key := range keys {
+		if key.Meta.CreatedBy != creator {
+			continue
+		}
+		req := struct {
+			KeyID string `json:"keyId"`
+		}{key.KeyID}
+		if err := k.call(ctx, "keys.deleteKey", req, &struct{}{}); err != nil {
+			return err
+		}
+		k.forget(key.KeyID)
+	}
+	return nil
+}
+
+// forget drops a revoked key from this replica's cache.
+func (k *unkeyKeys) forget(id string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	for s, c := range k.cache {
@@ -181,7 +232,6 @@ func (k *unkeyKeys) Revoke(ctx context.Context, id string) error {
 			delete(k.cache, s)
 		}
 	}
-	return nil
 }
 
 func (k *unkeyKeys) Mode() string { return "unkey" }
@@ -194,28 +244,43 @@ func (k *unkeyKeys) hasKey(ctx context.Context, keyID string) (bool, error) {
 		return false, err
 	}
 	for _, key := range keys {
-		if key.ID == keyID {
+		if key.KeyID == keyID {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (k *unkeyKeys) listKeys(ctx context.Context, fresh bool) ([]Key, error) {
-	type unkeyKey struct {
-		KeyID      string `json:"keyId"`
-		Start      string `json:"start"`
-		Name       string `json:"name"`
-		CreatedAt  int64  `json:"createdAt"`
-		LastUsedAt int64  `json:"lastUsedAt"`
+type unkeyMeta struct {
+	CreatedBy string `json:"created_by,omitempty"` // users.id
+}
+
+type unkeyKey struct {
+	KeyID      string    `json:"keyId"`
+	Start      string    `json:"start"`
+	Name       string    `json:"name"`
+	Meta       unkeyMeta `json:"meta"`
+	CreatedAt  int64     `json:"createdAt"`
+	LastUsedAt int64     `json:"lastUsedAt"`
+}
+
+func (u unkeyKey) key() Key {
+	key := Key{ID: u.KeyID, Name: u.Name, Prefix: displayPrefix(u.Start), CreatedAt: time.UnixMilli(u.CreatedAt).UTC()}
+	if u.LastUsedAt > 0 {
+		t := time.UnixMilli(u.LastUsedAt).UTC()
+		key.LastUsedAt = &t
 	}
+	return key
+}
+
+func (k *unkeyKeys) listKeys(ctx context.Context, fresh bool) ([]unkeyKey, error) {
 	req := struct {
 		APIID               string `json:"apiId"`
 		Limit               int    `json:"limit"`
 		Cursor              string `json:"cursor,omitempty"`
 		RevalidateKeysCache bool   `json:"revalidateKeysCache,omitempty"`
 	}{APIID: k.cfg.APIID, Limit: 100, RevalidateKeysCache: fresh}
-	keys := []Key{}
+	keys := []unkeyKey{}
 	for {
 		var res struct {
 			Data       []unkeyKey `json:"data"`
@@ -227,14 +292,7 @@ func (k *unkeyKeys) listKeys(ctx context.Context, fresh bool) ([]Key, error) {
 		if err := k.call(ctx, "apis.listKeys", req, &res); err != nil {
 			return nil, err
 		}
-		for _, u := range res.Data {
-			key := Key{ID: u.KeyID, Name: u.Name, Prefix: displayPrefix(u.Start), CreatedAt: time.UnixMilli(u.CreatedAt).UTC()}
-			if u.LastUsedAt > 0 {
-				t := time.UnixMilli(u.LastUsedAt).UTC()
-				key.LastUsedAt = &t
-			}
-			keys = append(keys, key)
-		}
+		keys = append(keys, res.Data...)
 		if !res.Pagination.HasMore || res.Pagination.Cursor == "" {
 			return keys, nil
 		}

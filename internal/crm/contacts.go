@@ -12,16 +12,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// contactFields are the fields a person or agent can pin on a contact. The
+// ContactFields are the fields a person or agent can pin on a contact. The
 // contacts.manual_fields CHECK lists the same names.
-var contactFields = []Field{FieldName, FieldTitle, FieldLocation, FieldBio, FieldLinkedInURL, FieldCompany}
+var ContactFields = []Field{FieldName, FieldTitle, FieldLocation, FieldBio, FieldLinkedInURL, FieldCompany}
 
 // fieldAvatarURL names contacts.avatar_url for observe. Only machines write
 // it, so it is never in manual_fields.
 const fieldAvatarURL Field = "avatar_url"
 
 const contactSelect = `
-SELECT c.id, c.email, c.name, c.avatar_url, c.title, c.location, c.bio, c.linkedin_url,
+SELECT c.id, c.email, c.name, c.avatar_url, c.title, c.location, c.bio, c.linkedin_url, c.socials,
        co.id, co.domain, co.name, c.stage,
        ARRAY(SELECT t.tag FROM contact_tags t WHERE t.contact_id = c.id ORDER BY t.tag),
        ARRAY(SELECT DISTINCT i.provider FROM identities i WHERE i.contact_id = c.id ORDER BY i.provider),
@@ -35,12 +35,9 @@ func scanContact(row pgx.Row) (Contact, error) {
 	var coID *CompanyID
 	var coDomain Domain
 	var coName *string
-	err := row.Scan(&c.ID, &c.Email, &c.Name, &c.AvatarURL, &c.Title, &c.Location, &c.Bio, &c.LinkedInURL,
+	err := row.Scan(&c.ID, &c.Email, &c.Name, &c.AvatarURL, &c.Title, &c.Location, &c.Bio, &c.LinkedInURL, &c.Socials,
 		&coID, &coDomain, &coName, &c.Stage, &c.Tags, &c.Providers, &c.Enrichment, &c.ManualFields,
 		&c.FirstSeenAt, &c.LastSeenAt, &c.CreatedAt, &c.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Contact{}, ErrNotFound
-	}
 	if coID != nil {
 		c.Company = &CompanyRef{ID: *coID, Domain: coDomain, Name: *coName}
 	}
@@ -48,7 +45,11 @@ func scanContact(row pgx.Row) (Contact, error) {
 }
 
 func (s *Service) contact(ctx context.Context, id ContactID) (Contact, error) {
-	return scanContact(s.db.QueryRow(ctx, contactSelect+` WHERE c.id = $1`, id))
+	c, err := scanContact(s.db.QueryRow(ctx, contactSelect+` WHERE c.id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, notFound(RecordContact, "no contact %d", id)
+	}
+	return c, err
 }
 
 func (s *Service) contacts(ctx context.Context, sql string, args ...any) ([]Contact, error) {
@@ -65,6 +66,7 @@ type contactRow struct {
 	id                                                 ContactID
 	email                                              Email
 	name, avatarURL, title, location, bio, linkedInURL string
+	socials                                            Socials
 	companyID                                          *CompanyID
 	stage                                              Stage
 	manual                                             []Field
@@ -74,13 +76,13 @@ type contactRow struct {
 func lockContact(ctx context.Context, tx pgx.Tx, id ContactID) (contactRow, error) {
 	c := contactRow{id: id}
 	err := tx.QueryRow(ctx, `
-		SELECT email, name, avatar_url, title, location, bio, linkedin_url, company_id, stage,
+		SELECT email, name, avatar_url, title, location, bio, linkedin_url, socials, company_id, stage,
 		       manual_fields, first_seen_at, last_seen_at
 		  FROM contacts WHERE id = $1 FOR NO KEY UPDATE`, id).
-		Scan(&c.email, &c.name, &c.avatarURL, &c.title, &c.location, &c.bio, &c.linkedInURL, &c.companyID, &c.stage,
+		Scan(&c.email, &c.name, &c.avatarURL, &c.title, &c.location, &c.bio, &c.linkedInURL, &c.socials, &c.companyID, &c.stage,
 			&c.manual, &c.firstSeen, &c.lastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return c, fmt.Errorf("%w: contact %d", ErrNotFound, id)
+		return c, notFound(RecordContact, "no contact %d", id)
 	}
 	return c, err
 }
@@ -90,10 +92,10 @@ func writeContact(ctx context.Context, tx pgx.Tx, c contactRow) error {
 		UPDATE contacts
 		   SET name = $2, avatar_url = $3, title = $4, location = $5, bio = $6, linkedin_url = $7,
 		       company_id = $8, stage = $9, manual_fields = $10, first_seen_at = $11, last_seen_at = $12,
-		       updated_at = now()
+		       socials = $13, updated_at = now()
 		 WHERE id = $1`,
 		c.id, c.name, c.avatarURL, c.title, c.location, c.bio, c.linkedInURL,
-		c.companyID, c.stage, fieldNames(c.manual), c.firstSeen, c.lastSeen)
+		c.companyID, c.stage, fieldNames(c.manual), c.firstSeen, c.lastSeen, c.socials)
 	if pgCode(err) == foreignKeyViolation {
 		return fmt.Errorf("%w: unknown stage %q", ErrInvalid, c.stage)
 	}
@@ -125,10 +127,20 @@ func (s *Service) SearchContacts(ctx context.Context, q ContactQuery) (Page[Cont
 		p := w.arg(contains(text))
 		w.add("(c.email ILIKE %[1]s OR c.name ILIKE %[1]s OR co.name ILIKE %[1]s OR co.domain ILIKE %[1]s)", p)
 	}
+	if q.Email != "" {
+		e, err := ParseEmail(q.Email)
+		if err != nil {
+			return Page[Contact]{}, err
+		}
+		w.add("(c.email = %[1]s OR EXISTS (SELECT 1 FROM identities i WHERE i.contact_id = c.id AND i.email = %[1]s))", w.arg(e))
+	}
 	if tag, err := ParseTag(string(q.Tag)); err == nil {
 		w.add("EXISTS (SELECT 1 FROM contact_tags t WHERE t.contact_id = c.id AND t.tag = %s)", w.arg(tag))
 	}
 	if q.Stage != "" {
+		if err := s.checkStage(ctx, q.Stage); err != nil {
+			return Page[Contact]{}, err
+		}
 		w.add("c.stage = %s", w.arg(q.Stage))
 	}
 	if q.Provider != "" {
@@ -198,7 +210,8 @@ func (s *Service) GetContact(ctx context.Context, id ContactID) (ContactDetail, 
 		return d, err
 	}
 
-	d.Activity, err = s.ListActivity(ctx, ActivityQuery{ContactID: id, Limit: 50})
+	activity, err := s.ListActivity(ctx, ActivityQuery{ContactID: id, Limit: 50})
+	d.Activity = activity.Items
 	return d, err
 }
 
@@ -218,7 +231,7 @@ func (s *Service) FindContactByEmail(ctx context.Context, email string) (Contact
 		  SELECT contact_id, 1 FROM identities WHERE email = $1
 		) m ORDER BY rank LIMIT 1`, e).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ContactDetail{}, fmt.Errorf("%w: no contact with email %s", ErrNotFound, e)
+		return ContactDetail{}, notFound(RecordContact, "no contact with email %s", e)
 	}
 	if err != nil {
 		return ContactDetail{}, err
@@ -226,10 +239,102 @@ func (s *Service) FindContactByEmail(ctx context.Context, email string) (Contact
 	return s.GetContact(ctx, id)
 }
 
+// CreateContact adds a person by hand, such as someone met at an event who
+// never signed up. The company comes from the email domain as it does for a
+// sign-up (none for free mail), and the contact and a new company are queued
+// for enrichment. Given fields are manual. An email that already resolves to
+// a contact, directly or through an identity, is an *ExistsError naming it.
+// An unknown Stage or a LinkedInURL that is not a web address is ErrInvalid.
+// Writes a contact_created activity.
+func (s *Service) CreateContact(ctx context.Context, actor Actor, in NewContact) (Contact, error) {
+	email, err := ParseEmail(in.Email)
+	if err != nil {
+		return Contact{}, err
+	}
+	tags, err := parseTags(in.Tags)
+	if err != nil {
+		return Contact{}, err
+	}
+	if in.LinkedInURL, err = webURL(FieldLinkedInURL, in.LinkedInURL); err != nil {
+		return Contact{}, err
+	}
+	if in.Stage != "" {
+		if err := s.checkStage(ctx, in.Stage); err != nil {
+			return Contact{}, err
+		}
+	}
+	var id ContactID
+	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx, `
+			INSERT INTO contacts (email, stage, first_seen_at, last_seen_at)
+			SELECT $1, COALESCE(NULLIF($2, ''), (SELECT name FROM stages ORDER BY position, name LIMIT 1)), $3, $3
+			 WHERE NOT EXISTS (SELECT 1 FROM identities WHERE email = $1)
+			ON CONFLICT (email) DO NOTHING RETURNING id`, email, in.Stage, s.now()).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = tx.QueryRow(ctx, `
+				SELECT id FROM contacts WHERE email = $1
+				UNION ALL SELECT contact_id FROM identities WHERE email = $1 LIMIT 1`, email).Scan(&id)
+			if err != nil {
+				return err
+			}
+			return &ExistsError{Record: RecordContact, ID: int64(id), Key: email.String()}
+		}
+		if pgCode(err) == foreignKeyViolation {
+			return fmt.Errorf("%w: unknown stage %q", ErrInvalid, in.Stage)
+		}
+		if err != nil {
+			return err
+		}
+		c, err := lockContact(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		for _, e := range []struct {
+			f   Field
+			col *string
+			v   string
+		}{
+			{FieldName, &c.name, in.Name},
+			{FieldTitle, &c.title, in.Title},
+			{FieldLocation, &c.location, in.Location},
+			{FieldLinkedInURL, &c.linkedInURL, in.LinkedInURL},
+		} {
+			if v := strings.TrimSpace(e.v); v != "" {
+				*e.col = v
+				c.manual = append(c.manual, e.f)
+			}
+		}
+		state := JobSkipped
+		if d := email.Domain(); !d.IsFreeMail() {
+			state = JobPending
+			coID, err := upsertCompany(ctx, tx, d)
+			if err != nil {
+				return err
+			}
+			c.companyID = &coID
+		}
+		if err := writeContact(ctx, tx, c); err != nil {
+			return err
+		}
+		if _, err := changeTags(ctx, tx, id, tags, nil); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO enrichment_jobs (contact_id, state) VALUES ($1, $2)`, id, state); err != nil {
+			return err
+		}
+		_, err = recordActivity(ctx, tx, activityRow{contact: id, kind: ActivityContactCreated, actor: actor, data: struct{}{}, at: s.now()})
+		return err
+	})
+	if err != nil {
+		return Contact{}, err
+	}
+	return s.contact(ctx, id)
+}
+
 // UpdateContact applies a human or agent edit. Non-nil fields overwrite and
 // are added to manual_fields, so later sign-ups and enrichment leave them
 // alone. Stage and tags are never machine-written, so they need no entry.
-// An unknown Stage is ErrInvalid.
+// An unknown Stage or a LinkedInURL that is not a web address is ErrInvalid.
 // Writes one contact_updated activity whose data is the field diff; a patch
 // that changes nothing writes nothing.
 func (s *Service) UpdateContact(ctx context.Context, actor Actor, id ContactID, p ContactPatch) (Contact, error) {
@@ -243,6 +348,18 @@ func (s *Service) UpdateContact(ctx context.Context, actor Actor, id ContactID, 
 	}
 	if p.CompanyDomain != nil && p.CompanyDomain.IsFreeMail() {
 		return Contact{}, fmt.Errorf("%w: %s is a free-mail domain, not a company", ErrInvalid, p.CompanyDomain)
+	}
+	if p.LinkedInURL != nil {
+		u, err := webURL(FieldLinkedInURL, *p.LinkedInURL)
+		if err != nil {
+			return Contact{}, err
+		}
+		p.LinkedInURL = &u
+	}
+	if p.Stage != nil {
+		if err := s.checkStage(ctx, *p.Stage); err != nil {
+			return Contact{}, err
+		}
 	}
 	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		c, err := lockContact(ctx, tx, id)
@@ -382,8 +499,8 @@ func companyDomain(ctx context.Context, tx pgx.Tx, id *CompanyID) (Domain, error
 // A field the contact does not accept is ErrInvalid; one that is not manual
 // is a no-op.
 func (s *Service) ResetContactField(ctx context.Context, actor Actor, id ContactID, f Field) (Contact, error) {
-	if !slices.Contains(contactFields, f) {
-		return Contact{}, fmt.Errorf("%w: contacts have no field %q", ErrInvalid, f)
+	if !slices.Contains(ContactFields, f) {
+		return Contact{}, fmt.Errorf("%w: contacts have no field %q; the fields are %s", ErrInvalid, f, joinNames(ContactFields))
 	}
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		c, err := lockContact(ctx, tx, id)
@@ -449,6 +566,9 @@ func (s *Service) MergeContacts(ctx context.Context, actor Actor, keep, drop Con
 				}
 			}
 		}
+		if len(k.socials) == 0 {
+			k.socials = d.socials
+		}
 		if k.companyID == nil && d.companyID != nil {
 			k.companyID = d.companyID
 			if slices.Contains(d.manual, FieldCompany) {
@@ -511,7 +631,7 @@ func (s *Service) AddNote(ctx context.Context, actor Actor, id ContactID, body s
 			VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
 			id, n.Body, actor.Kind, actor.ID, actor.Label).Scan(&n.ID, &n.CreatedAt)
 		if pgCode(err) == foreignKeyViolation {
-			return fmt.Errorf("%w: contact %d", ErrNotFound, id)
+			return notFound(RecordContact, "no contact %d", id)
 		}
 		if err != nil {
 			return err
@@ -526,13 +646,75 @@ func (s *Service) AddNote(ctx context.Context, actor Actor, id ContactID, body s
 	return n, nil
 }
 
-// DeleteNote removes a note. The note_added activity stays, with its body gone.
+// DeleteNote removes a note and writes a note_deleted activity naming who
+// did. The note_added activity stays, with its body gone.
 func (s *Service) DeleteNote(ctx context.Context, actor Actor, id NoteID) error {
-	tag, err := s.db.Exec(ctx, `DELETE FROM notes WHERE id = $1`, id)
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var contactID ContactID
+		err := tx.QueryRow(ctx, `DELETE FROM notes WHERE id = $1 RETURNING contact_id`, id).Scan(&contactID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return notFound(RecordNote, "no note %d", id)
+		}
+		if err != nil {
+			return err
+		}
+		_, err = recordActivity(ctx, tx, activityRow{contact: contactID, kind: ActivityNoteDeleted, actor: actor,
+			data: map[string]NoteID{"note_id": id}, at: s.now()})
+		return err
+	})
+}
+
+// DeleteContact erases a contact. Its identities, tags, notes, timeline and
+// enrichment job go with it (ON DELETE CASCADE), and nothing records the
+// deletion, so nothing about the person stays behind. A later sign-up from
+// the same provider user creates a new contact.
+func (s *Service) DeleteContact(ctx context.Context, id ContactID) error {
+	tag, err := s.db.Exec(ctx, `DELETE FROM contacts WHERE id = $1`, id)
 	if err == nil && tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: note %d", ErrNotFound, id)
+		return notFound(RecordContact, "no contact %d", id)
 	}
 	return err
+}
+
+// MaxBulk is the most contacts one BulkUpdateContacts call changes.
+const MaxBulk = 200
+
+// BulkUpdateContacts applies one stage or tag change to each contact in its
+// own transaction, as UpdateContact would. A contact that is missing or
+// rejects the change gets a failed result and the rest go ahead. An invalid
+// request (no ids, more than MaxBulk, nothing to change, an unknown stage or
+// a bad tag) is ErrInvalid before anything is written, and any other error
+// stops the run and is returned.
+func (s *Service) BulkUpdateContacts(ctx context.Context, actor Actor, b BulkUpdate) ([]BulkResult, error) {
+	switch {
+	case len(b.IDs) == 0:
+		return nil, fmt.Errorf("%w: ids is empty", ErrInvalid)
+	case len(b.IDs) > MaxBulk:
+		return nil, fmt.Errorf("%w: %d ids, at most %d per call", ErrInvalid, len(b.IDs), MaxBulk)
+	case b.Stage == nil && len(b.AddTags) == 0 && len(b.RemoveTags) == 0:
+		return nil, fmt.Errorf("%w: nothing to change; give stage, add_tags or remove_tags", ErrInvalid)
+	}
+	if _, err := parseTags(slices.Concat(b.AddTags, b.RemoveTags)); err != nil {
+		return nil, err
+	}
+	if b.Stage != nil {
+		if err := s.checkStage(ctx, *b.Stage); err != nil {
+			return nil, err
+		}
+	}
+	p := ContactPatch{Stage: b.Stage, AddTags: b.AddTags, RemoveTags: b.RemoveTags}
+	results := make([]BulkResult, len(b.IDs))
+	for i, id := range b.IDs {
+		results[i] = BulkResult{ID: id, OK: true}
+		_, err := s.UpdateContact(ctx, actor, id, p)
+		switch {
+		case errors.Is(err, ErrNotFound), errors.Is(err, ErrInvalid):
+			results[i].OK, results[i].Error = false, err.Error()
+		case err != nil:
+			return nil, err
+		}
+	}
+	return results, nil
 }
 
 // ListTags returns every tag in use with its contact count.
@@ -551,13 +733,33 @@ func (s *Service) ListTags(ctx context.Context) (map[Tag]int, error) {
 	return tags, err
 }
 
-// ListStages returns stages in position order.
-func (s *Service) ListStages(ctx context.Context) ([]Stage, error) {
-	rows, err := s.db.Query(ctx, `SELECT name FROM stages ORDER BY position, name`)
+// ListStages returns stages in position order with their contact counts.
+func (s *Service) ListStages(ctx context.Context) ([]StageCount, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT s.name, count(c.id) FROM stages s LEFT JOIN contacts c ON c.stage = s.name
+		 GROUP BY s.name, s.position ORDER BY s.position, s.name`)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[Stage])
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (StageCount, error) {
+		var sc StageCount
+		err := r.Scan(&sc.Name, &sc.ContactCount)
+		return sc, err
+	})
+}
+
+// checkStage is ErrInvalid naming the valid stages when st is not one, so a
+// caller can fix a typo without another round trip.
+func (s *Service) checkStage(ctx context.Context, st Stage) error {
+	rows, err := s.db.Query(ctx, `SELECT name FROM stages ORDER BY position, name`)
+	if err != nil {
+		return err
+	}
+	stages, err := pgx.CollectRows(rows, pgx.RowTo[Stage])
+	if err != nil || slices.Contains(stages, st) {
+		return err
+	}
+	return fmt.Errorf("%w: unknown stage %q; the stages are %s", ErrInvalid, st, joinNames(stages))
 }
 
 // SetStages replaces the ordered stage list. renames maps old name to new

@@ -25,10 +25,11 @@ export const jobStates = ["pending", "running", "done", "failed", "skipped"] as 
 export type JobState = (typeof jobStates)[number];
 
 export type ContactField = "name" | "title" | "location" | "bio" | "linkedin_url" | "company";
-export type CompanyField = "name" | "description" | "employee_range" | "industry" | "country" | "linkedin_url";
+export type CompanyField = "name" | "description" | "employee_range" | "industry" | "country" | "linkedin_url" | "tagline" | "headquarters";
 export type Field = ContactField | CompanyField;
 
-export type ActorKind = "user" | "api_key" | "provider" | "system";
+/** "app" is an MCP client acting for the person who approved it; its label reads "Claude Code (via Alex Rivera)". */
+export type ActorKind = "user" | "api_key" | "app" | "provider" | "system";
 export interface Actor {
   kind: ActorKind;
   id: string;
@@ -48,6 +49,9 @@ export interface ContactRef {
   name: string;
 }
 
+/** Profile type ("x", "github", "website", or a host name) to URL. LinkedIn is linkedin_url. */
+export type Socials = Record<string, string>;
+
 export interface Contact {
   id: ContactID;
   email: Email;
@@ -57,6 +61,7 @@ export interface Contact {
   location: string;
   bio: string;
   linkedin_url: string;
+  socials: Socials;
   company: CompanyRef | null;
   stage: Stage;
   tags: Tag[];
@@ -96,12 +101,15 @@ export type FieldChanges = { [field: string]: FieldDiff | TagChange };
 
 /** One variant per crm.ActivityKind, with the data shape its comment documents. */
 export type ActivityData =
-  | { kind: "signed_up"; data: { provider: string; external_id: string; raw?: unknown } }
+  | { kind: "signed_up"; data: { provider: string; external_id: string } }
   | { kind: "provider_deleted"; data: { provider: string; external_id: string } }
   | { kind: "contact_updated"; data: { reset: Field } | FieldChanges }
   | { kind: "company_updated"; data: { reset: Field } | FieldChanges }
   | { kind: "note_added"; data: { note_id: NoteID } }
+  | { kind: "note_deleted"; data: { note_id: NoteID } }
   | { kind: "contacts_merged"; data: { drop_id: ContactID; drop_email: Email } }
+  | { kind: "contact_created"; data: Record<string, never> }
+  | { kind: "company_created"; data: Record<string, never> }
   | { kind: "enriched"; data: { changed: Field[] | null } };
 
 export type ActivityKind = ActivityData["kind"];
@@ -121,16 +129,46 @@ export interface ContactDetail extends Contact {
   activity: Activity[];
 }
 
+/**
+ * One company image. A company's logos come best first: icons before
+ * wordmarks, then own background, then art that reads on both themes, then
+ * sharp before blurry.
+ */
+export interface Logo {
+  url: string;
+  kind: "icon" | "wordmark";
+  /** The image is opaque and fills its own box. */
+  own_background: boolean;
+  /** The art reads on a light background. */
+  on_light: boolean;
+  /** The art reads on a dark background. */
+  on_dark: boolean;
+  /** Width over height; 0 when unknown. */
+  aspect: number;
+  width: number;
+}
+
 export interface Company {
   id: CompanyID;
   domain: Domain;
   name: string;
   description: string;
+  /** The first of logos, for clients that show one image. */
   logo_url: string;
   employee_range: string;
   industry: string;
   country: string;
   linkedin_url: string;
+  tagline: string;
+  /** "South San Francisco, California"; the country is in country. */
+  headquarters: string;
+  socials: Socials;
+  links: Partial<Record<"careers" | "pricing" | "blog" | "contact", string>>;
+  /** Sub-industries, most relevant first. */
+  segments: string[];
+  /** "NASDAQ: XYZ", or "". */
+  stock: string;
+  logos: Logo[];
   contact_count: number;
   enrichment: JobState;
   manual_fields: CompanyField[];
@@ -140,6 +178,8 @@ export interface Company {
 
 export interface CompanyDetail extends Company {
   contacts: Contact[];
+  /** The company's and its contacts' entries, newest first, capped at 50. */
+  activity: Activity[];
 }
 
 /** A keyset page, newest first. No next_cursor means the last page. */
@@ -169,7 +209,10 @@ export interface CompanyQuery {
 export interface ActivityQuery {
   kind?: ActivityKind;
   contact_id?: ContactID;
+  company_id?: CompanyID;
   since?: Timestamp;
+  before?: Timestamp;
+  cursor?: string;
   limit?: number;
 }
 
@@ -188,6 +231,22 @@ export interface ContactPatch {
 }
 
 export type CompanyPatch = Partial<Record<CompanyField, string>>;
+
+/** POST /v1/contacts: a person added by hand. Every field given is pinned. */
+export interface NewContact {
+  email: Email;
+  name?: string;
+  title?: string;
+  location?: string;
+  linkedin_url?: string;
+  stage?: Stage;
+  tags?: Tag[];
+}
+
+export interface NewCompany {
+  domain: Domain;
+  name?: string;
+}
 
 export interface SignupBody {
   email: Email;
@@ -243,6 +302,24 @@ export interface Key {
   prefix: string;
   created_at: Timestamp;
   last_used_at?: Timestamp;
+}
+
+/** An MCP client a person approved. Its name is whatever the app registered, unverified. */
+export interface ConnectedApp {
+  id: string;
+  name: string;
+  /** The name, or else the email, of the person it acts as. */
+  approved_by: string;
+  created_at: Timestamp;
+  last_used_at?: Timestamp;
+}
+
+/** A pending OAuth authorization, for the consent page. */
+export interface ConsentRequest {
+  client_name: string;
+  /** Where the code goes on approval. */
+  redirect_uri: string;
+  client_registered_at: Timestamp;
 }
 
 /** A person who can sign into the UI. */
@@ -345,14 +422,20 @@ export interface EnrichResult {
   state: JobState;
 }
 
-/** Error body for every non-2xx: {"error": "<message>"}, plus request_id on a 5xx and code on a 403 that wants a fresh sign-in. */
+/**
+ * Error body for every non-2xx: {"error": "<message>"}, plus request_id on a
+ * 5xx, code on a 403 that wants a fresh sign-in, and the existing record's id
+ * on a 409 from a create.
+ */
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: "reauth_required";
-  constructor(status: number, message: string, code?: "reauth_required") {
+  readonly existingId?: number;
+  constructor(status: number, message: string, code?: "reauth_required", existingId?: number) {
     super(message);
     this.status = status;
     this.code = code;
+    this.existingId = existingId;
   }
 }
 
@@ -375,14 +458,16 @@ async function request<T>(method: string, path: string, opts: { query?: Query; b
   if (!res.ok) {
     let message = res.statusText || `HTTP ${res.status}`;
     let code: "reauth_required" | undefined;
+    let existingId: number | undefined;
     try {
       const body: unknown = await res.json();
       if (body && typeof body === "object" && "error" in body && typeof body.error === "string") message = body.error;
       if (body && typeof body === "object" && "code" in body && body.code === "reauth_required") code = body.code;
+      if (body && typeof body === "object" && "id" in body && typeof body.id === "number") existingId = body.id;
     } catch {
       // Not JSON (a proxy error page, say); keep the status text.
     }
-    throw new ApiError(res.status, message, code);
+    throw new ApiError(res.status, message, code, existingId);
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -445,6 +530,8 @@ export const api = {
 
   contacts: {
     search: (q: ContactQuery) => request<Page<Contact>>("GET", "/v1/contacts", { query: { ...q } }),
+    /** 409 with ApiError.existingId when the email is already a contact. */
+    create: (body: NewContact) => request<Contact>("POST", "/v1/contacts", { body }),
     get: (id: ContactID) => request<ContactDetail>("GET", `/v1/contacts/${id}`),
     update: (id: ContactID, patch: ContactPatch) => request<Contact>("PATCH", `/v1/contacts/${id}`, { body: patch }),
     resetField: (id: ContactID, field: ContactField) =>
@@ -453,6 +540,8 @@ export const api = {
     merge: (keep: ContactID, drop: ContactID) => request<Contact>("POST", `/v1/contacts/${keep}/merge`, { body: { drop } }),
     addNote: (id: ContactID, body: string) => request<Note>("POST", `/v1/contacts/${id}/notes`, { body: { body } }),
     enrich: (id: ContactID) => request<EnrichResult>("POST", `/v1/contacts/${id}/enrich`),
+    /** Deletes the contact with its sources, notes and tags. */
+    delete: (id: ContactID) => request<void>("DELETE", `/v1/contacts/${id}`),
   },
 
   notes: {
@@ -461,15 +550,19 @@ export const api = {
 
   companies: {
     search: (q: CompanyQuery) => request<Page<Company>>("GET", "/v1/companies", { query: { ...q } }),
+    /** 400 for a free-mail domain; 409 with ApiError.existingId when it is already a company. */
+    create: (body: NewCompany) => request<Company>("POST", "/v1/companies", { body }),
     get: (id: CompanyID) => request<CompanyDetail>("GET", `/v1/companies/${id}`),
     update: (id: CompanyID, patch: CompanyPatch) => request<Company>("PATCH", `/v1/companies/${id}`, { body: patch }),
     resetField: (id: CompanyID, field: CompanyField) =>
       request<Company>("DELETE", `/v1/companies/${id}/manual_fields/${field}`),
     enrich: (id: CompanyID) => request<EnrichResult>("POST", `/v1/companies/${id}/enrich`),
+    /** Deletes the company; its contacts stay, without a company. */
+    delete: (id: CompanyID) => request<void>("DELETE", `/v1/companies/${id}`),
   },
 
   activity: {
-    list: (q: ActivityQuery) => request<Activity[]>("GET", "/v1/activity", { query: { ...q } }),
+    list: (q: ActivityQuery) => request<Page<Activity>>("GET", "/v1/activity", { query: { ...q } }),
   },
 
   /** Every tag in use, with its contact count. */
@@ -496,6 +589,18 @@ export const api = {
     list: () => request<Key[]>("GET", "/v1/keys"),
     create: (name: string) => request<CreatedKey>("POST", "/v1/keys", { body: { name } }),
     revoke: (id: KeyID) => request<void>("DELETE", `/v1/keys/${enc(id)}`),
+  },
+
+  apps: {
+    list: () => request<ConnectedApp[]>("GET", "/v1/apps"),
+    revoke: (id: string) => request<void>("DELETE", `/v1/apps/${enc(id)}`),
+  },
+
+  consent: {
+    get: (handle: string) => request<ConsentRequest>("GET", `/v1/oauth/requests/${enc(handle)}`),
+    /** Returns the URL to send the browser to: the app's redirect with a code, or with error=access_denied. */
+    decide: (handle: string, approve: boolean) =>
+      request<{ redirect: string }>("POST", `/v1/oauth/requests/${enc(handle)}`, { body: { approve } }),
   },
 
   users: {

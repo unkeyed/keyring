@@ -14,7 +14,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
           <Logo className="size-7 text-sm" />
           <span className="text-base font-semibold">uncrm</span>
         </div>
-        <div className="rounded-overlay border border-line bg-surface p-6 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_2px_4px_-2px_rgb(0_0_0/0.05)]">
+        <div className="rounded-overlay border border-line bg-surface p-6 shadow-raised">
           <h1 className="text-lg font-semibold">{title}</h1>
           {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
           <div className="mt-5">{children}</div>

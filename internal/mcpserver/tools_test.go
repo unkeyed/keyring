@@ -18,6 +18,26 @@ import (
 	"github.com/uncrm/uncrm/internal/testdb"
 )
 
+// oneToken accepts one access token, standing in for auth.OAuthServer,
+// whose own tests drive the real OAuth flow into /mcp.
+type oneToken struct {
+	token string
+	actor crm.Actor
+}
+
+func (o oneToken) VerifyAccessToken(_ context.Context, token string) (crm.Actor, time.Time, error) {
+	if token != o.token {
+		return crm.Actor{}, time.Time{}, auth.ErrInvalidToken
+	}
+	return o.actor, time.Now().Add(time.Hour), nil
+}
+
+func (oneToken) ResourceMetadataURL() string {
+	return "http://localhost/.well-known/oauth-protected-resource/mcp"
+}
+
+var app = oneToken{"uncrm_at_test", crm.Actor{Kind: crm.ActorApp, ID: "1", Label: "Claude Code (via Ada)"}}
+
 type bearer struct{ key string }
 
 func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -67,27 +87,22 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any,
 }
 
 // TestEveryToolOverHTTP drives each tool through the real /mcp handler with
-// an API key, the way an agent's MCP client does.
+// an access token, the way an agent's MCP client does.
 func TestEveryToolOverHTTP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool := testdb.New(t)
 	svc := crm.New(pool, nil)
-	keys := auth.NewKeyStore(pool, auth.UnkeyConfig{})
-	key, _, err := keys.Create(ctx, crm.Actor{}, "sales agent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(Handler(svc, keys, "test"))
+	srv := httptest.NewServer(Handler(svc, auth.NewKeyStore(pool, auth.UnkeyConfig{}), app, "test"))
 	defer srv.Close()
 
 	if _, err := connect(ctx, srv.URL, ""); err == nil {
-		t.Fatal("connected without an API key")
+		t.Fatal("connected without a token")
 	}
-	if _, err := connect(ctx, srv.URL, "uncrm_wrong"); err == nil {
-		t.Fatal("connected with a wrong API key")
+	if _, err := connect(ctx, srv.URL, "uncrm_at_wrong"); err == nil {
+		t.Fatal("connected with a wrong token")
 	}
-	cs, err := connect(ctx, srv.URL, key)
+	cs, err := connect(ctx, srv.URL, app.token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,8 +116,9 @@ func TestEveryToolOverHTTP(t *testing.T) {
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)
 	}
-	want := []string{"add_note", "enrich_contact", "get_company", "get_contact", "get_status", "list_recent_signups", "list_stages", "list_tags",
-		"merge_contacts", "reset_contact_field", "search_companies", "search_contacts", "set_stage", "update_contact"}
+	want := []string{"add_note", "bulk_update_contacts", "create_company", "create_contact", "delete_company", "delete_contact", "delete_note",
+		"enrich_company", "enrich_contact", "get_company", "get_contact", "get_status", "list_activity", "list_recent_signups", "list_stages", "list_tags",
+		"merge_contacts", "reset_company_field", "reset_contact_field", "search_companies", "search_contacts", "set_stage", "update_company", "update_contact"}
 	if slices.Sort(names); !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -117,10 +133,14 @@ func TestEveryToolOverHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var page crm.Page[crm.Contact]
-	text := call(t, cs, "search_contacts", map[string]any{"query": "stripe"}, &page)
-	if len(page.Items) != 1 || page.Items[0].ID != ada.ContactID || !strings.HasPrefix(text, "1 contacts.") {
-		t.Fatalf("search_contacts stripe = %+v, text %q", page.Items, text)
+	var page crm.Page[ContactSummary]
+	call(t, cs, "search_contacts", map[string]any{"query": "stripe"}, &page)
+	if len(page.Items) != 1 || page.Items[0].ID != ada.ContactID || page.Items[0].Company == nil || page.Items[0].SignedUpAt.IsZero() {
+		t.Fatalf("search_contacts stripe = %+v", page.Items)
+	}
+	call(t, cs, "search_contacts", map[string]any{"email": "ADA@stripe.com", "signed_up_after": "2020-01-01"}, &page)
+	if len(page.Items) != 1 || page.Items[0].ID != ada.ContactID {
+		t.Fatalf("search_contacts by email and date = %+v", page.Items)
 	}
 
 	var detail crm.ContactDetail
@@ -151,14 +171,19 @@ func TestEveryToolOverHTTP(t *testing.T) {
 
 	var note crm.Note
 	call(t, cs, "add_note", map[string]any{"contact_id": ada.ContactID, "body": "Asked for a demo."}, &note)
-	if note.Author.Kind != crm.ActorAPIKey || note.Author.Label != "sales agent" {
-		t.Fatalf("note author = %+v, want the API key", note.Author)
+	if note.Author != app.actor {
+		t.Fatalf("note author = %+v, want the app %+v", note.Author, app.actor)
 	}
 
 	var signups signupsOut
-	text = call(t, cs, "list_recent_signups", map[string]any{"limit": 10}, &signups)
-	if len(signups.Signups) != 2 || !strings.Contains(text, "ada@stripe.com") {
-		t.Fatalf("list_recent_signups = %d, text %q", len(signups.Signups), text)
+	text := call(t, cs, "list_recent_signups", map[string]any{"limit": 1}, &signups)
+	if len(signups.Signups) != 1 || signups.NextCursor == "" || !strings.Contains(text, signups.NextCursor) {
+		t.Fatalf("list_recent_signups page 1 = %+v, text %q", signups, text)
+	}
+	var rest signupsOut
+	call(t, cs, "list_recent_signups", map[string]any{"limit": 1, "cursor": signups.NextCursor}, &rest)
+	if len(rest.Signups) != 1 || rest.Signups[0].ID == signups.Signups[0].ID || rest.NextCursor != "" {
+		t.Fatalf("list_recent_signups page 2 = %+v", rest)
 	}
 
 	var company crm.CompanyDetail
@@ -166,10 +191,19 @@ func TestEveryToolOverHTTP(t *testing.T) {
 	if len(company.Contacts) != 1 {
 		t.Fatalf("get_company contacts = %d", len(company.Contacts))
 	}
-	var companies crm.Page[crm.Company]
-	call(t, cs, "search_companies", map[string]any{"query": "stripe"}, &companies)
-	if len(companies.Items) != 1 || companies.Items[0].ID != company.ID {
+	var companies crm.Page[CompanySummary]
+	call(t, cs, "search_companies", map[string]any{"domain": "stripe.com"}, &companies)
+	if len(companies.Items) != 1 || companies.Items[0].ID != company.ID || companies.Items[0].ContactCount != 1 {
 		t.Fatalf("search_companies = %+v", companies.Items)
+	}
+	var co crm.Company
+	call(t, cs, "update_company", map[string]any{"id": company.ID, "changes": map[string]any{"name": "Stripe"}}, &co)
+	if co.Name != "Stripe" || !slices.Contains(co.ManualFields, crm.FieldName) {
+		t.Fatalf("update_company = %+v", co)
+	}
+	call(t, cs, "reset_company_field", map[string]any{"id": company.ID, "field": "name"}, &co)
+	if slices.Contains(co.ManualFields, crm.FieldName) {
+		t.Fatalf("reset_company_field left name pinned: %v", co.ManualFields)
 	}
 
 	var job enrichOut
@@ -177,10 +211,14 @@ func TestEveryToolOverHTTP(t *testing.T) {
 	if job.State != crm.JobPending {
 		t.Fatalf("enrich_contact = %q", job.State)
 	}
+	call(t, cs, "enrich_company", map[string]any{"id": company.ID}, &job)
+	if job.State != crm.JobPending {
+		t.Fatalf("enrich_company = %q", job.State)
+	}
 
 	var stages stagesOut
 	call(t, cs, "list_stages", nil, &stages)
-	if len(stages.Stages) == 0 || stages.Stages[0] != "new" {
+	if len(stages.Stages) != 4 || stages.Stages[0] != (crm.StageCount{Name: "new", ContactCount: 1}) || stages.Stages[1] != (crm.StageCount{Name: "qualified", ContactCount: 1}) {
 		t.Fatalf("list_stages = %v", stages.Stages)
 	}
 	var tags tagsOut
@@ -195,9 +233,35 @@ func TestEveryToolOverHTTP(t *testing.T) {
 		t.Fatalf("after merge, ada@gmail.com resolves to %d, want %d", detail.ID, ada.ContactID)
 	}
 
+	var made crm.Contact
+	call(t, cs, "create_contact", map[string]any{"email": "grace@navy.mil", "title": "Rear Admiral"}, &made)
+	if made.Company == nil || made.Company.Domain.String() != "navy.mil" || made.Title != "Rear Admiral" {
+		t.Fatalf("create_contact = %+v", made)
+	}
+	if res, _ := cs.CallTool(ctx, &mcp.CallToolParams{Name: "create_contact", Arguments: map[string]any{"email": "grace@navy.mil"}}); !res.IsError {
+		t.Fatal("create_contact with an existing email succeeded")
+	}
+	var madeCo crm.Company
+	call(t, cs, "create_company", map[string]any{"domain": "linear.app"}, &madeCo)
+	if madeCo.Domain.String() != "linear.app" || madeCo.Enrichment != crm.JobPending || madeCo.Logos == nil {
+		t.Fatalf("create_company = %+v", madeCo)
+	}
+
 	var st statusOut
-	text = call(t, cs, "get_status", nil, &st)
-	if st.Contacts != 1 || st.KeyStore != "builtin" || !strings.HasPrefix(text, "1 contacts, 1 companies.") {
-		t.Fatalf("get_status = %+v, text %q", st, text)
+	call(t, cs, "get_status", nil, &st)
+	if st.Contacts != 2 || st.Companies != 3 || st.KeyStore != "builtin" {
+		t.Fatalf("get_status = %+v", st)
+	}
+
+	var gone deletedOut
+	call(t, cs, "delete_company", map[string]any{"id": madeCo.ID}, &gone)
+	call(t, cs, "delete_note", map[string]any{"id": note.ID}, &gone)
+	call(t, cs, "delete_contact", map[string]any{"id": made.ID}, &gone)
+	if gone.ID != int64(made.ID) || !gone.Deleted {
+		t.Fatalf("delete_contact = %+v", gone)
+	}
+	call(t, cs, "get_status", nil, &st)
+	if st.Contacts != 1 || st.Companies != 2 {
+		t.Fatalf("after deletes, get_status = %+v, want 1 contact and 2 companies", st)
 	}
 }

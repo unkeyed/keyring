@@ -46,7 +46,7 @@ function inline(text: string): ReactNode[] {
   return text.split(token).map((part, i) => {
     if (part.startsWith("`") && part.endsWith("`") && part.length > 1) {
       return (
-        <code key={i} className="rounded bg-subtle px-1 py-px font-mono text-xs break-all text-fg">
+        <code key={i} className="rounded-inner bg-subtle px-1 py-px font-mono text-xs break-all text-fg">
           {part.slice(1, -1)}
         </code>
       );

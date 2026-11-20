@@ -1,7 +1,7 @@
-import { createContext, useContext, useState, type FormEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
-import { api, needsReauth, oauthURL, type Account as AccountData, type SignInProvider, type TOTPEnrolment } from "../../api";
+import { api, oauthURL, type Account as AccountData, type SignInProvider, type TOTPEnrolment } from "../../api";
 import { keys, useAccount, useAuthOptions } from "../../queries";
 import {
   Badge,
@@ -11,8 +11,6 @@ import {
   CodeBlock,
   ConfirmButton,
   CopyField,
-  Dialog,
-  DialogBody,
   ErrorNote,
   Field,
   Icon,
@@ -20,34 +18,20 @@ import {
   PageSpinner,
   RelativeTime,
 } from "../../ui";
-import { assertPasskey, createPasskey } from "../../webauthn";
+import { createPasskey } from "../../webauthn";
+import { useConfirmIdentity, useReauthMutation } from "./Reauth";
 import { SettingsHeader, SettingsSubhead } from "./Settings";
 
-const Reauth = createContext<(retry?: () => void) => void>(() => {});
-
-/**
- * A change to a sign-in method. When the server wants a fresh sign-in, it
- * asks for one and then runs the same change again, so the reauth error
- * never shows as a failure.
- */
+/** A change to a sign-in method, which re-reads the account after it and after a fresh sign-in. */
 function useAccountMutation<V = void, D = unknown>({ mutationFn, onSuccess }: { mutationFn: (v: V) => Promise<D>; onSuccess?: (d: D) => void }) {
-  const confirm = useContext(Reauth);
   const qc = useQueryClient();
-  const m = useMutation({
+  return useReauthMutation({
     mutationFn,
     onSuccess: (d: D) => {
       onSuccess?.(d);
       return qc.invalidateQueries({ queryKey: keys.account });
     },
-    onError: (err: unknown, v: V) => {
-      if (!needsReauth(err)) return;
-      void qc.invalidateQueries({ queryKey: keys.account });
-      confirm(() => {
-        m.mutate(v);
-      });
-    },
   });
-  return { ...m, error: needsReauth(m.error) ? null : m.error };
 }
 
 const factorNames: Record<string, string> = {
@@ -97,7 +81,7 @@ export function deviceName(ua: string): string {
 export function Account() {
   const account = useAccount();
   const options = useAuthOptions();
-  const [confirming, setConfirming] = useState<{ retry?: () => void } | null>(null);
+  const confirm = useConfirmIdentity();
 
   if (account.isPending || options.isPending) return <PageSpinner />;
   if (account.isError || options.isError) return <ErrorNote error={account.error ?? options.error} />;
@@ -105,7 +89,7 @@ export function Account() {
   const providers = options.data.providers;
 
   return (
-    <Reauth.Provider value={(retry) => setConfirming({ retry })}>
+    <>
       <SettingsHeader title="Account">
         How you sign in to uncrm. A passkey or a connected login signs you in on its own. A password always needs a second step.
       </SettingsHeader>
@@ -114,7 +98,7 @@ export function Account() {
         {!a.recent && (
           <Card className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
             <p className="min-w-0 flex-1 text-sm text-muted">Changing how you sign in needs a sign-in from the last 15 minutes. Confirm it&apos;s you first.</p>
-            <Button onClick={() => setConfirming({})}>Confirm it&apos;s you</Button>
+            <Button onClick={() => confirm?.()}>Confirm it&apos;s you</Button>
           </Card>
         )}
       </div>
@@ -127,17 +111,7 @@ export function Account() {
         <Sessions a={a} providers={providers} />
       </div>
 
-      <Dialog open={confirming !== null} onClose={() => setConfirming(null)} title="Confirm it's you">
-        <ConfirmBody
-          a={a}
-          providers={providers}
-          onConfirmed={() => {
-            confirming?.retry?.();
-            setConfirming(null);
-          }}
-        />
-      </Dialog>
-    </Reauth.Provider>
+    </>
   );
 }
 
@@ -168,64 +142,6 @@ function UrlNotice({ providers }: { providers: SignInProvider[] }) {
         <Icon name="x" className="size-3.5" />
       </Button>
     </div>
-  );
-}
-
-function ConfirmBody({ a, providers, onConfirmed }: { a: AccountData; providers: SignInProvider[]; onConfirmed: () => void }) {
-  const qc = useQueryClient();
-  const [code, setCode] = useState("");
-  const done = async () => {
-    await qc.invalidateQueries({ queryKey: keys.account });
-    onConfirmed();
-  };
-  const passkey = useMutation({
-    mutationFn: async () => api.account.reauthPasskey(await assertPasskey(await api.account.reauthPasskeyBegin())),
-    onSuccess: done,
-  });
-  const withCode = useMutation({ mutationFn: () => api.account.reauthCode(code.replace(/\s/g, "")), onSuccess: done });
-  // A provider may let someone back in without asking anything, so the server
-  // accepts it only from people who have no passkey and no authenticator app.
-  const linked = a.passkeys.length > 0 || a.totp ? [] : providers.filter((p) => a.identities.some((i) => i.provider === p.id));
-  const hasMethod = a.passkeys.length > 0 || a.totp || linked.length > 0;
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (code.trim()) withCode.mutate();
-  };
-
-  return (
-    <DialogBody>
-      <div className="space-y-4">
-        <p className="text-sm text-muted">Changing how you sign in needs a recent sign-in. Prove it&apos;s you with any of these.</p>
-        <ErrorNote error={passkey.error ?? withCode.error} />
-        {a.passkeys.length > 0 && (
-          <Button variant="primary" className="w-full" onClick={() => passkey.mutate()} disabled={passkey.isPending}>
-            <Icon name="key" className="size-3.5" />
-            {passkey.isPending ? "Waiting for your passkey…" : "Use a passkey"}
-          </Button>
-        )}
-        {a.totp && (
-          <form onSubmit={submit} className="space-y-2">
-            <Field label="Code" hint="From your authenticator app, or one of your recovery codes.">
-              <input className={inputClass} autoComplete="one-time-code" autoCapitalize="none" spellCheck={false} required value={code} onChange={(e) => setCode(e.target.value)} />
-            </Field>
-            <Button type="submit" className="w-full" disabled={withCode.isPending}>
-              Confirm
-            </Button>
-          </form>
-        )}
-        {linked.length > 0 && (
-          <div className="space-y-2">
-            {linked.map((p) => (
-              <Button key={p.id} className="w-full" onClick={() => location.assign(oauthURL(p.id, { intent: "reauth" }))}>
-                Continue with {p.name}
-              </Button>
-            ))}
-            <p className="text-xs text-muted">The provider brings you back here. Then make your change again.</p>
-          </div>
-        )}
-        <p className="text-xs text-muted">{hasMethod ? "Or sign out and sign in again." : "Sign out and sign in again, then make your change."}</p>
-      </div>
-    </DialogBody>
   );
 }
 
@@ -391,7 +307,7 @@ function TwoFactor({ a }: { a: AccountData }) {
 }
 
 function ConnectedLogins({ a, providers }: { a: AccountData; providers: SignInProvider[] }) {
-  const confirm = useContext(Reauth);
+  const confirm = useConfirmIdentity();
   const unlink = useAccountMutation({ mutationFn: api.account.unlink });
   const configured = providers.map((p) => ({ id: p.id, name: p.name, identity: a.identities.find((i) => i.provider === p.id) }));
   // A login linked before its provider was unset can still be unlinked, though not used.
@@ -439,7 +355,7 @@ function ConnectedLogins({ a, providers }: { a: AccountData; providers: SignInPr
                       onClick={(e) => {
                         if (a.recent) return;
                         e.preventDefault();
-                        confirm(() => location.assign(href));
+                        confirm?.(() => location.assign(href));
                       }}
                     >
                       Connect

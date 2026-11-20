@@ -6,17 +6,20 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Throttling counts failed attempts per key in login_failures, so every
 // replica sees the same count. Keys are "email:<address>" for passwords,
 // "user:<id>" for second-factor and re-verification codes, and "ip:<addr>"
 // for both. A key's row exists for unknown emails too, so throttling never
-// reveals whether an account exists.
+// reveals whether an account exists. The OAuth server counts refused token
+// requests under "token:<addr>" and every client registration under
+// "register:<addr>".
 
 // freeAttempts is how many failures a key gets before backoff starts. An IP
 // gets more, because an office or a carrier NAT puts many people behind one.
-var freeAttempts = map[string]int{"email": 5, "user": 5, "ip": 30}
+var freeAttempts = map[string]int{"email": 5, "user": 5, "ip": 30, "token": 30, "register": 20}
 
 const (
 	maxLoginBackoff    = 15 * time.Minute
@@ -42,13 +45,13 @@ func freeFor(key string) int {
 // transaction, so an attempt holds one connection however many queue. A
 // check error that failed reports true counts against every key; success
 // clears onSuccess.
-func (u *Users) guarded(ctx context.Context, keys, onSuccess []string, failed func(error) bool, check func(tx pgx.Tx) error) error {
-	tx, err := u.db.Begin(ctx)
+func guarded(ctx context.Context, db *pgxpool.Pool, keys, onSuccess []string, failed func(error) bool, check func(tx pgx.Tx) error) error {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.throttle:' || k)) FROM (SELECT unnest($1::text[]) AS k ORDER BY 1) s`, keys); err != nil {
+	if err := lockKeys(ctx, tx, keys); err != nil {
 		return err
 	}
 	if err := throttled(ctx, tx, keys); err != nil {
@@ -70,6 +73,11 @@ func (u *Users) guarded(ctx context.Context, keys, onSuccess []string, failed fu
 		return err
 	}
 	return checkErr
+}
+
+func lockKeys(ctx context.Context, tx pgx.Tx, keys []string) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.throttle:' || k)) FROM (SELECT unnest($1::text[]) AS k ORDER BY 1) s`, keys)
+	return err
 }
 
 func throttled(ctx context.Context, db dbtx, keys []string) error {

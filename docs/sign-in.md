@@ -7,9 +7,9 @@ People sign in to the uncrm UI with a passkey or with an account at a configured
 | Method | Turned on by | Second step |
 |---|---|---|
 | Passkey | Always on | None. The authenticator checks a fingerprint, face, or PIN. |
-| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | An authenticator code, if the person set up an app |
-| GitHub | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | An authenticator code, if the person set up an app |
-| OIDC | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_NAME` | An authenticator code, if the person set up an app |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | An authenticator code, if the person set up an app. A passkey too, the first time the account is matched by email. |
+| GitHub | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | An authenticator code, if the person set up an app. A passkey too, the first time the account is matched by email. |
+| OIDC | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_NAME` | An authenticator code, if the person set up an app. A passkey too, the first time the account is matched by email. |
 | Email and password | `PASSWORD_LOGIN=true` | Always: an authenticator code, a recovery code, or a passkey |
 
 The generic OIDC provider works with any issuer that publishes `/.well-known/openid-configuration`, such as Okta, Microsoft Entra ID, Keycloak, Authentik, WorkOS, Clerk, Auth0, and Better Auth. `OIDC_NAME` is the label on the sign-in button, for example `Okta`. It defaults to `SSO`.
@@ -30,9 +30,9 @@ A provider sign-in never creates an account for a stranger. uncrm applies these 
 
 1. A provider account already linked to a teammate signs in that teammate.
 2. Otherwise the provider must have verified the email address. For OIDC and Google that is the `email_verified` claim. For GitHub it is the primary address, and only when GitHub marks it verified.
-3. A teammate with that email gets the provider account linked and is signed in. If the teammate has an authenticator app, the link is made only after the code passes. For a Google account whose address is at a domain in `ALLOWED_EMAIL_DOMAINS`, the `hd` claim must name that domain here too.
+3. A teammate with that email gets the provider account linked and is signed in. If the teammate has a passkey or an authenticator app, uncrm first asks for one of them, and links the account only after it passes. A verified address proves the provider account can read that mail, not that it belongs to the teammate. For a Google account whose address is at a domain in `ALLOWED_EMAIL_DOMAINS`, the `hd` claim must name that domain here too.
 4. A pending invite for that email is accepted.
-5. An address at a domain in `ALLOWED_EMAIL_DOMAINS` joins the team. For Google, the Workspace domain in the `hd` claim must match too, so a personal Google account with that address does not qualify.
+5. An address at a domain in `ALLOWED_EMAIL_DOMAINS` joins the team, but only through a provider that proves the person belongs to the organization. For Google, the Workspace domain in the `hd` claim must match, so a personal Google account with that address does not qualify. The OIDC issuer qualifies, since you chose it. GitHub never does: a personal GitHub account keeps a verified company address after its owner leaves the company. A GitHub user at an allowed domain needs an invite, or can link GitHub in **Settings > Account** after signing in another way.
 6. Anyone else is turned away with a message to ask for an invite.
 
 An issuer that sends no `email_verified` claim, such as Microsoft Entra ID by default, cannot match a teammate by email. Teammates can still connect that provider in **Settings > Account** after they sign in another way, and rule 1 then signs them in.
@@ -69,7 +69,7 @@ With `PASSWORD_LOGIN=true`, a person who has a passkey or an authenticator app c
 
 ## Change sign-in methods
 
-Adding or removing a passkey, the authenticator app, a password, or a provider login needs a sign-in within the last 15 minutes. After that, **Settings > Account** asks the person to confirm with a passkey or an app code. A person with neither confirms through a linked provider, which uncrm asks to check them again (`prompt=login`). Linking and confirming through a provider work only when started from uncrm's own pages.
+Adding or removing a passkey, the authenticator app, a password, or a provider login needs a sign-in within the last 15 minutes. So do creating an API key, inviting or removing a teammate, and connecting or disconnecting a webhook provider. After that, **Settings > Account** asks the person to confirm with a passkey or an app code. A person with neither confirms through a linked provider, which uncrm asks to check them again (`prompt=login`). Linking and confirming through a provider work only when started from uncrm's own pages.
 
 uncrm refuses to remove a person's last way to sign in. A passkey and a linked login at a configured provider each count. A password counts only with an authenticator app and `PASSWORD_LOGIN=true`.
 
@@ -79,7 +79,9 @@ When a person changes or removes a password, turns the app on or off, or removes
 
 **Settings > Account** lists each signed-in browser with its device, how it signed in, when it signed in, and when it was last used. A person can sign out any of them.
 
-A session ends after 30 days without use. Removing a teammate in **Settings > Team** deletes their sessions, passkeys, and provider logins. The last person on the team cannot be removed. With `ALLOWED_EMAIL_DOMAINS` set, a removed person whose address is at one of those domains can join again through a provider, so take them out of your identity provider too.
+A session ends after 30 days without use. Removing a teammate in **Settings > Team** deletes their sessions, passkeys, and provider logins, and revokes the API keys they created. With Unkey keys, uncrm finds a person's keys through the `created_by` metadata it writes when it creates a key, so a key created before that metadata existed stays until someone revokes it in **Settings > API keys**. The last person on the team cannot be removed. With `ALLOWED_EMAIL_DOMAINS` set, a removed person whose address is at one of those domains can join again through Google Workspace or your OIDC issuer, so take them out of your identity provider too.
+
+Over `https`, the session cookie is named `__Host-uncrm_session`. Browsers accept a `__Host-` cookie only from uncrm's exact host, so another site on a sibling subdomain cannot plant a session. The cookies that hold a sign-in in progress carry the same prefix. An upgrade to a version that sets these names signs everyone out once.
 
 ## Failed attempts
 

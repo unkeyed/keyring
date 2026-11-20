@@ -222,7 +222,7 @@ func replaceRecoveryCodes(ctx context.Context, tx pgx.Tx, userID int64) ([]strin
 func (u *Users) useCode(ctx context.Context, userID int64, code string, c Client) (string, error) {
 	user := fmt.Sprintf("user:%d", userID)
 	var method string
-	err := u.guarded(ctx, []string{user, c.ipKey()}, []string{user}, func(err error) bool { return errors.Is(err, errBadCode) }, func(tx pgx.Tx) error {
+	err := guarded(ctx, u.db, []string{user, c.ipKey()}, []string{user}, func(err error) bool { return errors.Is(err, errBadCode) }, func(tx pgx.Tx) error {
 		var err error
 		method, err = checkCode(ctx, tx, userID, strings.TrimSpace(code))
 		return err

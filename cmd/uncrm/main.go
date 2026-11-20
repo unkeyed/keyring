@@ -188,10 +188,10 @@ func run(log *slog.Logger) error {
 	if err := announceSetup(ctx, log, users, cfg.SetupToken); err != nil {
 		return err
 	}
-	authn := &auth.Authenticator{Keys: auth.NewKeyStore(pool, cfg.Unkey), Users: users}
+	authn := &auth.Authenticator{Keys: auth.NewKeyStore(pool, cfg.Unkey), Users: users, OAuth: auth.NewOAuthServer(pool, cfg.Auth.PublicURL)}
 
 	mux := httpapi.NewMux(svc, authn, log)
-	mux.Handle("/mcp", mcpserver.Handler(svc, authn.Keys, version))
+	mux.Handle("/mcp", mcpserver.Handler(svc, authn.Keys, authn.OAuth, version))
 	mux.Handle("/", web.Handler())
 
 	var worker sync.WaitGroup
@@ -202,7 +202,7 @@ func run(log *slog.Logger) error {
 		}
 	})
 
-	srv := &http.Server{Addr: ":" + cfg.Port, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: httpapi.SecurityHeaders(cfg.Auth.PublicURL, mux), ReadHeaderTimeout: 10 * time.Second}
 	served := make(chan error, 1)
 	go func() { served <- srv.ListenAndServe() }()
 	log.Info("uncrm listening", "port", cfg.Port, "version", version, "enrichment", enricher != nil, "keys", authn.Keys.Mode(),

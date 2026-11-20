@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button, cx, errorMessage, Icon } from "../ui";
 
 interface Props {
@@ -18,6 +18,11 @@ interface Props {
   format?: (value: string) => string;
   /** Content above the value, as the company a domain belongs to. */
   lead?: ReactNode;
+  /** Long text shows four lines, with a toggle for the rest. */
+  clamp?: boolean;
+  /** Just the value, for a page header; the label names it for screen readers only. */
+  bare?: boolean;
+  className?: string;
 }
 
 /**
@@ -27,12 +32,17 @@ interface Props {
 const box = "w-full min-w-0 rounded-control border px-1.5 py-[3px] text-left text-sm";
 
 /** A property row that edits in place: click, type, Enter saves, Escape cancels. */
-export function EditableField({ label, value, pinned, onSave, onReset, multiline, placeholder = "Empty", editPlaceholder, href, format, lead }: Props) {
+export function EditableField({ label, value, pinned, onSave, onReset, multiline, placeholder = "Empty", editPlaceholder, href, format, lead, clamp, bare, className }: Props) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Blur is the one place an edit commits; Escape sets this so its blur discards instead.
   const cancelled = useRef(false);
+  // An edit finished from the keyboard hands focus back to the value, so Tab carries on from here.
+  const refocus = useRef(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
 
   const run = async (op: () => Promise<unknown>) => {
     setBusy(true);
@@ -62,22 +72,36 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
       e.preventDefault();
       e.stopPropagation();
       cancelled.current = true;
+      refocus.current = true;
       e.currentTarget.blur();
       setDraft(null);
       setError(null);
     } else if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
       e.preventDefault();
+      refocus.current = true;
       e.currentTarget.blur();
     }
   };
 
-  const id = `field-${label.toLowerCase().replace(/\W+/g, "-")}`;
+  const id = `field-${label.toLowerCase().replace(/\W+/g, "-")}${bare ? "-bare" : ""}`;
   const editing = draft !== null;
   const shown = value && format ? format(value) : value;
+  const clamped = clamp && !expanded && !editing;
+
+  useEffect(() => {
+    if (editing || !refocus.current) return;
+    refocus.current = false;
+    button.current?.focus();
+  }, [editing]);
+
+  useLayoutEffect(() => {
+    const el = button.current;
+    if (clamp && el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [clamp, expanded, shown, editing]);
 
   return (
-    <div className="group grid grid-cols-[6rem_minmax(0,1fr)] items-start gap-x-2 py-0.5">
-      <label htmlFor={id} className="flex h-7 items-center gap-1 text-xs text-muted">
+    <div className={cx("group", bare ? "-mx-1.5" : "grid grid-cols-[6rem_minmax(0,1fr)] items-start gap-x-2 py-0.5", className)}>
+      <label htmlFor={id} className={bare ? "sr-only" : "flex h-7 items-center gap-1 text-xs text-muted"}>
         {label}
         {pinned && (
           <span title="Edited by a person. Sign-ups and enrichment won't overwrite it." className="text-faint">
@@ -118,6 +142,7 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
             )
           ) : (
             <button
+              ref={button}
               id={id}
               type="button"
               title={multiline ? undefined : shown}
@@ -126,6 +151,7 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
                 box,
                 "min-h-7 border-transparent transition-colors hover:bg-subtle",
                 multiline ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "truncate",
+                clamped && "line-clamp-4",
                 !value ? "text-faint" : lead ? "text-muted" : "text-fg",
               )}
             >
@@ -157,6 +183,11 @@ export function EditableField({ label, value, pinned, onSave, onReset, multiline
             </Button>
           )}
         </div>
+        {clamp && overflows && !editing && (
+          <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} aria-controls={id} className="px-1.5 text-xs text-muted transition-colors hover:text-fg">
+            {expanded ? "Less" : "More"}
+          </button>
+        )}
         {error && (
           <p role="alert" className="mt-1 px-1.5 text-xs text-danger">
             {error}

@@ -8,8 +8,10 @@
 //   - POST /v1/signups with an API key creates a contact and is idempotent.
 //   - GET /v1/contacts lists and searches contacts with that key.
 //   - GET /v1/openapi.yaml serves the spec without credentials.
-//   - The MCP server at /mcp lists its tools, and search_contacts finds the
-//     contact.
+//   - The MCP server at /mcp refuses API keys, and an MCP client that signs
+//     in with OAuth as the person lists its tools and search_contacts finds
+//     the contact. BASE_URL must be uncrm's PUBLIC_URL, since the client
+//     checks the resource it discovers against the URL it connects to.
 //   - A password alone never sets a session, and a used setup link is dead.
 //
 // Run it against a fresh compose stack, passing the token of the setup link

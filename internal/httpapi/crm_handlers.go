@@ -74,9 +74,10 @@ func (s *server) createSignup(w http.ResponseWriter, r *http.Request, a crm.Acto
 }
 
 func (s *server) searchContacts(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	p := queryParams(r, "q", "tag", "stage", "provider", "company_id", "signed_up_after", "signed_up_before", "cursor", "limit")
+	p := queryParams(r, "q", "email", "tag", "stage", "provider", "company_id", "signed_up_after", "signed_up_before", "cursor", "limit")
 	q := crm.ContactQuery{
 		Text:           p.str("q"),
+		Email:          p.str("email"),
 		Tag:            crm.Tag(p.str("tag")),
 		Stage:          crm.Stage(p.str("stage")),
 		Provider:       p.str("provider"),
@@ -93,6 +94,15 @@ func (s *server) searchContacts(w http.ResponseWriter, r *http.Request, _ crm.Ac
 	return respond(w, http.StatusOK, page, err)
 }
 
+func (s *server) createContact(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
+	var in crm.NewContact
+	if err := readJSON(r, &in); err != nil {
+		return err
+	}
+	c, err := s.svc.CreateContact(r.Context(), a, in)
+	return respond(w, http.StatusCreated, c, err)
+}
+
 func (s *server) getContact(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -100,6 +110,24 @@ func (s *server) getContact(w http.ResponseWriter, r *http.Request, _ crm.Actor)
 	}
 	c, err := s.svc.GetContact(r.Context(), crm.ContactID(id))
 	return respond(w, http.StatusOK, c, err)
+}
+
+// deleteContact erases the contact and everything recorded about it.
+func (s *server) deleteContact(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	return noContent(w, s.svc.DeleteContact(r.Context(), crm.ContactID(id)))
+}
+
+func (s *server) bulkUpdateContacts(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
+	var b crm.BulkUpdate
+	if err := readJSON(r, &b); err != nil {
+		return err
+	}
+	results, err := s.svc.BulkUpdateContacts(r.Context(), a, b)
+	return respond(w, http.StatusOK, map[string][]crm.BulkResult{"results": results}, err)
 }
 
 func (s *server) updateContact(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
@@ -170,23 +198,42 @@ type enrichResult struct {
 	State crm.JobState `json:"state"`
 }
 
+// enriched answers 202 when a job was queued and 200 when there is nothing
+// to do (skipped), so a client does not wait for work that will never run.
+func enriched(w http.ResponseWriter, st crm.JobState, err error) error {
+	code := http.StatusAccepted
+	if st == crm.JobSkipped {
+		code = http.StatusOK
+	}
+	return respond(w, code, enrichResult{st}, err)
+}
+
 func (s *server) enrichContact(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
 	id, err := pathID(r, "id")
 	if err != nil {
 		return err
 	}
 	st, err := s.svc.EnrichContact(r.Context(), a, crm.ContactID(id))
-	return respond(w, http.StatusAccepted, enrichResult{st}, err)
+	return enriched(w, st, err)
 }
 
 func (s *server) searchCompanies(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	p := queryParams(r, "q", "cursor", "limit")
-	q := crm.CompanyQuery{Text: p.str("q"), Cursor: p.str("cursor"), Limit: int(p.int("limit"))}
+	p := queryParams(r, "q", "domain", "cursor", "limit")
+	q := crm.CompanyQuery{Text: p.str("q"), Domain: p.str("domain"), Cursor: p.str("cursor"), Limit: int(p.int("limit"))}
 	if p.err != nil {
 		return p.err
 	}
 	page, err := s.svc.SearchCompanies(r.Context(), q)
 	return respond(w, http.StatusOK, page, err)
+}
+
+func (s *server) createCompany(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
+	var in crm.NewCompany
+	if err := readJSON(r, &in); err != nil {
+		return err
+	}
+	c, err := s.svc.CreateCompany(r.Context(), a, in)
+	return respond(w, http.StatusCreated, c, err)
 }
 
 func (s *server) getCompany(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
@@ -196,6 +243,15 @@ func (s *server) getCompany(w http.ResponseWriter, r *http.Request, _ crm.Actor)
 	}
 	c, err := s.svc.GetCompany(r.Context(), crm.CompanyID(id))
 	return respond(w, http.StatusOK, c, err)
+}
+
+// deleteCompany removes the company; its contacts stay, unlinked.
+func (s *server) deleteCompany(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	return noContent(w, s.svc.DeleteCompany(r.Context(), a, crm.CompanyID(id)))
 }
 
 func (s *server) updateCompany(w http.ResponseWriter, r *http.Request, a crm.Actor) error {
@@ -226,15 +282,18 @@ func (s *server) enrichCompany(w http.ResponseWriter, r *http.Request, a crm.Act
 		return err
 	}
 	st, err := s.svc.EnrichCompany(r.Context(), a, crm.CompanyID(id))
-	return respond(w, http.StatusAccepted, enrichResult{st}, err)
+	return enriched(w, st, err)
 }
 
 func (s *server) listActivity(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	p := queryParams(r, "kind", "contact_id", "since", "limit")
+	p := queryParams(r, "kind", "contact_id", "company_id", "since", "before", "cursor", "limit")
 	q := crm.ActivityQuery{
 		Kind:      crm.ActivityKind(p.str("kind")),
 		ContactID: crm.ContactID(p.int("contact_id")),
+		CompanyID: crm.CompanyID(p.int("company_id")),
 		Since:     p.time("since"),
+		Before:    p.time("before"),
+		Cursor:    p.str("cursor"),
 		Limit:     int(p.int("limit")),
 	}
 	if p.err != nil {
@@ -249,9 +308,20 @@ func (s *server) listTags(w http.ResponseWriter, r *http.Request, _ crm.Actor) e
 	return respond(w, http.StatusOK, tags, err)
 }
 
+// listStages answers the stage names alone, the shape this route has always
+// had; listStageCounts adds each stage's contact count.
 func (s *server) listStages(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	stages, err := s.svc.ListStages(r.Context())
-	return respond(w, http.StatusOK, stages, err)
+	counts, err := s.svc.ListStages(r.Context())
+	names := make([]crm.Stage, len(counts))
+	for i, c := range counts {
+		names[i] = c.Name
+	}
+	return respond(w, http.StatusOK, names, err)
+}
+
+func (s *server) listStageCounts(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
+	counts, err := s.svc.ListStages(r.Context())
+	return respond(w, http.StatusOK, counts, err)
 }
 
 // statusBody adds the key store mode, which auth owns, to crm's summary.

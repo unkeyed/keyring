@@ -1,30 +1,36 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, ApiError, parseID, type Contact, type ContactDetail, type ContactField, type ContactID, type ContactPatch, type Note } from "../api";
+import { api, ApiError, parseID, type CompanyRef, type Contact, type ContactDetail, type ContactField, type ContactID, type ContactPatch, type Note } from "../api";
 import { companyLabel, contactLabel } from "../format";
-import { keys, useStages, useStatus, useTags } from "../queries";
+import { keys, useCompany, useContact, usePrefetch, useStages, useStatus, useTags } from "../queries";
+import { DeleteDialog } from "../components/DeleteDialog";
 import { EditableField } from "../components/EditableField";
+import { LinkList, shortURL } from "../components/Links";
 import { MergeDialog } from "../components/MergeDialog";
-import { RecordLayout, SectionTitle } from "../components/RecordLayout";
+import { RecordLayout, RecordSkeleton, SectionTitle } from "../components/RecordLayout";
 import { Timeline } from "../components/Timeline";
+import { useToast } from "../components/Toaster";
 import { NotFound } from "../Layout";
 import {
   Avatar,
   Badge,
   Button,
+  CompanyLogo,
   ConfirmButton,
   CopyButton,
   Crumbs,
   cx,
   EnrichmentBadge,
+  errorMessage,
   ErrorNote,
   Icon,
   inputClass,
   PageHeader,
-  PageSpinner,
   RelativeTime,
   selectClass,
+  Skeleton,
+  useEscapeTo,
 } from "../ui";
 
 const missing = { title: "Contact not found", body: "It may have been merged into another contact, or the link is wrong.", parent: { label: "Contacts", to: "/contacts" } };
@@ -34,25 +40,35 @@ export function ContactPage() {
   return id ? <ContactView key={id} id={id} /> : <NotFound {...missing} />;
 }
 
-const fields: { field: ContactField; label: string; multiline?: boolean; href?: boolean }[] = [
+const fields: { field: ContactField; label: string; multiline?: boolean; href?: boolean; format?: (v: string) => string }[] = [
   { field: "name", label: "Name" },
   { field: "title", label: "Title" },
   { field: "company", label: "Company" },
   { field: "location", label: "Location" },
-  { field: "linkedin_url", label: "LinkedIn", href: true },
+  { field: "linkedin_url", label: "LinkedIn", href: true, format: shortURL },
   { field: "bio", label: "Bio", multiline: true },
 ];
 
 const fieldValue = (c: Contact, f: ContactField) => (f === "company" ? (c.company?.domain ?? "") : c[f]);
 const fieldPatch = (f: ContactField, v: string): ContactPatch => (f === "company" ? { company_domain: v } : { [f]: v });
 
+/** What a stage or tag change will look like once saved, shown before the server answers. */
+const applyPatch = (c: ContactDetail, p: ContactPatch): ContactDetail => ({
+  ...c,
+  stage: p.stage ?? c.stage,
+  tags: [...new Set([...(c.tags ?? []), ...(p.add_tags ?? [])])].filter((t) => !p.remove_tags?.includes(t)).sort(),
+});
+
 function ContactView({ id }: { id: ContactID }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const contact = useQuery({ queryKey: keys.contact(id), queryFn: () => api.contacts.get(id) });
+  const toast = useToast();
+  const contact = useContact(id);
   const stages = useStages();
   const status = useStatus();
   const [merging, setMerging] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  useEscapeTo("/contacts");
 
   /** Every write answers with the contact; show it now, then refetch the timeline it added to. */
   const settle = (c: Contact) => {
@@ -61,23 +77,56 @@ function ContactView({ id }: { id: ContactID }) {
     void qc.invalidateQueries({ queryKey: keys.contacts });
   };
   const update = async (patch: ContactPatch) => settle(await api.contacts.update(id, patch));
-  const stage = useMutation({ mutationFn: (s: string) => update({ stage: s }) });
+
+  // Stage and tag changes show at once and roll back if the save fails. Only
+  // the last of several quick changes refetches, so earlier answers can't
+  // overwrite later optimistic ones.
+  const patchKey = ["patch-contact", id];
+  const patch = useMutation({
+    mutationKey: patchKey,
+    mutationFn: (p: ContactPatch) => api.contacts.update(id, p),
+    onMutate: async (p) => {
+      await qc.cancelQueries({ queryKey: keys.contact(id) });
+      const prev = qc.getQueryData<ContactDetail>(keys.contact(id));
+      if (prev) qc.setQueryData(keys.contact(id), applyPatch(prev, p));
+      return prev;
+    },
+    onError: (err, _p, prev) => {
+      if (prev) qc.setQueryData(keys.contact(id), prev);
+      toast(`Couldn't save: ${errorMessage(err)}`, "error");
+    },
+    onSettled: () => {
+      if (qc.isMutating({ mutationKey: patchKey }) > 1) return;
+      void qc.invalidateQueries({ queryKey: keys.contact(id) });
+      void qc.invalidateQueries({ queryKey: keys.contacts });
+      void qc.invalidateQueries({ queryKey: keys.tags });
+    },
+  });
   const enrich = useMutation({
     mutationFn: () => api.contacts.enrich(id),
+    onSuccess: (r) => toast(r.state === "skipped" ? "Free-mail addresses aren't enriched" : "Re-enrichment queued"),
     onSettled: () => qc.invalidateQueries({ queryKey: keys.contact(id) }),
   });
+  const remove = useMutation({
+    mutationFn: () => api.contacts.delete(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.contacts });
+      void qc.invalidateQueries({ queryKey: ["company"] });
+      void qc.invalidateQueries({ queryKey: keys.status });
+      void qc.invalidateQueries({ queryKey: keys.tags });
+      toast(`Deleted ${contact.data ? contactLabel(contact.data) : "the contact"}`);
+      void navigate("/contacts", { replace: true, viewTransition: true });
+    },
+  });
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (e.key !== "Escape" || document.querySelector("dialog[open]") || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
-      void navigate("/contacts");
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [navigate]);
-
-  if (contact.isPending) return <PageSpinner />;
+  if (contact.isPending) {
+    return (
+      <>
+        <PageHeader title={<Crumbs parent="Contacts" to="/contacts" current="" />} />
+        <RecordSkeleton />
+      </>
+    );
+  }
   if (contact.isError) {
     return contact.error instanceof ApiError && contact.error.status === 404 ? (
       <NotFound {...missing} />
@@ -89,6 +138,7 @@ function ContactView({ id }: { id: ContactID }) {
   }
 
   const c = contact.data;
+  const loading = contact.isPlaceholderData;
   const label = contactLabel(c);
   const pinned = new Set(c.manual_fields ?? []);
   const canEnrich = status.data?.enrichment_enabled && !status.data.enrichment_halt;
@@ -105,6 +155,9 @@ function ContactView({ id }: { id: ContactID }) {
         <Button size="sm" onClick={() => setMerging(true)} aria-label="Merge with another contact" title="Merge with another contact">
           <Icon name="merge" className="size-3.5" />
           <span className="hidden sm:inline">Merge…</span>
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setDeleting(true)} aria-label="Delete contact" title="Delete contact" className="w-7 px-0 hover:text-danger">
+          <Icon name="trash" className="size-3.5" />
         </Button>
       </PageHeader>
 
@@ -140,7 +193,7 @@ function ContactView({ id }: { id: ContactID }) {
             <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
               <label className="flex items-center gap-2 text-xs text-muted">
                 Stage
-                <select className={selectClass} value={c.stage} disabled={stage.isPending} onChange={(e) => stage.mutate(e.target.value)}>
+                <select className={selectClass} value={c.stage} onChange={(e) => patch.mutate({ stage: e.target.value })}>
                   {(stages.data ?? [c.stage]).map((s) => (
                     <option key={s} value={s}>
                       {s}
@@ -154,8 +207,9 @@ function ContactView({ id }: { id: ContactID }) {
               </span>
             </div>
             <div className="mt-3 empty:hidden">
-              <ErrorNote error={stage.error ?? enrich.error} />
+              <ErrorNote error={enrich.error} />
             </div>
+            {c.company && <CompanyCard company={c.company} />}
           </>
         }
         details={
@@ -169,6 +223,7 @@ function ContactView({ id }: { id: ContactID }) {
                 pinned={pinned.has(f.field)}
                 multiline={f.multiline}
                 href={f.href}
+                format={f.format}
                 placeholder={f.field === "company" ? "No company" : "Empty"}
                 editPlaceholder={f.field === "company" ? "Company domain, like acme.com" : undefined}
                 lead={
@@ -185,9 +240,14 @@ function ContactView({ id }: { id: ContactID }) {
               />
             ))}
 
-            <Tags tags={c.tags ?? []} onChange={update} />
+            <Profiles links={c.socials} />
+
+            <Tags tags={c.tags ?? []} onChange={patch.mutate} />
 
             <SectionTitle className="mt-6">Sources</SectionTitle>
+            {loading ? (
+              <Skeleton className="h-[4.75rem]" />
+            ) : (
             <ul className="space-y-2">
               {(c.identities ?? []).map((i) => (
                 <li key={`${i.provider}/${i.external_id}`} className="rounded-surface border border-line bg-surface p-2.5">
@@ -206,35 +266,108 @@ function ContactView({ id }: { id: ContactID }) {
                   </div>
                 </li>
               ))}
-              {(c.identities ?? []).length === 0 && <li className="text-xs text-faint">Added through the API.</li>}
+              {(c.identities ?? []).length === 0 && <li className="text-xs text-faint">Added by hand, not through a sign-up.</li>}
             </ul>
+            )}
           </>
         }
       >
-        <Notes contactId={id} notes={c.notes ?? []} />
+        <Notes contactId={id} notes={c.notes ?? []} loading={loading} />
         <section className="mt-9">
           <SectionTitle>Activity</SectionTitle>
-          <Timeline items={c.activity ?? []} />
+          {loading ? <TimelineSkeleton /> : <Timeline items={c.activity ?? []} />}
         </section>
       </RecordLayout>
 
       <MergeDialog open={merging} onClose={() => setMerging(false)} contact={c} />
+      <DeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        title={`Delete ${label}?`}
+        action="Delete contact"
+        onConfirm={() => remove.mutate()}
+        pending={remove.isPending}
+        error={remove.error}
+      >
+        Their sources, notes, tags and activity are deleted with them.
+      </DeleteDialog>
     </>
   );
 }
 
-function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) => Promise<void> }) {
+function Profiles({ links }: { links: Record<string, string> }) {
+  if (!Object.values(links).some(Boolean)) return null;
+  return (
+    <>
+      <SectionTitle className="mt-6">Profiles</SectionTitle>
+      <LinkList links={links} />
+    </>
+  );
+}
+
+function TimelineSkeleton() {
+  return (
+    <div className="space-y-4" role="status" aria-label="Loading activity">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-center gap-3">
+          <Skeleton className="size-6 shrink-0 rounded-full" />
+          <Skeleton className="h-3 w-64 max-w-[70%]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * What enrichment knows about the contact's company, which is often more than
+ * it knows about the person. It draws at once from the contact's company and
+ * keeps one height, so the logo and tagline arriving never move the page.
+ */
+function CompanyCard({ company: ref }: { company: CompanyRef }) {
+  const company = useCompany(ref.id);
+  const prefetch = usePrefetch();
+  const co = company.data;
+  const label = companyLabel(ref);
+  const links = { linkedin: co?.linkedin_url, x: co?.socials?.x };
+  return (
+    <section className="mt-5 flex h-[3.875rem] items-center gap-3 rounded-surface border border-line bg-surface px-3">
+      <CompanyLogo company={co ?? { ...ref, logos: [], logo_url: "" }} size={32} />
+      <div className="min-w-0 flex-1">
+        <Link to={`/companies/${ref.id}`} onMouseEnter={() => prefetch.company(ref.id)} onFocus={() => prefetch.company(ref.id)} className="block truncate text-sm font-medium hover:underline">
+          {label}
+        </Link>
+        {co ? <p className="truncate text-xs text-muted">{co.tagline || [co.industry, co.domain].filter(Boolean).join(" · ")}</p> : <Skeleton className="my-0.5 h-3 w-48 max-w-full" />}
+      </div>
+      <div className="flex shrink-0 items-center">
+        {Object.entries(links).map(
+          ([kind, url]) =>
+            url && (
+              <a
+                key={kind}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${label} on ${kind === "x" ? "X" : "LinkedIn"}`}
+                className="grid size-7 place-items-center rounded-control text-muted transition-colors hover:bg-subtle hover:text-fg"
+              >
+                <Icon name={kind === "x" ? "xLogo" : "linkedin"} className="size-3.5" />
+              </a>
+            ),
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) => void }) {
   const all = useTags();
   const [draft, setDraft] = useState("");
-  const qc = useQueryClient();
-  const change = useMutation({ mutationFn: onChange, onSuccess: () => qc.invalidateQueries({ queryKey: keys.tags }) });
 
   const add = (e: FormEvent) => {
     e.preventDefault();
     const t = draft.trim().toLowerCase();
-    if (!t || tags.includes(t)) return setDraft("");
-    change.mutate({ add_tags: [t] });
     setDraft("");
+    if (t && !tags.includes(t)) onChange({ add_tags: [t] });
   };
 
   return (
@@ -242,14 +375,18 @@ function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) 
       <SectionTitle className="mt-6">Tags</SectionTitle>
       <div className="flex flex-wrap items-center gap-1.5">
         {tags.map((t) => (
-          <span key={t} className="inline-flex h-6 max-w-full items-center gap-0.5 rounded-control border border-line-strong pr-0.5 pl-2 text-xs font-medium text-muted">
+          <Badge
+            key={t}
+            tone="outline"
+            title={t}
+            onRemove={() => onChange({ remove_tags: [t] })}
+            removeLabel={`Remove tag ${t}`}
+            className="transition-[opacity,scale] duration-150 starting:scale-90 starting:opacity-0"
+          >
             <span className="truncate">{t}</span>
-            <button type="button" aria-label={`Remove tag ${t}`} onClick={() => change.mutate({ remove_tags: [t] })} className="grid size-5 shrink-0 place-items-center rounded hover:bg-subtle hover:text-fg">
-              <Icon name="x" className="size-3" />
-            </button>
-          </span>
+          </Badge>
         ))}
-        <form onSubmit={add} className="min-w-24 flex-1">
+        <form onSubmit={add} className={cx("min-w-24 flex-1", tags.length === 0 && "-ml-[7px]")}>
           <input
             aria-label="Add tag"
             placeholder="Add tag…"
@@ -263,29 +400,42 @@ function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) 
           </datalist>
         </form>
       </div>
-      <div className="mt-1 empty:hidden">
-        <ErrorNote error={change.error} />
-      </div>
     </>
   );
 }
 
-function Notes({ contactId, notes }: { contactId: ContactID; notes: Note[] }) {
+function Notes({ contactId, notes, loading }: { contactId: ContactID; notes: Note[]; loading: boolean }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const [body, setBody] = useState("");
-  const refresh = () => qc.invalidateQueries({ queryKey: keys.contact(contactId) });
+  const key = keys.contact(contactId);
   const add = useMutation({
-    mutationFn: () => api.contacts.addNote(contactId, body.trim()),
-    onSuccess: () => {
+    mutationFn: (text: string) => api.contacts.addNote(contactId, text),
+    onSuccess: (note) => {
       setBody("");
-      return refresh();
+      qc.setQueryData<ContactDetail>(key, (d) => d && { ...d, notes: [note, ...(d.notes ?? [])] });
+      return qc.invalidateQueries({ queryKey: key });
     },
   });
-  const remove = useMutation({ mutationFn: (n: Note) => api.notes.delete(n.id), onSuccess: refresh });
+  const remove = useMutation({
+    mutationFn: (n: Note) => api.notes.delete(n.id),
+    onMutate: async (n) => {
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<ContactDetail>(key);
+      if (prev) qc.setQueryData(key, { ...prev, notes: (prev.notes ?? []).filter((x) => x.id !== n.id) });
+      return prev;
+    },
+    onError: (err, _n, prev) => {
+      if (prev) qc.setQueryData(key, prev);
+      toast(`Couldn't delete the note: ${errorMessage(err)}`, "error");
+    },
+    onSuccess: () => toast("Note deleted"),
+    onSettled: () => qc.invalidateQueries({ queryKey: key }),
+  });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (body.trim()) add.mutate();
+    if (body.trim() && !add.isPending) add.mutate(body.trim());
   };
 
   return (
@@ -303,37 +453,41 @@ function Notes({ contactId, notes }: { contactId: ContactID; notes: Note[] }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e);
           }}
-          className="block w-full resize-y rounded-t-surface bg-transparent px-3 py-2 text-sm placeholder:text-faint focus:outline-none"
+          className="block field-sizing-content max-h-64 min-h-14 w-full resize-none rounded-t-surface bg-transparent px-3 py-2 text-sm placeholder:text-faint focus:outline-none"
         />
         <div className="flex items-center justify-end gap-3 px-2 pb-2">
           <span className="hidden text-xs text-faint sm:inline">⌘↵ to save</span>
           <Button type="submit" size="sm" variant="primary" disabled={!body.trim() || add.isPending}>
-            Add note
+            {add.isPending ? "Adding…" : "Add note"}
           </Button>
         </div>
       </form>
       <div className="mt-2 empty:hidden">
-        <ErrorNote error={add.error ?? remove.error} />
+        <ErrorNote error={add.error} />
       </div>
-      <ul className="mt-3 space-y-2">
-        {notes.map((n) => (
-          <li key={n.id} className="group rounded-surface border border-line bg-surface px-3 py-2.5">
-            <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{n.body}</p>
-            <div className="mt-1.5 flex items-center gap-2 text-xs text-faint">
-              <span className="min-w-0 truncate">{n.author.label}</span>
-              <RelativeTime iso={n.created_at} className="shrink-0" />
-              <ConfirmButton
-                label="Delete note"
-                confirmLabel="Delete note?"
-                className="-my-1 ml-auto group-focus-within:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
-                onConfirm={() => remove.mutate(n)}
-              >
-                <Icon name="trash" className="size-3.5" />
-              </ConfirmButton>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {loading ? (
+        <Skeleton className="mt-3 h-16" />
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {notes.map((n) => (
+            <li key={n.id} className="group rounded-surface border border-line bg-surface px-3 py-2.5 transition-[opacity,translate] duration-200 ease-out starting:-translate-y-1 starting:opacity-0">
+              <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{n.body}</p>
+              <div className="mt-1.5 flex items-center gap-2 text-xs text-faint">
+                <span className="min-w-0 truncate">{n.author.label}</span>
+                <RelativeTime iso={n.created_at} className="shrink-0" />
+                <ConfirmButton
+                  label="Delete note"
+                  confirmLabel="Delete?"
+                  className="-my-1 ml-auto group-focus-within:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
+                  onConfirm={() => remove.mutate(n)}
+                >
+                  <Icon name="trash" className="size-3.5" />
+                </ConfirmButton>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

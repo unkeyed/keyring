@@ -1,0 +1,190 @@
+{
+    "code": 200,
+    "brand": {
+        "email": "",
+        "links": {
+            "blog": "https://stripe.com/blog",
+            "terms": null,
+            "careers": "https://stripe.com/careers",
+            "contact": "https://stripe.com/contact/sales",
+            "pricing": "https://stripe.com/pricing",
+            "privacy": "https://stripe.com/privacy"
+        },
+        "logos": [
+            {
+                "url": "https://media.brand.dev/2231c684-cfad-4e73-9852-df19475f049e.svg",
+                "mode": "dark",
+                "type": "icon",
+                "colors": [
+                    {
+                        "hex": "#543cfc",
+                        "name": "Meteor Shower"
+                    },
+                    {
+                        "hex": "#a494fc",
+                        "name": "Cobalite"
+                    }
+                ],
+                "resolution": {
+                    "width": 512,
+                    "height": 512,
+                    "aspect_ratio": 1
+                }
+            },
+            {
+                "url": "https://media.brand.dev/45b7b561-171b-4e78-be36-f14de0c85858.png",
+                "mode": "dark",
+                "type": "icon",
+                "colors": [
+                    {
+                        "hex": "#533bfb",
+                        "name": "Meteor Shower"
+                    },
+                    {
+                        "hex": "#ae9cfc",
+                        "name": "Shy Moment"
+                    }
+                ],
+                "resolution": {
+                    "width": 180,
+                    "height": 180,
+                    "aspect_ratio": 1
+                }
+            },
+            {
+                "url": "https://media.brand.dev/2b622b22-1758-4fa2-8397-3e218b1c2ca0.svg",
+                "mode": "light",
+                "type": "logo",
+                "colors": [
+                    {
+                        "hex": "#040404",
+                        "name": "Armor Wash"
+                    }
+                ],
+                "resolution": {
+                    "width": 60,
+                    "height": 25,
+                    "aspect_ratio": 2.4
+                }
+            }
+        ],
+        "phone": "",
+        "title": "Stripe",
+        "colors": [
+            {
+                "hex": "#533afd",
+                "name": "Meteor Shower",
+                "source": "site"
+            },
+            {
+                "hex": "#ae9cfc",
+                "name": "Shy Moment",
+                "source": "logo"
+            },
+            {
+                "hex": "#040404",
+                "name": "Armor Wash",
+                "source": "logo"
+            }
+        ],
+        "domain": "stripe.com",
+        "slogan": "Financial infrastructure to grow your revenue.",
+        "address": {
+            "city": "South San Francisco",
+            "street": "354 Oyster Point Blvd",
+            "country": "United States",
+            "state_code": "CA",
+            "postal_code": "94080",
+            "country_code": "US",
+            "state_province": "California"
+        },
+        "is_nsfw": false,
+        "socials": [
+            {
+                "url": "https://x.com/stripe",
+                "type": "x"
+            },
+            {
+                "url": "https://github.com/stripe",
+                "type": "github"
+            },
+            {
+                "url": "https://linkedin.com/company/stripe",
+                "type": "linkedin"
+            }
+        ],
+        "backdrops": [
+            {
+                "url": "https://media.brand.dev/c5ec4e3d-562f-44a0-b7d3-3a7493fba9a1.jpg",
+                "colors": [
+                    {
+                        "hex": "#f57b2d",
+                        "name": "Iceland Poppy"
+                    },
+                    {
+                        "hex": "#f4bc8c",
+                        "name": "Brandy Butter"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 169,
+                    "aspect_ratio": 5.92
+                }
+            },
+            {
+                "url": "https://media.brand.dev/d12952ec-93a4-4c6e-9b69-6a27b50323a6.jpg",
+                "colors": [
+                    {
+                        "hex": "#fb8c15",
+                        "name": "Laddu Orange"
+                    },
+                    {
+                        "hex": "#fb9f68",
+                        "name": "Cloudberry"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 500,
+                    "aspect_ratio": 2
+                }
+            }
+        ],
+        "employees": {
+            "range": "5001 to 10000"
+        },
+        "industries": {
+            "eic": [
+                {
+                    "industry": "Finance",
+                    "subindustry": "Payments & Money Movement"
+                },
+                {
+                    "industry": "Finance",
+                    "subindustry": "Financial Infrastructure & APIs"
+                },
+                {
+                    "industry": "Technology",
+                    "subindustry": "Developer Tools & APIs"
+                },
+                {
+                    "industry": "Technology",
+                    "subindustry": "Artificial Intelligence & Machine Learning"
+                }
+            ]
+        },
+        "description": "Stripe provides financial infrastructure and software for businesses of all sizes. Its products support online and in-person payments, global money movement, billing and subscriptions, fraud prevention, card issuing, and embedded financial services. Businesses can use Stripe’s tools individually or together to accept payments, manage revenue, and build custom financial workflows.",
+        "primary_language": "english"
+    },
+    "status": "ok",
+    "request_id": "d16aa58b-15ec-4db6-ba0f-b7174f1054e5",
+    "key_metadata": {
+        "credits_consumed": 10,
+        "credits_remaining": 730
+    },
+    "cache_metadata": {
+        "age_ms": 56102918,
+        "status": "hit"
+    }
+}

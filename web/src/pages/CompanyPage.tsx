@@ -1,12 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, parseID, type Company, type CompanyDetail, type CompanyField, type CompanyID } from "../api";
 import { companyLabel, contactLabel, countryName, plural } from "../format";
-import { keys, useStatus } from "../queries";
+import { keys, useCompany, usePrefetch, useStatus } from "../queries";
+import { DeleteDialog } from "../components/DeleteDialog";
 import { EditableField } from "../components/EditableField";
-import { RecordLayout, SectionTitle } from "../components/RecordLayout";
+import { LinkList, shortURL } from "../components/Links";
+import { RecordLayout, RecordSkeleton, SectionTitle } from "../components/RecordLayout";
+import { Timeline } from "../components/Timeline";
+import { useToast } from "../components/Toaster";
 import { NotFound } from "../Layout";
-import { Avatar, Badge, Button, Crumbs, cx, EnrichmentBadge, ErrorNote, Icon, PageHeader, PageSpinner, RelativeTime } from "../ui";
+import { Avatar, Badge, Button, CompanyLogo, Crumbs, cx, EnrichmentBadge, ErrorNote, Icon, PageHeader, RelativeTime, Skeleton, useEscapeTo } from "../ui";
 
 const missing = { title: "Company not found", body: "The link may be wrong, or the company was removed.", parent: { label: "Companies", to: "/companies" } };
 
@@ -15,19 +20,26 @@ export function CompanyPage() {
   return id ? <CompanyView key={id} id={id} /> : <NotFound {...missing} />;
 }
 
-const fields: { field: CompanyField; label: string; multiline?: boolean; href?: boolean; format?: (v: string) => string; editPlaceholder?: string }[] = [
+const fields: { field: CompanyField; label: string; multiline?: boolean; href?: boolean; format?: (v: string) => string; editPlaceholder?: string; clamp?: boolean }[] = [
   { field: "name", label: "Name" },
-  { field: "description", label: "Description", multiline: true },
+  { field: "tagline", label: "Tagline" },
+  { field: "description", label: "Description", multiline: true, clamp: true },
   { field: "industry", label: "Industry" },
   { field: "employee_range", label: "Employees", editPlaceholder: "Like 51-200" },
+  { field: "headquarters", label: "HQ", editPlaceholder: "City, region" },
   { field: "country", label: "Country", format: countryName, editPlaceholder: "Two-letter code, like PT" },
-  { field: "linkedin_url", label: "LinkedIn", href: true },
+  { field: "linkedin_url", label: "LinkedIn", href: true, format: shortURL },
 ];
 
 function CompanyView({ id }: { id: CompanyID }) {
   const qc = useQueryClient();
-  const company = useQuery({ queryKey: keys.company(id), queryFn: () => api.companies.get(id) });
+  const navigate = useNavigate();
+  const toast = useToast();
+  const prefetch = usePrefetch();
+  const company = useCompany(id);
   const status = useStatus();
+  const [deleting, setDeleting] = useState(false);
+  useEscapeTo("/companies");
 
   const settle = (c: Company) => {
     qc.setQueryData<CompanyDetail>(keys.company(id), (d) => d && { ...d, ...c });
@@ -36,10 +48,29 @@ function CompanyView({ id }: { id: CompanyID }) {
   };
   const enrich = useMutation({
     mutationFn: () => api.companies.enrich(id),
+    onSuccess: () => toast("Re-enrichment queued"),
     onSettled: () => qc.invalidateQueries({ queryKey: keys.company(id) }),
   });
+  const remove = useMutation({
+    mutationFn: () => api.companies.delete(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.companies });
+      void qc.invalidateQueries({ queryKey: keys.contacts });
+      void qc.invalidateQueries({ queryKey: ["contact"] });
+      void qc.invalidateQueries({ queryKey: keys.status });
+      toast(`Deleted ${company.data ? companyLabel(company.data) : "the company"}`);
+      void navigate("/companies", { replace: true, viewTransition: true });
+    },
+  });
 
-  if (company.isPending) return <PageSpinner />;
+  if (company.isPending) {
+    return (
+      <>
+        <PageHeader title={<Crumbs parent="Companies" to="/companies" current="" />} />
+        <RecordSkeleton square />
+      </>
+    );
+  }
   if (company.isError) {
     return company.error instanceof ApiError && company.error.status === 404 ? (
       <NotFound {...missing} />
@@ -51,10 +82,13 @@ function CompanyView({ id }: { id: CompanyID }) {
   }
 
   const c = company.data;
+  const loading = company.isPlaceholderData;
   const label = companyLabel(c);
   const pinned = new Set(c.manual_fields ?? []);
   const contacts = c.contacts ?? [];
-  const facts = [c.industry, c.employee_range && `${c.employee_range} employees`, c.country && countryName(c.country)].filter(Boolean);
+  const place = [c.headquarters, c.country && countryName(c.country)].filter(Boolean).join(", ");
+  const facts = [c.industry, c.employee_range && `${c.employee_range} employees`, place, c.stock].filter(Boolean);
+  const segments = c.segments ?? [];
   const canEnrich = status.data?.enrichment_enabled && !status.data.enrichment_halt;
 
   return (
@@ -66,17 +100,30 @@ function CompanyView({ id }: { id: CompanyID }) {
             <span className="hidden sm:inline">Re-enrich</span>
           </Button>
         )}
+        <Button size="sm" variant="ghost" onClick={() => setDeleting(true)} aria-label="Delete company" title="Delete company" className="w-7 px-0 hover:text-danger">
+          <Icon name="trash" className="size-3.5" />
+        </Button>
       </PageHeader>
 
       <RecordLayout
         head={
           <>
             <div className="flex items-start gap-4">
-              <Avatar src={c.logo_url} label={label} size={52} square />
+              <CompanyLogo company={c} size={52} />
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-xl font-semibold" title={label}>
                   {label}
                 </h2>
+                {c.tagline && (
+                  <EditableField
+                    bare
+                    label="Tagline"
+                    value={c.tagline}
+                    pinned={pinned.has("tagline")}
+                    onSave={async (v) => settle(await api.companies.update(id, { tagline: v }))}
+                    onReset={async () => settle(await api.companies.resetField(id, "tagline"))}
+                  />
+                )}
                 <a href={`https://${c.domain}`} target="_blank" rel="noreferrer noopener" className="inline-flex max-w-full items-center gap-1 text-sm text-muted hover:text-fg">
                   <span className="truncate">{c.domain}</span>
                   <Icon name="external" className="size-3" />
@@ -84,8 +131,13 @@ function CompanyView({ id }: { id: CompanyID }) {
                 {facts.length > 0 && <p className="mt-1 text-sm text-muted">{facts.join(" · ")}</p>}
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 empty:hidden">
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 empty:hidden">
               <EnrichmentBadge state={c.enrichment} status={status.data} />
+              {segments.map((s) => (
+                <Badge key={s} title={s}>
+                  <span className="truncate">{s}</span>
+                </Badge>
+              ))}
             </div>
             <div className="mt-3 empty:hidden">
               <ErrorNote error={enrich.error} />
@@ -95,7 +147,9 @@ function CompanyView({ id }: { id: CompanyID }) {
         details={
           <>
             <SectionTitle>Details</SectionTitle>
-            {fields.map((f) => (
+            {fields
+              .filter((f) => !(f.field === "tagline" && c.tagline))
+              .map((f) => (
               <EditableField
                 key={f.field}
                 label={f.label}
@@ -104,11 +158,13 @@ function CompanyView({ id }: { id: CompanyID }) {
                 multiline={f.multiline}
                 href={f.href}
                 format={f.format}
+                clamp={f.clamp}
                 editPlaceholder={f.editPlaceholder}
                 onSave={async (v) => settle(await api.companies.update(id, { [f.field]: v }))}
                 onReset={async () => settle(await api.companies.resetField(id, f.field))}
               />
             ))}
+            <Links company={c} />
           </>
         }
       >
@@ -123,13 +179,20 @@ function CompanyView({ id }: { id: CompanyID }) {
               </Link>
             )}
           </div>
-          {contacts.length === 0 ? (
+          {loading ? (
+            <Skeleton className="h-24" />
+          ) : contacts.length === 0 ? (
             <p className="text-sm text-faint">No contacts at this company.</p>
           ) : (
             <ul className="divide-y divide-line overflow-hidden rounded-surface border border-line bg-surface">
               {contacts.map((p) => (
                 <li key={p.id}>
-                  <Link to={`/contacts/${p.id}`} className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-subtle">
+                  <Link
+                    to={`/contacts/${p.id}`}
+                    onMouseEnter={() => prefetch.contact(p.id)}
+                    onFocus={() => prefetch.contact(p.id)}
+                    className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-subtle"
+                  >
                     <Avatar src={p.avatar_url} label={contactLabel(p)} size={28} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{contactLabel(p)}</span>
@@ -143,7 +206,33 @@ function CompanyView({ id }: { id: CompanyID }) {
             </ul>
           )}
         </section>
+        <section className="mt-9">
+          <SectionTitle>Activity</SectionTitle>
+          {loading ? <Skeleton className="h-24" /> : <Timeline items={c.activity ?? []} showContact />}
+        </section>
       </RecordLayout>
+      <DeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        title={`Delete ${label}?`}
+        action="Delete company"
+        onConfirm={() => remove.mutate()}
+        pending={remove.isPending}
+        error={remove.error}
+      >
+        {c.contact_count > 0 ? `Its ${plural(c.contact_count, "contact")} stay, without a company.` : "No contacts are linked to it."}
+      </DeleteDialog>
+    </>
+  );
+}
+
+function Links({ company: c }: { company: Company }) {
+  const links = { ...c.socials, ...c.links };
+  if (!Object.values(links).some(Boolean)) return null;
+  return (
+    <>
+      <SectionTitle className="mt-6">Links</SectionTitle>
+      <LinkList links={links} />
     </>
   );
 }

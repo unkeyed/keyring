@@ -108,6 +108,16 @@ func (f *fixture) passkeyLogin(pk *authtest.Passkey) (string, error) {
 	return in.Session, err
 }
 
+// passkeySecondFactor finishes the pending login behind handle with pk.
+func (f *fixture) passkeySecondFactor(handle string, pk *authtest.Passkey) (SignIn, error) {
+	f.t.Helper()
+	ceremony, opts, err := f.users.BeginSecondFactorPasskey(f.ctx, handle)
+	f.must(err)
+	cred, err := pk.Sign(optionsJSON(f.t, opts))
+	f.must(err)
+	return f.users.FinishSecondFactorPasskey(f.ctx, handle, ceremony, cred, browser)
+}
+
 func (f *fixture) actor(cookie string) crm.Actor {
 	f.t.Helper()
 	a, err := f.users.Session(f.ctx, cookie)

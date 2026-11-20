@@ -68,9 +68,9 @@ var (
 	errBadLogin = fmt.Errorf("%w: wrong email or password", ErrUnauthorized)
 	// ErrInvalidInvite is a token that is unknown, expired or already used.
 	ErrInvalidInvite = fmt.Errorf("invite link is invalid, expired or already used: %w", crm.ErrNotFound)
-	// ErrReauth asks the person to prove a factor again before changing how
-	// they sign in. Serve it as 403.
-	ErrReauth           = errors.New("confirm it's you: sign in again within the last 15 minutes to change how you sign in")
+	// ErrReauth asks the person to prove a factor again before a change to
+	// how they or the team sign in. Serve it as 403.
+	ErrReauth           = errors.New("confirm it's you: this change needs a sign-in within the last 15 minutes. Confirm under Settings, Account, or sign in again")
 	ErrPasswordLoginOff = fmt.Errorf("%w: password sign-in is turned off on this instance", crm.ErrNotFound)
 )
 
@@ -187,7 +187,7 @@ func (u *Users) PasswordLogin(ctx context.Context, email, password string, c Cli
 	email = normalizeEmail(email)
 	key := "email:" + email
 	var id int64
-	err := u.guarded(ctx, []string{key, c.ipKey()}, []string{key}, func(err error) bool { return errors.Is(err, errBadLogin) }, func(tx pgx.Tx) error {
+	err := guarded(ctx, u.db, []string{key, c.ipKey()}, []string{key}, func(err error) bool { return errors.Is(err, errBadLogin) }, func(tx pgx.Tx) error {
 		var stored *string
 		err := tx.QueryRow(ctx, `SELECT id, password_hash FROM users WHERE email = $1`, email).Scan(&id, &stored)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -288,10 +288,13 @@ func (u *Users) List(ctx context.Context) ([]User, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[User])
 }
 
-// Remove deletes a teammate with their sessions, passkeys, identities and
-// authenticator. The last user cannot be removed; the advisory lock keeps two
-// people removing each other from emptying the team.
-func (u *Users) Remove(ctx context.Context, by crm.Actor, id int64) error {
+// Remove deletes a teammate with their sessions, passkeys, identities,
+// authenticator and the apps they approved for MCP, whose tokens go with
+// them, and revokes the API keys they created. The last user cannot
+// be removed; the advisory lock keeps two people removing each other from
+// emptying the team. The keys go first, in the same transaction, so a key
+// store that cannot revoke them keeps the teammate for a retry.
+func (u *Users) Remove(ctx context.Context, by crm.Actor, id int64, keys KeyStore) error {
 	if userID(by) == nil {
 		return fmt.Errorf("%w: only a signed-in person can remove a teammate", ErrUnauthorized)
 	}
@@ -299,24 +302,26 @@ func (u *Users) Remove(ctx context.Context, by crm.Actor, id int64) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('uncrm.users'))`); err != nil {
 			return err
 		}
+		// The row lock waits out a key the teammate is creating right now and
+		// holds off the next one, so revoking cannot miss a key.
+		tag, err := tx.Exec(ctx, `SELECT FROM users WHERE id = $1 FOR UPDATE`, id)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("%w: no user %d", crm.ErrNotFound, id)
+		}
 		var n int
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n); err != nil {
 			return err
 		}
-		tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1 AND $2 > 1`, id, n)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 1 {
-			return nil
-		}
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, id).Scan(&exists); err != nil {
-			return err
-		}
-		if exists {
+		if n <= 1 {
 			return fmt.Errorf("%w: the last person on the team cannot be removed", crm.ErrConflict)
 		}
-		return fmt.Errorf("%w: no user %d", crm.ErrNotFound, id)
+		if err := keys.RevokeCreatedBy(ctx, tx, id); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+		return err
 	})
 }

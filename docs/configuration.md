@@ -6,10 +6,10 @@ uncrm reads its configuration from environment variables when it starts. `cmd/un
 |---|---|---|---|
 | `DATABASE_URL` | Yes | none | The Postgres connection URL, for example `postgres://user:pass@host:5432/uncrm`. |
 | `PORT` | No | `8080` | The port the HTTP server listens on. |
-| `PUBLIC_URL` | No | `http://localhost:$PORT` | The URL people open uncrm at, such as `https://crm.example.com`. Passkeys and provider callbacks depend on it. |
+| `PUBLIC_URL` | No | `http://localhost:$PORT` | The URL people open uncrm at, such as `https://crm.example.com`. Passkeys, provider callbacks and MCP sign-in depend on it. |
 | `SETUP_TOKEN` | No | random | The token of the setup link, at least 32 characters. See [The setup link](sign-in.md#the-setup-link). |
 | `PASSWORD_LOGIN` | No | `false` | `true` lets people set a password, which always needs a second step. |
-| `ALLOWED_EMAIL_DOMAINS` | No | none | Comma-separated domains, such as `acme.com`, whose provider-verified addresses can join without an invite. |
+| `ALLOWED_EMAIL_DOMAINS` | No | none | Comma-separated domains, such as `acme.com`, whose addresses can join without an invite through Google Workspace or the OIDC issuer. GitHub accounts always need an invite. |
 | `CLIENT_IP_HEADER` | No | none | The header your proxy writes the client IP to, such as `X-Forwarded-For`. Used to throttle failed sign-ins per IP. |
 | `GOOGLE_CLIENT_ID` | No | none | A Google OAuth client ID. Set it with `GOOGLE_CLIENT_SECRET` to offer Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | No | none | The Google OAuth client secret. |
@@ -47,7 +47,9 @@ The Docker image sets `PORT=8080`. Unkey Deploy sets `PORT` for you and sends tr
 
 ## `PUBLIC_URL`
 
-The origin people type into their browser, with no path. Its host is the WebAuthn relying party ID, so a passkey registered at one `PUBLIC_URL` does not work at another. Provider callbacks go to `PUBLIC_URL/auth/oauth/<provider>/callback`. Session cookies are marked `Secure` when it starts with `https`.
+The origin people type into their browser, with no path. Its host is the WebAuthn relying party ID, so a passkey registered at one `PUBLIC_URL` does not work at another. Provider callbacks go to `PUBLIC_URL/auth/oauth/<provider>/callback`. When it starts with `https`, cookies are marked `Secure` and named with the `__Host-` prefix, and every response carries `Strict-Transport-Security`.
+
+MCP clients sign in with OAuth, and uncrm derives every OAuth URL from `PUBLIC_URL`. The authorization server's issuer is `PUBLIC_URL`, and the MCP server's resource identifier is `PUBLIC_URL/mcp`. A client checks that the resource uncrm names matches the URL it connects to, so connect agents to `PUBLIC_URL/mcp` exactly. Access tokens are bound to that resource, so changing `PUBLIC_URL` signs every connected app out, and each one asks you to approve it again.
 
 When it is unset, uncrm uses `http://localhost:$PORT`, which suits `make dev`. Browsers allow passkeys on `http` only for `localhost`, so any other host needs `https`. `docker-compose.yml` sets it to `http://localhost:$UNCRM_PORT`. If you run the Vite dev server on port 5173, set `PUBLIC_URL=http://localhost:5173`.
 
@@ -60,6 +62,10 @@ When it is unset, uncrm uses `http://localhost:$PORT`, which suits `make dev`. B
 ## `CONTEXT_DEV_API_KEY`
 
 With a key, uncrm looks up each new contact and company on [context.dev](https://context.dev) in the background. Sign-ups with a free-mail address, such as Gmail, are not looked up.
+
+For a company, uncrm stores the name, description, tagline, logos, size, industry, sub-industries, headquarters, country, stock ticker, LinkedIn and other social profiles, and links to its careers, pricing, blog, and contact pages. It keeps every logo context.dev has and picks one per theme: an icon before a wordmark, and art drawn for the current light or dark theme before art for the other one, which gets a contrasting tile. For a person, uncrm stores the name, title, location, bio, photo, LinkedIn, and other profiles such as X, GitHub, or a personal site. When a contact already has a LinkedIn URL, uncrm sends it with the email to improve the match. It does not store the email address or phone number context.dev lists for a company, because these are often a social handle or one employee's own address.
+
+Companies enriched before an upgrade get the new details the next time they are enriched. **Re-enrich** on the company page does it now.
 
 Without a key, enrichment jobs wait in the `pending` state. Set the key and restart uncrm, and the worker runs every waiting job.
 

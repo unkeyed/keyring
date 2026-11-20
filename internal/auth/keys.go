@@ -1,6 +1,7 @@
 // Package auth answers "who is calling?" for every inbound request.
-// Agents present API keys (KeyStore). Humans present a session cookie
-// (Users). Both resolve to a crm.Actor, which handlers pass to crm.Service.
+// Agents present API keys (KeyStore) to REST, or OAuth access tokens
+// (OAuthServer) to MCP. Humans present a session cookie (Users). Each
+// resolves to a crm.Actor, which handlers pass to crm.Service.
 // auth knows nothing about contacts; crm knows nothing about passwords.
 package auth
 
@@ -25,7 +26,7 @@ var (
 	ErrUnauthorized = errors.New("unauthorized")
 )
 
-// KeyStore issues and verifies API keys for REST and MCP. Exactly one
+// KeyStore issues and verifies API keys for REST. Exactly one
 // implementation is live per process, chosen once in NewKeyStore.
 type KeyStore interface {
 	// Verify returns the actor for a presented key, or ErrInvalidKey.
@@ -38,6 +39,10 @@ type KeyStore interface {
 	// Revoke stops a key verifying. An id this store did not issue is
 	// crm.ErrNotFound.
 	Revoke(ctx context.Context, id string) error
+	// RevokeCreatedBy stops every key the user created verifying. Remove
+	// calls it inside the transaction that deletes the user, before the
+	// delete clears api_keys.created_by.
+	RevokeCreatedBy(ctx context.Context, tx pgx.Tx, userID int64) error
 	// Mode is "builtin" or "unkey", shown on the Settings page.
 	Mode() string
 }
@@ -80,6 +85,16 @@ func keyName(name string) (string, error) {
 // characters, enough to tell keys apart and far too short to guess from.
 func displayPrefix(key string) string {
 	return key[:min(len(key), len(keyPrefix)+4)]
+}
+
+// wellFormedKey is whether token could be a key uncrm issued: "uncrm_"
+// then 52 base32 characters (built-in) or about 44 base58 characters
+// (Unkey, 32 bytes).
+func wellFormedKey(token string) bool {
+	rest, ok := strings.CutPrefix(token, keyPrefix)
+	return ok && len(rest) >= 32 && len(rest) <= 64 && !strings.ContainsFunc(rest, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	})
 }
 
 // tokenEncoding is lowercase RFC 4648 base32 without padding, so tokens are
@@ -179,6 +194,11 @@ func (k *dbKeys) Revoke(ctx context.Context, id string) error {
 		return crm.ErrNotFound
 	}
 	return nil
+}
+
+func (k *dbKeys) RevokeCreatedBy(ctx context.Context, tx pgx.Tx, userID int64) error {
+	_, err := tx.Exec(ctx, `UPDATE api_keys SET revoked_at = coalesce(revoked_at, now()) WHERE created_by = $1`, userID)
+	return err
 }
 
 func (k *dbKeys) Mode() string { return "builtin" }

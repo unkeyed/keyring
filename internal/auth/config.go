@@ -11,7 +11,8 @@ import (
 type Config struct {
 	// PublicURL is where people open uncrm. Its host is the WebAuthn relying
 	// party ID, its origin the only accepted WebAuthn origin, and OAuth
-	// callbacks live under it. Session cookies are Secure when it is https.
+	// callbacks live under it. When it is https, cookies are Secure and named
+	// with the __Host- prefix.
 	PublicURL     *url.URL
 	PasswordLogin bool
 	// AllowedEmailDomains lets anyone with a provider-verified address at one

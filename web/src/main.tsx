@@ -7,6 +7,7 @@ import { Layout, NotFound } from "./Layout";
 import { Login } from "./pages/Login";
 import { AcceptInvite } from "./pages/AcceptInvite";
 import { Setup } from "./pages/Setup";
+import { Consent } from "./pages/Consent";
 import { Contacts } from "./pages/Contacts";
 import { ContactPage } from "./pages/ContactPage";
 import { Companies } from "./pages/Companies";
@@ -20,6 +21,7 @@ const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
   { path: "/invite/:token", element: <AcceptInvite /> },
   { path: "/setup/:token", element: <Setup /> },
+  { path: "/oauth/consent", element: <Consent /> },
   {
     element: <Layout />,
     children: [

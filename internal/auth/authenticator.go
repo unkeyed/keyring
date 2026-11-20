@@ -15,10 +15,12 @@ const (
 	ViaSession
 )
 
-// Authenticator resolves an inbound request to an actor.
+// Authenticator resolves an inbound request to an actor. OAuth issues the
+// tokens /mcp accepts; Caller never accepts them.
 type Authenticator struct {
 	Keys  KeyStore
 	Users *Users
+	OAuth *OAuthServer
 }
 
 // Caller reads "Authorization: Bearer <key>" first, then the session cookie.
@@ -38,11 +40,7 @@ func (a *Authenticator) Caller(r *http.Request) (crm.Actor, Via, error) {
 		}
 		return actor, ViaAPIKey, nil
 	}
-	c, err := r.Cookie(SessionCookie)
-	if err != nil {
-		return crm.Actor{}, 0, ErrUnauthorized
-	}
-	actor, err := a.Users.Session(r.Context(), c.Value)
+	actor, err := a.Users.Session(r.Context(), a.Users.Cookie(r, SessionCookie))
 	if err != nil {
 		return crm.Actor{}, 0, err
 	}

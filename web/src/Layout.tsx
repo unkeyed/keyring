@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { api, ApiError } from "./api";
 import { useMe, useStatus } from "./queries";
+import { Toaster } from "./components/Toaster";
 import { useTheme, type ThemeMode } from "./theme";
 import { Avatar, Button, buttonClass, Crumbs, cx, EmptyState, ErrorNote, Icon, Logo, NavMenu, PageHeader, Spinner, useModal, useWide, type IconName } from "./ui";
 
@@ -23,6 +24,9 @@ export function Layout() {
   const location = useLocation();
   const wide = useWide();
   const [menuOpen, setMenuOpen] = useState(false);
+  // Here, not in NavBody: NavBody moves between the rail and the phone menu
+  // as the window resizes, and the theme must follow the system throughout.
+  const theme = useTheme();
 
   if (me.isPending) {
     return (
@@ -45,23 +49,25 @@ export function Layout() {
 
   return (
     <NavMenu.Provider value={wide ? null : () => setMenuOpen(true)}>
+      <Toaster>
       <div className="flex h-full">
         {wide ? (
           <aside className="flex w-14 shrink-0 flex-col border-r border-line bg-bg lg:w-52">
-            <NavBody label={me.data.label} rail />
+            <NavBody label={me.data.label} theme={theme} rail />
           </aside>
         ) : (
-          <MenuSheet open={menuOpen} onClose={() => setMenuOpen(false)} label={me.data.label} />
+          <MenuSheet open={menuOpen} onClose={() => setMenuOpen(false)} label={me.data.label} theme={theme} />
         )}
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
           <Outlet />
         </main>
       </div>
+      </Toaster>
     </NavMenu.Provider>
   );
 }
 
-function MenuSheet({ open, onClose, label }: { open: boolean; onClose: () => void; label: string }) {
+function MenuSheet({ open, onClose, label, theme }: { open: boolean; onClose: () => void; label: string; theme: ThemeState }) {
   const ref = useModal(open);
   return (
     <dialog
@@ -69,13 +75,12 @@ function MenuSheet({ open, onClose, label }: { open: boolean; onClose: () => voi
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
       aria-label="Menu"
+      data-sheet
       className="m-0 h-dvh max-h-none w-72 max-w-[85vw] border-0 border-r border-line bg-bg p-0 text-fg shadow-floating"
     >
-      {open && (
-        <div className="flex h-full flex-col">
-          <NavBody label={label} onNavigate={onClose} close={<Button variant="ghost" size="sm" onClick={onClose} aria-label="Close menu" className="ml-auto w-8 px-0"><Icon name="x" /></Button>} />
-        </div>
-      )}
+      <div className="flex h-full flex-col">
+        <NavBody label={label} theme={theme} onNavigate={onClose} close={<Button variant="ghost" size="sm" onClick={onClose} aria-label="Close menu" className="ml-auto w-8 px-0"><Icon name="x" /></Button>} />
+      </div>
     </dialog>
   );
 }
@@ -84,8 +89,9 @@ function MenuSheet({ open, onClose, label }: { open: boolean; onClose: () => voi
  * The navigation, account and theme controls. As a rail (tablet) it shows
  * icons only until the lg breakpoint, where labels appear.
  */
-function NavBody({ label, rail, onNavigate, close }: { label: string; rail?: boolean; onNavigate?: () => void; close?: ReactNode }) {
-  const [theme, setTheme] = useTheme();
+type ThemeState = ReturnType<typeof useTheme>;
+
+function NavBody({ label, theme: [theme, setTheme], rail, onNavigate, close }: { label: string; theme: ThemeState; rail?: boolean; onNavigate?: () => void; close?: ReactNode }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const wideOnly = rail ? "hidden lg:block" : "block";
@@ -141,7 +147,7 @@ function NavBody({ label, rail, onNavigate, close }: { label: string; rail?: boo
                 title={t.label}
                 onClick={() => setTheme(t.mode)}
                 className={cx(
-                  "flex h-6 flex-1 items-center justify-center rounded transition-colors",
+                  "flex h-6 flex-1 items-center justify-center rounded-inner transition-colors",
                   theme === t.mode ? "bg-subtle-strong text-fg" : "text-faint hover:text-fg",
                 )}
               >
@@ -219,7 +225,7 @@ export function NotFound({
   return (
     <>
       <PageHeader title={parent ? <Crumbs parent={parent.label} to={parent.to} current="Not found" /> : "Not found"} />
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-16">
+      <div className="relative min-h-0 flex-1 overflow-auto px-4 py-16">
         <div className="mx-auto max-w-md">
           <EmptyState
             icon="search"

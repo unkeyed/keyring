@@ -30,10 +30,12 @@ import (
 // Linking rules for a sign-in, in order (decideSocial):
 //  1. An identity already linked signs in its user.
 //  2. Otherwise the provider must have verified the email.
-//  3. A user with that email gets the identity linked and signs in.
+//  3. A user with that email gets the identity linked and signs in, after
+//     their passkey or authenticator code if they have one.
 //  4. A live invite for that email is accepted.
-//  5. An email at an ALLOWED_EMAIL_DOMAINS domain joins; for Google the
-//     Workspace domain (hd claim) must match too.
+//  5. An email at an ALLOWED_EMAIL_DOMAINS domain joins, but only through a
+//     provider that proves membership of the organization: Google with a
+//     matching Workspace domain (hd claim), or the configured OIDC issuer.
 //  6. Anyone else is turned away. Social sign-in never creates an account
 //     for a stranger.
 
@@ -447,9 +449,21 @@ func decideSocial(f socialFacts, allowed []string) (socialAction, error) {
 	return 0, errStranger
 }
 
+// domainAllowed is whether the identity may join through its email domain.
+// A GitHub account never may: it only shows that someone once verified the
+// address, which a teammate's personal account keeps after they leave.
 func domainAllowed(id ExternalIdentity, allowed []string) bool {
 	_, domain, _ := strings.Cut(id.Email, "@")
-	return slices.Contains(allowed, domain) && workspaceMatches(id, allowed)
+	if !slices.Contains(allowed, domain) {
+		return false
+	}
+	switch id.Provider {
+	case "google":
+		return id.HostedDomain == domain
+	case "oidc":
+		return true
+	}
+	return false
 }
 
 // workspaceMatches is false for a Google account with an address at an

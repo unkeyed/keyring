@@ -13,12 +13,19 @@ function read(): ThemeMode {
   }
 }
 
+// index.html sets one theme-color per OS scheme; their colours are the source here.
+const metas = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')];
+const own = new Map(metas.map((m) => [m, m.content]));
+const colour = (scheme: "light" | "dark") => own.get(metas.find((m) => m.media.includes(scheme))!);
+
 function apply(mode: ThemeMode) {
   const dark = mode === "dark" || (mode === "system" && media.matches);
   document.documentElement.classList.toggle("dark", dark);
+  // A chosen theme overrides the OS, so both tags name its colour; System restores each tag's own.
+  for (const m of metas) m.content = (mode === "system" ? own.get(m) : colour(mode)) ?? m.content;
 }
 
-/** index.html applies the stored choice before first paint too. */
+/** public/theme.js applies the stored choice before first paint too. */
 export function useTheme(): [ThemeMode, (m: ThemeMode) => void] {
   const [mode, setMode] = useState(read);
   useEffect(() => {

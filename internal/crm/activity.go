@@ -3,35 +3,55 @@ package crm
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
 )
 
-// ListActivity reads the timeline, newest first. list_recent_signups is
-// ListActivity with Kind = ActivitySignedUp.
-func (s *Service) ListActivity(ctx context.Context, q ActivityQuery) ([]Activity, error) {
+// ListActivity pages the timeline, newest first. An unknown Kind is
+// ErrInvalid naming the kinds. list_recent_signups is ListActivity with Kind
+// = ActivitySignedUp.
+func (s *Service) ListActivity(ctx context.Context, q ActivityQuery) (Page[Activity], error) {
 	var w where
 	if q.Kind != "" {
+		if !slices.Contains(ActivityKinds, q.Kind) {
+			return Page[Activity]{}, fmt.Errorf("%w: unknown activity kind %q; the kinds are %s", ErrInvalid, q.Kind, joinNames(ActivityKinds))
+		}
 		w.add("a.kind = %s", w.arg(q.Kind))
 	}
 	if q.ContactID != 0 {
 		w.add("a.contact_id = %s", w.arg(q.ContactID))
 	}
+	if q.CompanyID != 0 {
+		w.add("(a.company_id = %[1]s OR a.contact_id IN (SELECT id FROM contacts WHERE company_id = %[1]s))", w.arg(q.CompanyID))
+	}
 	if !q.Since.IsZero() {
 		w.add("a.occurred_at >= %s", w.arg(q.Since))
 	}
+	if !q.Before.IsZero() {
+		w.add("a.occurred_at < %s", w.arg(q.Before))
+	}
+	if q.Cursor != "" {
+		t, id, err := decodeCursor(q.Cursor)
+		if err != nil {
+			return Page[Activity]{}, err
+		}
+		w.add("(a.occurred_at, a.id) < (%s, %s)", w.arg(t), w.arg(id))
+	}
+	limit := pageLimit(q.Limit)
 	rows, err := s.db.Query(ctx, `
 		SELECT a.id, a.kind, c.id, c.email, c.name, co.id, co.domain, co.name,
 		       a.actor_kind, a.actor_id, a.actor_label, a.data, a.occurred_at
 		  FROM activities a
 		  LEFT JOIN contacts c ON c.id = a.contact_id
 		  LEFT JOIN companies co ON co.id = a.company_id`+w.String()+`
-		 ORDER BY a.occurred_at DESC, a.id DESC LIMIT `+strconv.Itoa(pageLimit(q.Limit)), w.args...)
+		 ORDER BY a.occurred_at DESC, a.id DESC LIMIT `+strconv.Itoa(limit+1), w.args...)
 	if err != nil {
-		return nil, err
+		return Page[Activity]{}, err
 	}
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Activity, error) {
+	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Activity, error) {
 		var a Activity
 		var contactID *ContactID
 		var email Email
@@ -49,6 +69,10 @@ func (s *Service) ListActivity(ctx context.Context, q ActivityQuery) ([]Activity
 		}
 		return a, err
 	})
+	if err != nil {
+		return Page[Activity]{}, err
+	}
+	return pageOf(items, limit, func(a Activity) string { return encodeCursor(a.OccurredAt, a.ID) }), nil
 }
 
 // Status summarizes the instance for Settings and agents.

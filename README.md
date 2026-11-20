@@ -31,12 +31,13 @@ To run uncrm on a server, read [Self-host uncrm](docs/self-hosting.md) or [Deplo
 - Sign-ups from Clerk, WorkOS AuthKit, Better Auth, Supabase Auth, Auth0, and Stytch, plus one API call for any other auth system.
 - One contact per email address. A person who signs up through two providers is one contact, and a webhook retry or replay is recorded once.
 - A company for each work email domain. Gmail and other free-mail domains create no company.
-- Job titles, locations, company logos, sizes, and industries from context.dev.
+- Contacts and companies added by hand in the UI, the API, or MCP, next to the ones that sign up.
+- Job titles, locations, social profiles, and company logos, taglines, headquarters, sizes, industries, and links from context.dev. Logos fit their tile in light and dark themes.
 - A timeline per contact with sign-ups, notes, edits, and enrichment.
 - Stages, tags, Markdown notes, and a merge for duplicate contacts.
 - Values that a person or an agent sets stay set. Webhooks and enrichment never overwrite them.
 - Team sign-in with passkeys, Google, GitHub, or any OIDC provider, two-factor codes, and one-time invite links. No default password, and a password is never enough alone. See [Sign-in](docs/sign-in.md).
-- A REST API and an MCP server that use the same API keys.
+- A REST API for agents and backends with API keys, and an MCP server that agents sign in to as a person, in the browser.
 - One container that you can run as several replicas against one database.
 
 ## Deploy to Unkey
@@ -75,17 +76,19 @@ Without a key, uncrm records sign-ups as usual and queues the lookups. Set the k
 
 ## Agents
 
-Create a key in **Settings > Agents & MCP**, then add uncrm to Claude Code:
+Add uncrm to Claude Code:
 
 ```sh
-claude mcp add --transport http uncrm https://<host>/mcp --header "Authorization: Bearer <key>"
+claude mcp add --transport http uncrm https://<host>/mcp
 ```
 
-The agent gets 14 tools. It can search contacts and companies, update and tag contacts, move them between stages, add notes, merge duplicates, and queue enrichment. [Connect agents to uncrm](docs/agents.md) covers Cursor, Claude Desktop, the full tool list, and the REST API. Every route is in the OpenAPI spec at `https://<host>/v1/openapi.yaml`.
+There is no key to copy. The first time Claude Code reaches uncrm, it opens your browser, you sign in and approve it, and from then on it acts as you: its changes show as `Claude Code (via <your name>)`. **Settings > Agents & MCP** lists connected apps and disconnects them.
+
+The agent gets 24 tools, one for every REST operation an API key can call except recording a sign-up. It can search, create, update, and delete contacts and companies, tag and move many contacts at once, add and delete notes, read the timeline, merge duplicates, and queue enrichment. [Connect agents to uncrm](docs/agents.md) covers Cursor, Claude Desktop, the full tool list, and the REST API. Every route is in the OpenAPI spec at `https://<host>/v1/openapi.yaml`.
 
 ## API keys
 
-Agents and scripts authenticate with API keys. People create and revoke them in **Settings > API keys**. uncrm stores keys in one of two places:
+Scripts, backends and REST agents authenticate with API keys. The MCP server does not take them. People create and revoke them in **Settings > API keys**. uncrm stores keys in one of two places:
 
 - **Built-in.** Keys live in uncrm's Postgres database as SHA-256 hashes. This is the default and needs no setup.
 - **Unkey.** Set `UNKEY_ROOT_KEY` and `UNKEY_API_ID`, and uncrm creates, verifies, and revokes keys in your [Unkey](https://www.unkey.com) API. Use this if you already manage keys in Unkey.

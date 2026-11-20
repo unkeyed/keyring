@@ -2,7 +2,6 @@ package crm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -22,7 +21,11 @@ import (
 // the normalized email, OccurredAt now. So posting the same person twice
 // records one sign-up. A non-provider actor may not use a registered
 // provider's name as Source (ErrInvalid), so an API key cannot forge Clerk
-// identities.
+// identities. An AvatarURL that is not an http(s) URL is ErrInvalid from an
+// API caller and dropped from a provider webhook, which must not fail on it.
+//
+// The provider's raw payload is not stored: nothing reads it, and it is
+// third-party text that every timeline read would hand to agents.
 //
 // A provider retry, a dashboard replay, an Updated arriving before its
 // Created, and two providers racing on one email all converge to one
@@ -54,8 +57,11 @@ func (s *Service) Ingest(ctx context.Context, actor Actor, su signup.Signup) (In
 	if su.OccurredAt.IsZero() {
 		su.OccurredAt = s.now()
 	}
-	if len(su.Raw) == 0 {
-		su.Raw = json.RawMessage(`{}`)
+	if su.AvatarURL, err = webURL(fieldAvatarURL, su.AvatarURL); err != nil {
+		if actor.Kind != ActorProvider {
+			return IngestResult{}, err
+		}
+		su.AvatarURL = ""
 	}
 
 	var res IngestResult
@@ -80,14 +86,14 @@ func ingestSignup(ctx context.Context, tx pgx.Tx, actor Actor, su signup.Signup,
 
 	var applied bool
 	err = tx.QueryRow(ctx, `
-		INSERT INTO identities (provider, external_id, contact_id, email, email_verified, name, avatar_url, raw, occurred_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO identities (provider, external_id, contact_id, email, email_verified, name, avatar_url, occurred_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (provider, external_id) DO UPDATE
 		   SET email = EXCLUDED.email, email_verified = EXCLUDED.email_verified, name = EXCLUDED.name,
-		       avatar_url = EXCLUDED.avatar_url, raw = EXCLUDED.raw, occurred_at = EXCLUDED.occurred_at
+		       avatar_url = EXCLUDED.avatar_url, occurred_at = EXCLUDED.occurred_at
 		 WHERE identities.occurred_at <= EXCLUDED.occurred_at
 		RETURNING true`,
-		su.Source, su.ExternalID, id, email, su.EmailVerified, strings.TrimSpace(su.Name), su.AvatarURL, su.Raw, su.OccurredAt).
+		su.Source, su.ExternalID, id, email, su.EmailVerified, strings.TrimSpace(su.Name), su.AvatarURL, su.OccurredAt).
 		Scan(&applied)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return res, err
@@ -130,7 +136,7 @@ func ingestSignup(ctx context.Context, tx pgx.Tx, actor Actor, su signup.Signup,
 		inserted, err := recordActivity(ctx, tx, activityRow{
 			contact: id, kind: ActivitySignedUp, actor: actor,
 			dedupe: "signed_up:" + su.Source + ":" + su.ExternalID,
-			data:   map[string]any{"provider": su.Source, "external_id": su.ExternalID, "raw": su.Raw},
+			data:   map[string]string{"provider": su.Source, "external_id": su.ExternalID},
 			at:     su.OccurredAt,
 		})
 		res.Duplicate = !inserted

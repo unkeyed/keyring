@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useReauthMutation } from "./Reauth";
 import { useNavigate } from "react-router";
 import { api, inviteURL, type Email } from "../../api";
 import { keys, useAuthOptions, useMe } from "../../queries";
@@ -49,7 +50,7 @@ function Members() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const users = useQuery({ queryKey: keys.users, queryFn: async () => (await api.users.list()) ?? [] });
-  const remove = useMutation({
+  const remove = useReauthMutation({
     mutationFn: api.users.remove,
     onSuccess: (_, id) => {
       if (me.data?.id === String(id)) {
@@ -143,7 +144,7 @@ function SignInMethods() {
 
 function Invite({ onSent }: { onSent: (i: SentInvite) => void }) {
   const [email, setEmail] = useState("");
-  const invite = useMutation({
+  const invite = useReauthMutation({
     mutationFn: (to: string) => api.invites.create(to),
     onSuccess: ({ token }, to) => {
       onSent({ email: to, url: inviteURL(token) });

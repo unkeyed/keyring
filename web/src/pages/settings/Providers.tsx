@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useReauthMutation } from "./Reauth";
 import { api, type ProviderStatus } from "../../api";
 import { Markdown } from "../../components/Markdown";
 import { keys, useProviders } from "../../queries";
@@ -89,7 +90,7 @@ function ProviderCard({ p }: { p: ProviderStatus }) {
   const [open, setOpen] = useState(false);
   const refresh = () => qc.invalidateQueries({ queryKey: keys.providers });
 
-  const connect = useMutation({
+  const connect = useReauthMutation({
     mutationFn: (s: string) => api.providers.connect(p.name, s),
     onSuccess: (res) => {
       if (p.issue_secret) setIssued(res.secret);
@@ -98,7 +99,7 @@ function ProviderCard({ p }: { p: ProviderStatus }) {
       return refresh();
     },
   });
-  const disconnect = useMutation({
+  const disconnect = useReauthMutation({
     mutationFn: () => api.providers.disconnect(p.name),
     onSuccess: () => {
       setIssued(null);

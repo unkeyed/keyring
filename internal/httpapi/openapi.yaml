@@ -11,20 +11,30 @@ info:
     a leaked agent key cannot mint more access.
 
     Every error is `{"error": "<message>"}` with a status that says what to do:
-    400 fix the request, 401 bad or missing credentials, 403 this route needs a
-    signed-in person, 404 no such thing, 409 it already exists, 429 wait for
-    `Retry-After` seconds, 503 the database or key store is down so retry later.
-    A 5xx also carries `request_id`, which the server log repeats.
+    400 fix the request (an unknown stage, field or activity kind lists the
+    valid ones), 401 bad or missing credentials, 403 this route needs a
+    signed-in person, 404 no such thing, 405 wrong method for this path (the
+    `Allow` header lists the right ones), 409 it already exists (`id` names
+    it), 429 wait for `Retry-After` seconds, 503 the database or key store is
+    down so retry later. A 5xx also carries `request_id`, which the server log
+    repeats.
 
-    Lists are never null: an empty list is `[]`. Timestamps are RFC 3339.
-    Unknown query parameters and unknown body fields are rejected with 400.
+    Lists are never null: an empty list is `[]`. Timestamps are RFC 3339; time
+    filters in query strings also take a date such as `2026-01-02` (midnight
+    UTC). Unknown query parameters and unknown body fields are rejected with
+    400. Stored URLs (`linkedin_url`, `avatar_url`) must be http or https; a
+    missing scheme gets `https://`, anything else is 400.
 
     Write rule: a field a person or agent sets is pinned. It is listed in
     `manual_fields`, and sign-ups and enrichment leave it alone until someone
     resets it with `DELETE .../manual_fields/{field}`.
 
-    The same operations are available as MCP tools at `/mcp` (Streamable HTTP,
-    same bearer key).
+    Every operation an API key can call is also an MCP tool at `/mcp`
+    (Streamable HTTP), except POST /v1/signups, which is for auth systems;
+    docs/agents.md maps them. `/mcp` does not take API keys: an MCP client
+    signs in with OAuth 2.1 as a person, who approves it in the browser.
+    The OAuth endpoints are described by `/.well-known/oauth-authorization-server`
+    and `/.well-known/oauth-protected-resource/mcp`, not here.
   license:
     name: MIT
     identifier: MIT
@@ -168,12 +178,21 @@ paths:
           description: Case-insensitive substring of email, name, company name or company domain.
           schema:
             type: string
+        - name: email
+          in: query
+          description: >-
+            Exact email, case-insensitive. Matches the contact's email and every
+            email its sign-ups used, so a page holds at most a few contacts.
+          schema:
+            type: string
+            format: email
         - name: tag
           in: query
           schema:
             type: string
         - name: stage
           in: query
+          description: Exact stage name. An unknown one is 400 listing the stages.
           schema:
             type: string
         - name: provider
@@ -189,14 +208,12 @@ paths:
           in: query
           description: First seen at or after this time.
           schema:
-            type: string
-            format: date-time
+            $ref: "#/components/schemas/TimeOrDate"
         - name: signed_up_before
           in: query
           description: First seen before this time.
           schema:
-            type: string
-            format: date-time
+            $ref: "#/components/schemas/TimeOrDate"
         - $ref: "#/components/parameters/cursor"
         - $ref: "#/components/parameters/limit"
       responses:
@@ -210,6 +227,35 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      tags: [contacts]
+      operationId: createContact
+      summary: Add a contact by hand.
+      description: >-
+        For a person who never signed up through an auth provider. The company
+        comes from the email domain (none for free mail), and the contact and a
+        new company are queued for enrichment. Every field you send is pinned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewContact"
+      responses:
+        "201":
+          description: The new contact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Exists"
         "503":
           $ref: "#/components/responses/Unavailable"
   /v1/contacts/{id}:
@@ -232,6 +278,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     patch:
       tags: [contacts]
       operationId: updateContact
@@ -259,6 +307,61 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      tags: [contacts]
+      operationId: deleteContact
+      summary: Erase a contact with its identities, tags, notes and timeline.
+      description: >-
+        For data deletion requests. Cannot be undone, and nothing records it.
+        If the person signs up again they come back as a new contact.
+      responses:
+        "204":
+          description: Erased.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/contacts/bulk:
+    post:
+      tags: [contacts]
+      operationId: bulkUpdateContacts
+      summary: Set one stage and add or remove tags on up to 200 contacts.
+      description: >-
+        Each contact is updated on its own, as PATCH would. A missing contact
+        fails alone and the rest go ahead, so the status is 200 with one result
+        per id. A request with no ids, more than 200, nothing to change, an
+        unknown stage or a blank tag is 400 and changes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUpdate"
+      responses:
+        "200":
+          description: One result per id, in request order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BulkResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/contacts/{id}/manual_fields/{field}:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -285,6 +388,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/contacts/{id}/merge:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -318,6 +423,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/contacts/{id}/notes:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -350,13 +457,15 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/notes/{id}:
     parameters:
       - $ref: "#/components/parameters/id"
     delete:
       tags: [contacts]
       operationId: deleteNote
-      summary: Delete a note. Its note_added timeline entry stays.
+      summary: Delete a note. Its note_added entry stays, and a note_deleted entry records who deleted it.
       responses:
         "204":
           description: Deleted.
@@ -366,6 +475,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/contacts/{id}/enrich:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -375,6 +486,12 @@ paths:
       summary: Queue a fresh context.dev lookup for a contact and its company.
       description: Runs in the background. Without CONTEXT_DEV_API_KEY the job waits as pending. Free-mail contacts are skipped.
       responses:
+        "200":
+          description: Nothing to do (state skipped, such as a free-mail contact); no job will run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrichResult"
         "202":
           description: Queued.
           content:
@@ -387,6 +504,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 
   /v1/companies:
     get:
@@ -397,6 +516,11 @@ paths:
         - name: q
           in: query
           description: Case-insensitive substring of the company name or domain.
+          schema:
+            type: string
+        - name: domain
+          in: query
+          description: Exact domain, case-insensitive, such as stripe.com.
           schema:
             type: string
         - $ref: "#/components/parameters/cursor"
@@ -412,13 +536,41 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      tags: [companies]
+      operationId: createCompany
+      summary: Add a company by domain and queue its enrichment.
+      description: A free-mail domain such as gmail.com is a 400. A name you send is pinned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewCompany"
+      responses:
+        "201":
+          description: The new company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Exists"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/companies/{id}:
     parameters:
       - $ref: "#/components/parameters/id"
     get:
       tags: [companies]
       operationId: getCompany
-      summary: One company with its contacts.
+      summary: One company with every contact and the newest 50 timeline entries of the company and its contacts.
       responses:
         "200":
           description: The company.
@@ -432,6 +584,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     patch:
       tags: [companies]
       operationId: updateCompany
@@ -455,6 +609,27 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      tags: [companies]
+      operationId: deleteCompany
+      summary: Delete a company and its timeline. Its contacts stay, unlinked.
+      description: >-
+        Cannot be undone. Each unlinked contact gets a contact_updated entry,
+        and its company field is pinned so the next sign-up does not re-create
+        the company; DELETE /v1/contacts/{id}/manual_fields/company relinks one.
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/companies/{id}/manual_fields/{field}:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -480,6 +655,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/companies/{id}/enrich:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -488,6 +665,12 @@ paths:
       operationId: enrichCompany
       summary: Queue a fresh context.dev lookup for a company.
       responses:
+        "200":
+          description: Nothing to do (state skipped, such as a free-mail contact); no job will run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrichResult"
         "202":
           description: Queued.
           content:
@@ -500,12 +683,15 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 
   /v1/activity:
     get:
       tags: [timeline]
       operationId: listActivity
-      summary: The timeline across all contacts, newest first. Use kind=signed_up for recent sign-ups.
+      summary: The timeline, newest first. Use kind=signed_up for recent sign-ups.
+      description: Filters combine with AND. Page with `cursor` from the previous `next_cursor`. An unknown kind is 400 listing the kinds.
       parameters:
         - name: kind
           in: query
@@ -515,25 +701,36 @@ paths:
           in: query
           schema:
             type: integer
+        - name: company_id
+          in: query
+          description: The company's own entries and its contacts'.
+          schema:
+            type: integer
         - name: since
           in: query
+          description: At or after this time.
           schema:
-            type: string
-            format: date-time
+            $ref: "#/components/schemas/TimeOrDate"
+        - name: before
+          in: query
+          description: Before this time.
+          schema:
+            $ref: "#/components/schemas/TimeOrDate"
+        - $ref: "#/components/parameters/cursor"
         - $ref: "#/components/parameters/limit"
       responses:
         "200":
-          description: Timeline entries.
+          description: One page of timeline entries.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Activity"
+                $ref: "#/components/schemas/ActivityPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/tags:
     get:
       tags: [timeline]
@@ -550,11 +747,14 @@ paths:
                   type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/stages:
     get:
       tags: [timeline]
       operationId: listStages
       summary: The pipeline stages in order. New contacts start in the first.
+      description: GET /v1/stages/counts adds each stage's contact count.
       responses:
         "200":
           description: Stage names.
@@ -566,6 +766,8 @@ paths:
                   type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     put:
       tags: [settings]
       operationId: setStages
@@ -600,6 +802,26 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/stages/counts:
+    get:
+      tags: [timeline]
+      operationId: listStageCounts
+      summary: The pipeline stages in order, each with how many contacts are in it.
+      responses:
+        "200":
+          description: Stages with counts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StageCount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/status:
     get:
       tags: [system]
@@ -614,6 +836,8 @@ paths:
                 $ref: "#/components/schemas/Status"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 
   /v1/providers:
     get:
@@ -635,6 +859,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/providers/{name}:
     parameters:
       - name: name
@@ -675,9 +901,11 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/Reauth"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     delete:
       tags: [settings]
       operationId: disconnectProvider
@@ -690,9 +918,11 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/Reauth"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/keys:
     get:
       tags: [settings]
@@ -745,7 +975,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/Reauth"
         "503":
           $ref: "#/components/responses/Unavailable"
   /v1/keys/{id}:
@@ -772,6 +1002,119 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/apps:
+    get:
+      tags: [settings]
+      operationId: listApps
+      summary: MCP clients people approved whose connection is live, newest first.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Connected apps.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/App"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/apps/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [settings]
+      operationId: revokeApp
+      summary: Disconnect an app. Its access and refresh tokens stop working at once.
+      security:
+        - session: []
+      responses:
+        "204":
+          description: Revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/oauth/requests/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The request handle from the consent page's URL.
+        schema:
+          type: string
+    get:
+      tags: [settings]
+      operationId: getConsentRequest
+      summary: The app asking for access, for the consent page that /oauth/authorize sends a person to.
+      security:
+        - session: []
+      responses:
+        "200":
+          description: The pending request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      tags: [settings]
+      operationId: decideConsentRequest
+      summary: Approve or decline the request as the signed-in person. Approving needs a recent sign-in. Each request is answered once.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approve]
+              additionalProperties: false
+              properties:
+                approve:
+                  type: boolean
+      responses:
+        "200":
+          description: Where to send the browser, the app's redirect_uri with a code and state, or with error=access_denied.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [redirect]
+                properties:
+                  redirect:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Reauth"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/users:
     get:
       tags: [settings]
@@ -792,6 +1135,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/users/{id}:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -807,11 +1152,13 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/Reauth"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/invites:
     post:
       tags: [settings]
@@ -847,9 +1194,11 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/Reauth"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/me:
     get:
       tags: [settings]
@@ -868,11 +1217,13 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account:
     get:
       tags: [account]
       operationId: getAccount
-      summary: How the signed-in person signs in: passkeys, linked logins, authenticator app, password and sessions.
+      summary: 'How the signed-in person signs in: passkeys, linked logins, authenticator app, password and sessions.'
       security:
         - session: []
       responses:
@@ -886,6 +1237,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/passkeys/begin:
     post:
       tags: [account]
@@ -904,6 +1257,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Reauth"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/passkeys:
     post:
       tags: [account]
@@ -932,6 +1287,8 @@ paths:
           $ref: "#/components/responses/Reauth"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/passkeys/{id}:
     parameters:
       - name: id
@@ -957,6 +1314,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/identities/{provider}:
     parameters:
       - name: provider
@@ -982,6 +1341,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/totp/begin:
     post:
       tags: [account]
@@ -1002,6 +1363,8 @@ paths:
           $ref: "#/components/responses/Reauth"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/totp:
     post:
       tags: [account]
@@ -1037,6 +1400,8 @@ paths:
           $ref: "#/components/responses/Reauth"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     delete:
       tags: [account]
       operationId: disableTOTP
@@ -1054,6 +1419,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/recovery-codes:
     post:
       tags: [account]
@@ -1074,6 +1441,8 @@ paths:
           $ref: "#/components/responses/Reauth"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/password:
     put:
       tags: [account]
@@ -1105,6 +1474,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     delete:
       tags: [account]
       operationId: removePassword
@@ -1122,6 +1493,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/sessions/{id}:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -1140,6 +1513,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/reauth/passkey/begin:
     post:
       tags: [account]
@@ -1160,6 +1535,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/reauth/passkey:
     post:
       tags: [account]
@@ -1182,6 +1559,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/account/reauth/code:
     post:
       tags: [account]
@@ -1211,12 +1590,14 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 
   /auth/options:
     get:
       tags: [auth]
       operationId: getAuthOptions
-      summary: What the sign-in page offers: configured providers, password sign-in, and whether setup is still open.
+      summary: 'What the sign-in page offers: configured providers, password sign-in, and whether setup is still open.'
       security: []
       responses:
         "200":
@@ -1225,6 +1606,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthOptions"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/passkey/begin:
     post:
       tags: [auth]
@@ -1238,6 +1621,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CeremonyStart"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/passkey/finish:
     post:
       tags: [auth]
@@ -1259,11 +1644,13 @@ paths:
                 $ref: "#/components/schemas/SignInResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/password:
     post:
       tags: [auth]
       operationId: passwordLogin
-      summary: Check an email and password. Never a session on its own: success sets uncrm_pending and asks for a second factor.
+      summary: 'Check an email and password. Never a session on its own: success sets uncrm_pending and asks for a second factor.'
       description: Only with PASSWORD_LOGIN on (404 otherwise). After five wrong passwords for one email, or thirty from one IP, attempts wait with exponential backoff (429).
       security: []
       requestBody:
@@ -1294,6 +1681,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/second-factor:
     get:
       tags: [auth]
@@ -1309,6 +1698,8 @@ paths:
                 $ref: "#/components/schemas/SignInResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/second-factor/code:
     post:
       tags: [auth]
@@ -1337,6 +1728,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/second-factor/passkey/begin:
     post:
       tags: [auth]
@@ -1352,6 +1745,8 @@ paths:
                 $ref: "#/components/schemas/CeremonyStart"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/second-factor/passkey/finish:
     post:
       tags: [auth]
@@ -1373,6 +1768,8 @@ paths:
                 $ref: "#/components/schemas/SignInResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/oauth/{provider}/start:
     parameters:
       - name: provider
@@ -1405,6 +1802,8 @@ paths:
       responses:
         "303":
           description: To the provider, or back to the page with ?error= when the flow cannot start.
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/oauth/{provider}/callback:
     parameters:
       - name: provider
@@ -1422,6 +1821,8 @@ paths:
       responses:
         "303":
           description: Into the app, to /login?second_factor=1 when a code is due, or back with ?error=.
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/setup/{token}:
     parameters:
       - name: token
@@ -1439,6 +1840,8 @@ paths:
           description: It works.
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/invites/{token}:
     parameters:
       - name: token
@@ -1464,6 +1867,8 @@ paths:
                     type: string
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/signup/passkey/begin:
     post:
       tags: [auth]
@@ -1497,6 +1902,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/signup/passkey/finish:
     post:
       tags: [auth]
@@ -1522,6 +1929,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /auth/logout:
     post:
       tags: [auth]
@@ -1531,6 +1940,8 @@ paths:
       responses:
         "204":
           description: Logged out.
+        "503":
+          $ref: "#/components/responses/Unavailable"
 
 components:
   securitySchemes:
@@ -1596,11 +2007,24 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Exists:
+      description: The email or domain is already in uncrm; id names that contact or company.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, id]
+            properties:
+              error:
+                type: string
+              id:
+                type: integer
     Reauth:
       description: >-
-        Changing how you sign in needs a sign-in within the last 15 minutes
-        (code reauth_required). Confirm with POST /v1/account/reauth/*, or the
-        reauth OAuth intent, and retry. Also 403 for API keys, as Forbidden.
+        This change (how you sign in, API keys, providers or the team) needs a
+        sign-in within the last 15 minutes (code reauth_required). Confirm with
+        POST /v1/account/reauth/*, or the reauth OAuth intent, and retry. Also
+        403 for API keys, as Forbidden.
       content:
         application/json:
           schema:
@@ -1646,10 +2070,10 @@ components:
       enum: [name, title, location, bio, linkedin_url, company]
     CompanyField:
       type: string
-      enum: [name, description, employee_range, industry, country, linkedin_url]
+      enum: [name, description, employee_range, industry, country, linkedin_url, tagline, headquarters]
     ActivityKind:
       type: string
-      enum: [signed_up, provider_deleted, contact_updated, company_updated, note_added, contacts_merged, enriched]
+      enum: [signed_up, provider_deleted, contact_updated, company_updated, note_added, note_deleted, contacts_merged, contact_created, company_created, enriched]
     Actor:
       type: object
       description: Who caused a write.
@@ -1657,7 +2081,8 @@ components:
       properties:
         kind:
           type: string
-          enum: [user, api_key, provider, system]
+          enum: [user, api_key, app, provider, system]
+          description: app is an MCP client acting for the person who approved it; its id is the connection and its label reads "Claude Code (via Alex Rivera)".
         id:
           type: string
         label:
@@ -1685,7 +2110,7 @@ components:
           type: string
     Contact:
       type: object
-      required: [id, email, name, avatar_url, title, location, bio, linkedin_url, company, stage, tags, providers, enrichment, manual_fields, first_seen_at, last_seen_at, created_at, updated_at]
+      required: [id, email, name, avatar_url, title, location, bio, linkedin_url, socials, company, stage, tags, providers, enrichment, manual_fields, first_seen_at, last_seen_at, created_at, updated_at]
       properties:
         id:
           type: integer
@@ -1704,6 +2129,8 @@ components:
           type: string
         linkedin_url:
           type: string
+        socials:
+          $ref: "#/components/schemas/Socials"
         company:
           description: Null for free-mail addresses and unknown companies.
           oneOf:
@@ -1798,11 +2225,12 @@ components:
         data:
           type: object
           description: |
-            Depends on kind. signed_up {provider, external_id, raw};
+            Depends on kind. signed_up {provider, external_id};
             provider_deleted {provider, external_id}; contact_updated and
-            company_updated {field: {from, to}} or {reset: field};
-            note_added {note_id}; contacts_merged {drop_id, drop_email};
-            enriched {changed: [field]}.
+            company_updated {field: {from, to}} or {reset: field}, with tag
+            edits under tags as {added, removed}; note_added and note_deleted
+            {note_id}; contacts_merged {drop_id, drop_email}; contact_created
+            and company_created {}; enriched {changed: [field]}.
         occurred_at:
           type: string
           format: date-time
@@ -1828,7 +2256,7 @@ components:
                 $ref: "#/components/schemas/Activity"
     Company:
       type: object
-      required: [id, domain, name, description, logo_url, employee_range, industry, country, linkedin_url, contact_count, enrichment, manual_fields, created_at, updated_at]
+      required: [id, domain, name, description, logo_url, employee_range, industry, country, linkedin_url, tagline, headquarters, socials, links, segments, stock, logos, contact_count, enrichment, manual_fields, created_at, updated_at]
       properties:
         id:
           type: integer
@@ -1840,6 +2268,7 @@ components:
           type: string
         logo_url:
           type: string
+          description: The first of logos, for clients that show one image.
         employee_range:
           type: string
         industry:
@@ -1848,6 +2277,42 @@ components:
           type: string
         linkedin_url:
           type: string
+        tagline:
+          type: string
+        headquarters:
+          type: string
+          description: City and region, such as "South San Francisco, California". The country is in country.
+        socials:
+          $ref: "#/components/schemas/Socials"
+        links:
+          type: object
+          description: The company's own pages by kind.
+          properties:
+            careers:
+              type: string
+            pricing:
+              type: string
+            blog:
+              type: string
+            contact:
+              type: string
+        segments:
+          type: array
+          description: Sub-industries, most relevant first.
+          items:
+            type: string
+        stock:
+          type: string
+          description: 'Exchange and ticker, such as "NASDAQ: XYZ", or empty.'
+        logos:
+          type: array
+          description: >-
+            Every logo, best first. Icons come before wordmarks; within each,
+            images with their own background, then art that reads on both
+            light and dark backgrounds; then sharp before blurry; then the
+            squarest.
+          items:
+            $ref: "#/components/schemas/Logo"
         contact_count:
           type: integer
         enrichment:
@@ -1864,16 +2329,51 @@ components:
         updated_at:
           type: string
           format: date-time
+    Socials:
+      type: object
+      description: Profile type (x, github, youtube, website, or a host name) to URL. LinkedIn is in linkedin_url.
+      additionalProperties:
+        type: string
+    Logo:
+      type: object
+      required: [url, kind, own_background, on_light, on_dark, aspect, width]
+      properties:
+        url:
+          type: string
+        kind:
+          type: string
+          enum: [icon, wordmark]
+        own_background:
+          type: boolean
+          description: The image is opaque and fills its own box.
+        on_light:
+          type: boolean
+          description: The art reads on a light background.
+        on_dark:
+          type: boolean
+          description: The art reads on a dark background.
+        aspect:
+          type: number
+          description: Width over height, 0 when unknown.
+        width:
+          type: integer
+          description: Pixels, 0 when unknown.
     CompanyDetail:
       allOf:
         - $ref: "#/components/schemas/Company"
         - type: object
-          required: [contacts]
+          required: [contacts, activity]
           properties:
             contacts:
               type: array
+              description: Every contact, newest sign-up first.
               items:
                 $ref: "#/components/schemas/Contact"
+            activity:
+              type: array
+              description: The company's and its contacts' entries, newest first, at most 50.
+              items:
+                $ref: "#/components/schemas/Activity"
     ContactPage:
       type: object
       required: [items]
@@ -1895,6 +2395,67 @@ components:
             $ref: "#/components/schemas/Company"
         next_cursor:
           type: string
+    ActivityPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Activity"
+        next_cursor:
+          type: string
+          description: Absent on the last page.
+    StageCount:
+      type: object
+      required: [name, contact_count]
+      properties:
+        name:
+          type: string
+        contact_count:
+          type: integer
+    BulkUpdate:
+      type: object
+      required: [ids]
+      additionalProperties: false
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: integer
+        stage:
+          type: string
+          description: One of GET /v1/stages.
+        add_tags:
+          type: array
+          items:
+            type: string
+        remove_tags:
+          type: array
+          items:
+            type: string
+    BulkResult:
+      type: object
+      required: [id, ok]
+      properties:
+        id:
+          type: integer
+        ok:
+          type: boolean
+        error:
+          type: string
+          description: Why this contact was not changed, such as "no contact 999". Present when ok is false.
+    TimeOrDate:
+      type: string
+      description: An RFC 3339 time, or a date such as 2026-01-02 meaning midnight UTC.
+      anyOf:
+        - format: date-time
+        - format: date
+    WebURL:
+      type: string
+      description: An http or https URL; https:// is added when the scheme is missing, and an empty string clears the field.
     ContactPatch:
       type: object
       additionalProperties: false
@@ -1908,7 +2469,7 @@ components:
         bio:
           type: string
         linkedin_url:
-          type: string
+          $ref: "#/components/schemas/WebURL"
         stage:
           type: string
           description: One of GET /v1/stages.
@@ -1938,6 +2499,41 @@ components:
         country:
           type: string
         linkedin_url:
+          $ref: "#/components/schemas/WebURL"
+        tagline:
+          type: string
+        headquarters:
+          type: string
+    NewContact:
+      type: object
+      required: [email]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        title:
+          type: string
+        location:
+          type: string
+        linkedin_url:
+          $ref: "#/components/schemas/WebURL"
+        stage:
+          type: string
+          description: One of GET /v1/stages. Defaults to the first.
+        tags:
+          type: array
+          items:
+            type: string
+    NewCompany:
+      type: object
+      required: [domain]
+      additionalProperties: false
+      properties:
+        domain:
+          type: string
+        name:
           type: string
     SignupBody:
       type: object
@@ -1950,7 +2546,7 @@ components:
         name:
           type: string
         avatar_url:
-          type: string
+          $ref: "#/components/schemas/WebURL"
         email_verified:
           type: boolean
         source:
@@ -2052,6 +2648,37 @@ components:
           type: string
           format: date-time
         last_used_at:
+          type: string
+          format: date-time
+    App:
+      type: object
+      description: An MCP client a person approved. Anyone can register an app under any name, so the name is the app's own claim.
+      required: [id, name, approved_by, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        approved_by:
+          type: string
+          description: The name, or else the email, of the person it acts as.
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+    ConsentRequest:
+      type: object
+      required: [client_name, redirect_uri, client_registered_at]
+      properties:
+        client_name:
+          type: string
+          description: The name the app registered itself with. Unverified.
+        redirect_uri:
+          type: string
+          description: Where the code goes if the person approves.
+        client_registered_at:
           type: string
           format: date-time
     CreatedKey:

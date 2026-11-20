@@ -33,16 +33,18 @@ var errNoSecondFactor = fmt.Errorf("%w: a password needs a second factor, and th
 	"Sign in with a passkey or a connected login, then add an authenticator app under Settings, Account", crm.ErrInvalid)
 
 // secondFactors decides what must follow a first factor: a passkey, a
-// password, or a provider ID.
-func secondFactors(first string, f factors) ([]string, error) {
+// password, or a provider ID. A provider login matched to the user by email
+// alone also takes the user's passkey, if they have one: the provider vouches
+// for the address, not for the person who holds this account.
+func secondFactors(p pendingLogin, f factors) ([]string, error) {
 	var codes []string
 	if f.totp {
 		codes = []string{MethodTOTP, MethodRecovery}
 	}
-	switch first {
-	case MethodPasskey:
+	switch {
+	case p.First == MethodPasskey:
 		return nil, nil
-	case MethodPassword:
+	case p.First == MethodPassword:
 		need := codes
 		if f.passkey {
 			need = append(need, MethodPasskey)
@@ -51,6 +53,8 @@ func secondFactors(first string, f factors) ([]string, error) {
 			return nil, errNoSecondFactor
 		}
 		return need, nil
+	case p.Link != nil && f.passkey:
+		return append(codes, MethodPasskey), nil
 	default:
 		return codes, nil
 	}
@@ -61,14 +65,15 @@ func (u *Users) afterFirstFactor(ctx context.Context, userID int64, first string
 	if err != nil {
 		return SignIn{}, err
 	}
-	need, err := secondFactors(first, f)
+	p := pendingLogin{UserID: userID, First: first, Link: link}
+	need, err := secondFactors(p, f)
 	if err != nil {
 		return SignIn{}, err
 	}
 	if len(need) == 0 {
-		return u.openSession(ctx, pendingLogin{UserID: userID, First: first, Link: link}, first, "", c)
+		return u.openSession(ctx, p, first, "", c)
 	}
-	handle, err := putChallenge(ctx, u.db, kindSecondFactor, pendingLogin{UserID: userID, First: first, Link: link})
+	handle, err := putChallenge(ctx, u.db, kindSecondFactor, p)
 	if err != nil {
 		return SignIn{}, err
 	}
@@ -84,7 +89,7 @@ func (u *Users) PendingFactors(ctx context.Context, handle string) ([]string, er
 	if err != nil {
 		return nil, err
 	}
-	return secondFactors(p.First, f)
+	return secondFactors(p, f)
 }
 
 // SecondFactorCode completes a pending login with an authenticator or

@@ -34,6 +34,7 @@ package crm
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"time"
 
@@ -64,8 +65,10 @@ func New(db *pgxpool.Pool, enricher Enricher) *Service {
 
 // observe is write rule 2 for one column: it sets *col to the machine value
 // v unless f is manual or v is empty, and reports whether *col changed.
-func observe(manual []Field, f Field, col *string, v string) bool {
-	if v == "" || v == *col || slices.Contains(manual, f) {
+// T is a string, or a list or map for machine-only facts; an empty one is no
+// observation.
+func observe[T any](manual []Field, f Field, col *T, v T) bool {
+	if reflect.ValueOf(v).Len() == 0 || reflect.DeepEqual(*col, v) || slices.Contains(manual, f) {
 		return false
 	}
 	*col = v

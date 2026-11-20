@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -30,6 +31,7 @@ type fakeUnkey struct {
 
 type fakeKey struct {
 	id, api, name string
+	meta          map[string]string
 	expired       bool
 }
 
@@ -76,6 +78,7 @@ func (f *fakeUnkey) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Key, KeyID, APIID, Name, Prefix string
 		Keyspaces                       []string
+		Meta                            map[string]string
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		f.t.Errorf("fake unkey: bad body: %v", err)
@@ -96,15 +99,15 @@ func (f *fakeUnkey) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(map[string]any{"data": map[string]any{"valid": true, "code": "VALID", "keyId": k.id, "keyspaceId": ks, "name": k.name}})
 	case "/v2/keys.createKey":
-		plaintext := in.Prefix + "_" + strconv.Itoa(len(f.keys)) + "abcdefghijklmnop"
+		plaintext := unkeyToken(in.Prefix + "_" + strconv.Itoa(len(f.keys)))
 		id := "key_" + strconv.Itoa(len(f.keys)+1)
-		f.keys[plaintext] = fakeKey{id: id, api: in.APIID, name: in.Name}
+		f.keys[plaintext] = fakeKey{id: id, api: in.APIID, name: in.Name, meta: in.Meta}
 		reply(map[string]any{"data": map[string]any{"keyId": id, "key": plaintext}})
 	case "/v2/apis.listKeys":
 		data := []map[string]any{}
 		for plaintext, k := range f.keys {
 			if k.api == in.APIID {
-				data = append(data, map[string]any{"keyId": k.id, "start": plaintext[:8], "name": k.name, "createdAt": 1701425400000})
+				data = append(data, map[string]any{"keyId": k.id, "start": plaintext[:8], "name": k.name, "meta": k.meta, "createdAt": 1701425400000})
 			}
 		}
 		reply(map[string]any{"data": data, "pagination": map[string]any{"hasMore": false}})
@@ -126,6 +129,19 @@ func (f *fakeUnkey) verifyCalls() int {
 	return f.verifies
 }
 
+// unkeyToken pads name to the shape of a real Unkey key, "uncrm_" and the
+// base58 of 32 bytes.
+func unkeyToken(name string) string {
+	return name + strings.Repeat("Z", 44-len(name)+len(keyPrefix))
+}
+
+var (
+	ours    = unkeyToken("uncrm_ours")
+	nope    = unkeyToken("uncrm_nope")
+	expired = unkeyToken("uncrm_expired")
+	billing = unkeyToken("uncrm_billing") // another API's key in the same workspace
+)
+
 func newTestUnkeyStore(srv *httptest.Server) *unkeyKeys {
 	return newUnkeyKeys(UnkeyConfig{RootKey: "unkey_root", APIID: "api_ours"}, srv.URL)
 }
@@ -135,28 +151,28 @@ func TestUnkeyVerify(t *testing.T) {
 	ctx := context.Background()
 	fake, srv := newFakeUnkey(t)
 	keys := newTestUnkeyStore(srv)
-	ours := fake.add("uncrm_ours", "api_ours", "agent")
-	fake.add("other_key", "api_other", "billing")
+	oursID := fake.add(ours, "api_ours", "agent")
+	fake.add(billing, "api_other", "billing")
 
-	if _, err := keys.Verify(ctx, "other_key"); !errors.Is(err, ErrInvalidKey) {
+	if _, err := keys.Verify(ctx, billing); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("key from another API in the workspace, before our keyspace is known: %v, want ErrInvalidKey", err)
 	}
-	actor, err := keys.Verify(ctx, "uncrm_ours")
+	actor, err := keys.Verify(ctx, ours)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (crm.Actor{Kind: crm.ActorAPIKey, ID: ours, Label: "agent"}); actor != want {
+	if want := (crm.Actor{Kind: crm.ActorAPIKey, ID: oursID, Label: "agent"}); actor != want {
 		t.Fatalf("verify gave %+v, want %+v", actor, want)
 	}
-	if _, err := keys.Verify(ctx, "other_key"); !errors.Is(err, ErrInvalidKey) {
+	if _, err := keys.Verify(ctx, billing); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("key from another API in the workspace, after our keyspace is known: %v, want ErrInvalidKey", err)
 	}
-	if _, err := keys.Verify(ctx, "uncrm_nope"); !errors.Is(err, ErrInvalidKey) {
+	if _, err := keys.Verify(ctx, nope); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("unknown key: %v, want ErrInvalidKey", err)
 	}
-	fake.add("uncrm_expired", "api_ours", "old")
-	fake.expire("uncrm_expired")
-	if _, err := keys.Verify(ctx, "uncrm_expired"); !errors.Is(err, ErrInvalidKey) {
+	fake.add(expired, "api_ours", "old")
+	fake.expire(expired)
+	if _, err := keys.Verify(ctx, expired); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("expired key of our API: %v, want ErrInvalidKey", err)
 	}
 }
@@ -166,10 +182,10 @@ func TestUnkeyCachesValidKeysOnly(t *testing.T) {
 	ctx := context.Background()
 	fake, srv := newFakeUnkey(t)
 	keys := newTestUnkeyStore(srv)
-	fake.add("uncrm_ours", "api_ours", "agent")
+	fake.add(ours, "api_ours", "agent")
 
 	for range 3 {
-		if _, err := keys.Verify(ctx, "uncrm_ours"); err != nil {
+		if _, err := keys.Verify(ctx, ours); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -179,15 +195,15 @@ func TestUnkeyCachesValidKeysOnly(t *testing.T) {
 
 	before := fake.verifyCalls()
 	for range 2 {
-		if _, err := keys.Verify(ctx, "uncrm_nope"); !errors.Is(err, ErrInvalidKey) {
+		if _, err := keys.Verify(ctx, nope); !errors.Is(err, ErrInvalidKey) {
 			t.Fatalf("unknown key: %v", err)
 		}
 	}
 	if n := fake.verifyCalls() - before; n != 2 {
 		t.Fatalf("two verifies of an invalid key made %d Unkey calls, want 2 (no negative cache)", n)
 	}
-	fake.add("uncrm_nope", "api_ours", "late")
-	if _, err := keys.Verify(ctx, "uncrm_nope"); err != nil {
+	fake.add(nope, "api_ours", "late")
+	if _, err := keys.Verify(ctx, nope); err != nil {
 		t.Fatalf("a key rejected a moment ago and then created must verify at once: %v", err)
 	}
 }
@@ -197,12 +213,12 @@ func TestUnkeyOutageIsAnErrorNotAPass(t *testing.T) {
 	ctx := context.Background()
 	fake, srv := newFakeUnkey(t)
 	keys := newTestUnkeyStore(srv)
-	fake.add("uncrm_ours", "api_ours", "agent")
+	fake.add(ours, "api_ours", "agent")
 	fake.mu.Lock()
 	fake.down = true
 	fake.mu.Unlock()
 
-	actor, err := keys.Verify(ctx, "uncrm_ours")
+	actor, err := keys.Verify(ctx, ours)
 	if err == nil || errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("verify during a 503 gave (%+v, %v), want a non-ErrInvalidKey error", actor, err)
 	}
@@ -219,7 +235,7 @@ func TestUnkeyCreateListRevoke(t *testing.T) {
 	ctx := context.Background()
 	fake, srv := newFakeUnkey(t)
 	keys := newTestUnkeyStore(srv)
-	other := fake.add("other_key", "api_other", "billing")
+	other := fake.add(billing, "api_other", "billing")
 
 	token, k, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "1"}, "zapier")
 	if err != nil {
@@ -248,5 +264,52 @@ func TestUnkeyCreateListRevoke(t *testing.T) {
 	}
 	if _, err := keys.Verify(ctx, token); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("revoked key still verifies on the replica that revoked it: %v", err)
+	}
+}
+
+func TestUnkeyRefusesMalformedKeysWithoutACall(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fake, srv := newFakeUnkey(t)
+	keys := newTestUnkeyStore(srv)
+	for _, token := range []string{"x", "uncrm_short", "sk_live_" + strings.Repeat("a", 44), "uncrm_" + strings.Repeat("a", 43) + "!", "uncrm_" + strings.Repeat("a", 200)} {
+		if _, err := keys.Verify(ctx, token); !errors.Is(err, ErrInvalidKey) {
+			t.Errorf("verify %q: %v, want ErrInvalidKey", token, err)
+		}
+	}
+	if n := fake.verifyCalls(); n != 0 {
+		t.Fatalf("malformed tokens made %d Unkey calls, want 0", n)
+	}
+	fake.add(ours, "api_ours", "agent")
+	if _, err := keys.Verify(ctx, ours); err != nil || fake.verifyCalls() != 1 {
+		t.Fatalf("a well-formed key: %v after %d Unkey calls, want valid after 1", err, fake.verifyCalls())
+	}
+}
+
+func TestUnkeyRevokeCreatedBy(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, srv := newFakeUnkey(t)
+	keys := newTestUnkeyStore(srv)
+	bobs, _, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "7"}, "bob's agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adas, _, err := keys.Create(ctx, crm.Actor{Kind: crm.ActorUser, ID: "1"}, "ada's agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.Verify(ctx, bobs); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := keys.RevokeCreatedBy(ctx, nil, 7); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.Verify(ctx, bobs); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("a key whose creator was removed, cached a moment before: %v, want ErrInvalidKey", err)
+	}
+	if _, err := keys.Verify(ctx, adas); err != nil {
+		t.Fatalf("another person's key after the removal: %v", err)
 	}
 }

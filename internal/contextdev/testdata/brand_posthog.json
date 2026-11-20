@@ -1,0 +1,290 @@
+{
+    "code": 200,
+    "brand": {
+        "email": "",
+        "links": {
+            "blog": "https://posthog.com/blog/posthog-marketing",
+            "terms": null,
+            "careers": "https://posthog.com/careers",
+            "contact": null,
+            "pricing": "https://posthog.com/pricing",
+            "privacy": null
+        },
+        "logos": [
+            {
+                "url": "https://media.brand.dev/a4d4368a-78a0-409b-beef-5f75bbec4db8.png",
+                "mode": "light",
+                "type": "logo",
+                "colors": [
+                    {
+                        "hex": "#f07c0d",
+                        "name": "Supernatural Saffron"
+                    },
+                    {
+                        "hex": "#161415",
+                        "name": "Matt Black"
+                    }
+                ],
+                "resolution": {
+                    "width": 480,
+                    "height": 430,
+                    "aspect_ratio": 1.12
+                }
+            },
+            {
+                "url": "https://media.brand.dev/070f9244-6d7d-4d14-a82d-854129afdf3c.svg",
+                "mode": "has_opaque_background",
+                "type": "logo",
+                "colors": [
+                    {
+                        "hex": "#040404",
+                        "name": "Armor Wash"
+                    }
+                ],
+                "resolution": {
+                    "width": 52,
+                    "height": 28,
+                    "aspect_ratio": 1.86
+                }
+            },
+            {
+                "url": "https://media.brand.dev/ebcba24c-e665-4173-9171-7af286f76075.png",
+                "mode": "has_opaque_background",
+                "type": "icon",
+                "colors": [
+                    {
+                        "hex": "#7c7c7c",
+                        "name": "Namara Grey"
+                    },
+                    {
+                        "hex": "#060606",
+                        "name": "Black Metal"
+                    },
+                    {
+                        "hex": "#cacaca",
+                        "name": "Leadbelcher"
+                    }
+                ],
+                "resolution": {
+                    "width": 512,
+                    "height": 512,
+                    "aspect_ratio": 1
+                }
+            },
+            {
+                "url": "https://media.brand.dev/153c9654-fc4e-43b4-a2f4-4969d9406356.svg",
+                "mode": "light",
+                "type": "logo",
+                "colors": [
+                    {
+                        "hex": "#040404",
+                        "name": "Armor Wash"
+                    }
+                ],
+                "resolution": {
+                    "width": 52,
+                    "height": 28,
+                    "aspect_ratio": 1.86
+                }
+            },
+            {
+                "url": "https://media.brand.dev/1fad5a9f-8ce1-4c73-9394-937229ab7f43.svg",
+                "mode": "light",
+                "type": "logo",
+                "colors": [
+                    {
+                        "hex": "#040404",
+                        "name": "Armor Wash"
+                    }
+                ],
+                "resolution": {
+                    "width": 160,
+                    "height": 28,
+                    "aspect_ratio": 5.71
+                }
+            }
+        ],
+        "phone": "",
+        "title": "PostHog",
+        "colors": [
+            {
+                "hex": "#cd8407",
+                "name": "Bubonic Brown",
+                "source": "site"
+            },
+            {
+                "hex": "#e5e7e0",
+                "name": "Maritime White",
+                "source": "site"
+            },
+            {
+                "hex": "#7c7c7c",
+                "name": "Namara Grey",
+                "source": "logo"
+            },
+            {
+                "hex": "#060606",
+                "name": "Black Metal",
+                "source": "logo"
+            },
+            {
+                "hex": "#cacaca",
+                "name": "Leadbelcher",
+                "source": "logo"
+            }
+        ],
+        "domain": "posthog.com",
+        "slogan": "Your product's context layer",
+        "address": {
+            "city": "San Francisco",
+            "country": "United States",
+            "state_code": "CA",
+            "country_code": "US",
+            "state_province": "California"
+        },
+        "is_nsfw": false,
+        "socials": [
+            {
+                "url": "https://x.com/posthog",
+                "type": "x"
+            },
+            {
+                "url": "https://github.com/posthog/posthog/pull/135310",
+                "type": "github"
+            },
+            {
+                "url": "https://facebook.com/PostHog",
+                "type": "facebook"
+            },
+            {
+                "url": "https://linkedin.com/company/posthog",
+                "type": "linkedin"
+            },
+            {
+                "url": "https://youtube.com/c/posthog/videos",
+                "type": "youtube"
+            }
+        ],
+        "backdrops": [
+            {
+                "url": "https://media.brand.dev/9c6cf730-b8a1-41fb-a684-171e406a9a7d.jpg",
+                "colors": [
+                    {
+                        "hex": "#954c17",
+                        "name": "Parasite Brown"
+                    },
+                    {
+                        "hex": "#c4c19d",
+                        "name": "Chameleon Tango"
+                    },
+                    {
+                        "hex": "#435934",
+                        "name": "Turf"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 169,
+                    "aspect_ratio": 5.92
+                }
+            },
+            {
+                "url": "https://media.brand.dev/dd425e96-cccc-4067-a906-b13c393875f5.png",
+                "colors": [
+                    {
+                        "hex": "#9e5849",
+                        "name": "Ceramic Brown"
+                    },
+                    {
+                        "hex": "#424c55",
+                        "name": "Deepest Sea"
+                    },
+                    {
+                        "hex": "#e8e9df",
+                        "name": "Just About White"
+                    }
+                ],
+                "resolution": {
+                    "width": 960,
+                    "height": 320,
+                    "aspect_ratio": 3
+                }
+            },
+            {
+                "url": "https://media.brand.dev/c80594a5-313f-4331-81e5-ee52a0be4313.jpg",
+                "colors": [
+                    {
+                        "hex": "#3f90c3",
+                        "name": "Opalescent"
+                    },
+                    {
+                        "hex": "#697d44",
+                        "name": "Healing Plant"
+                    },
+                    {
+                        "hex": "#c2d0b6",
+                        "name": "Tender Greens"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 166,
+                    "aspect_ratio": 6.02
+                }
+            },
+            {
+                "url": "https://media.brand.dev/c616541c-80cc-4c88-9919-a91c76cf1842.png",
+                "colors": [
+                    {
+                        "hex": "#7c4f38",
+                        "name": "Cigar"
+                    },
+                    {
+                        "hex": "#314c5f",
+                        "name": "Ingénue Blue"
+                    },
+                    {
+                        "hex": "#cad1ac",
+                        "name": "Olive Martini"
+                    }
+                ],
+                "resolution": {
+                    "width": 1000,
+                    "height": 524,
+                    "aspect_ratio": 1.91
+                }
+            }
+        ],
+        "employees": {
+            "range": "51 to 200"
+        },
+        "industries": {
+            "eic": [
+                {
+                    "industry": "Technology",
+                    "subindustry": "Software (B2B)"
+                },
+                {
+                    "industry": "Technology",
+                    "subindustry": "Data Infrastructure & Analytics"
+                },
+                {
+                    "industry": "Technology",
+                    "subindustry": "Developer Tools & APIs"
+                }
+            ]
+        },
+        "description": "PostHog provides a platform for collecting, storing, and analyzing product and company data. Its tools include product and web analytics, session replay, error tracking, feature flags, experiments, surveys, data warehousing, and workflows. PostHog also connects data from third-party sources and offers AI and agent integrations that help teams investigate product issues, understand user behavior, and ship improvements.",
+        "primary_language": "english"
+    },
+    "status": "ok",
+    "request_id": "c19a6d5a-4261-4e58-b268-5ca428a2e9b0",
+    "key_metadata": {
+        "credits_consumed": 10,
+        "credits_remaining": 740
+    },
+    "cache_metadata": {
+        "age_ms": 610747795,
+        "status": "hit"
+    }
+}

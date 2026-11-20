@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { Activity, ActivityData, ActivityKind, FieldChanges, FieldDiff, TagChange } from "../api";
+import { Link } from "react-router";
+import { contactLabel } from "../format";
 import { Icon, RelativeTime, type IconName } from "../ui";
 
 const fieldNames: Record<string, string> = {
@@ -15,6 +17,15 @@ const fieldNames: Record<string, string> = {
   employee_range: "employees",
   industry: "industry",
   country: "country",
+  tagline: "tagline",
+  headquarters: "headquarters",
+  socials: "profiles",
+  links: "links",
+  segments: "segments",
+  stock: "stock",
+  logos: "logos",
+  logo_url: "logo",
+  avatar_url: "photo",
 };
 const fieldName = (f: string) => fieldNames[f] ?? f.replaceAll("_", " ");
 
@@ -74,7 +85,10 @@ const kinds: { [K in ActivityKind]: Kind<K> } = {
   contact_updated: { icon: "pencil", byline: true, text: describeUpdate },
   company_updated: { icon: "building", byline: true, text: describeUpdate },
   note_added: { icon: "note", byline: true, text: () => <>added a note</> },
+  note_deleted: { icon: "trash", byline: true, text: () => <>deleted a note</> },
   contacts_merged: { icon: "merge", byline: true, text: (d) => <>merged in <b>{d.drop_email}</b></> },
+  contact_created: { icon: "plus", byline: true, text: () => <>added this contact</> },
+  company_created: { icon: "plus", byline: true, text: () => <>added this company</> },
   enriched: {
     icon: "sparkles",
     byline: false,
@@ -82,7 +96,7 @@ const kinds: { [K in ActivityKind]: Kind<K> } = {
   },
 };
 
-function Entry({ a }: { a: Activity }) {
+function Entry({ a, showContact }: { a: Activity; showContact?: boolean }) {
   // A kind this build does not know (a newer server) still gets a line.
   const k = kinds[a.kind] as Kind<ActivityKind> | undefined;
   return (
@@ -91,6 +105,16 @@ function Entry({ a }: { a: Activity }) {
         <Icon name={k?.icon ?? "alert"} className="size-3" />
       </span>
       <p className="min-w-0 flex-1 pt-0.5 text-sm leading-5 [overflow-wrap:anywhere]">
+        {showContact && a.contact && (
+          <>
+            <Link to={`/contacts/${a.contact.id}`} className="text-muted hover:text-fg hover:underline">
+              {contactLabel(a.contact)}
+            </Link>
+            <span className="mx-1.5 text-faint" aria-hidden="true">
+              ·
+            </span>
+          </>
+        )}
         {k?.byline !== false && (
           <>
             <span className="font-medium">{a.actor.label || a.actor.id}</span>
@@ -104,12 +128,13 @@ function Entry({ a }: { a: Activity }) {
   );
 }
 
-export function Timeline({ items }: { items: Activity[] }) {
+/** showContact names the contact on each entry, for a company's timeline that spans its people. */
+export function Timeline({ items, showContact }: { items: Activity[]; showContact?: boolean }) {
   if (items.length === 0) return <p className="text-sm text-faint">Nothing yet.</p>;
   return (
     <ol className="relative space-y-4 before:absolute before:top-2 before:bottom-2 before:left-[11px] before:w-px before:bg-line">
       {items.map((a) => (
-        <Entry key={a.id} a={a} />
+        <Entry key={a.id} a={a} showContact={showContact} />
       ))}
     </ol>
   );

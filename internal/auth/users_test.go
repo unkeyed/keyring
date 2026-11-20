@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/uncrm/uncrm/internal/crm"
 )
@@ -544,21 +547,53 @@ func TestRemoveMember(t *testing.T) {
 	_, mateCookie := f.teammate(adminCookie, "bob@example.com")
 	mate := f.current(mateCookie)
 	f.enrolTOTP(mateCookie)
+	keys := NewKeyStore(f.pool, UnkeyConfig{})
+	adminKey, _, err := keys.Create(f.ctx, admin, "admin's agent")
+	f.must(err)
+	mateKey, _, err := keys.Create(f.ctx, f.actor(mateCookie), "bob's agent")
+	f.must(err)
 
-	f.must(f.users.Remove(f.ctx, admin, mate.UserID))
+	f.must(f.users.Remove(f.ctx, admin, mate.UserID, keys))
 	if f.alive(mateCookie) {
 		t.Fatal("a removed teammate's session still works")
+	}
+	if _, err := keys.Verify(f.ctx, mateKey); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("a removed teammate's API key: %v, want ErrInvalidKey", err)
 	}
 	for _, table := range []string{"sessions", "passkeys", "user_identities", "totp", "recovery_codes"} {
 		if n := f.count(`SELECT count(*) FROM `+table+` WHERE user_id = $1`, mate.UserID); n != 0 {
 			t.Errorf("%d %s rows left for the removed teammate", n, table)
 		}
 	}
-	if err := f.users.Remove(f.ctx, admin, f.current(adminCookie).UserID); !errors.Is(err, crm.ErrConflict) {
+	if err := f.users.Remove(f.ctx, admin, f.current(adminCookie).UserID, keys); !errors.Is(err, crm.ErrConflict) {
 		t.Fatalf("removing the last user: %v, want crm.ErrConflict", err)
 	}
-	if err := f.users.Remove(f.ctx, admin, 999999); !errors.Is(err, crm.ErrNotFound) {
+	if err := f.users.Remove(f.ctx, admin, 999999, keys); !errors.Is(err, crm.ErrNotFound) {
 		t.Fatalf("removing an unknown user: %v, want crm.ErrNotFound", err)
+	}
+	if _, err := keys.Verify(f.ctx, adminKey); err != nil {
+		t.Fatalf("the remaining user's key after removals: %v", err)
+	}
+}
+
+// failingKeys cannot revoke, like Unkey during an outage.
+type failingKeys struct{ KeyStore }
+
+func (failingKeys) RevokeCreatedBy(context.Context, pgx.Tx, int64) error {
+	return errors.New("unkey keys.deleteKey: HTTP 503")
+}
+
+func TestRemoveKeepsTheTeammateWhenTheirKeysStay(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	_, adminCookie := f.firstUser("admin@example.com")
+	_, mateCookie := f.teammate(adminCookie, "bob@example.com")
+
+	if err := f.users.Remove(f.ctx, f.actor(adminCookie), f.current(mateCookie).UserID, failingKeys{}); err == nil {
+		t.Fatal("removal succeeded although the key store could not revoke the teammate's keys")
+	}
+	if !f.alive(mateCookie) {
+		t.Fatal("a removal that failed still ended the teammate's session; a retry could no longer find their keys")
 	}
 }
 
@@ -782,19 +817,49 @@ func TestCaller(t *testing.T) {
 func TestSessionCookieAttributes(t *testing.T) {
 	for _, c := range []struct {
 		publicURL string
+		name      string
 		secure    bool
-	}{{"http://localhost:8080", false}, {"https://crm.example.com", true}} {
+	}{{"http://localhost:8080", "uncrm_session", false}, {"https://crm.example.com", "__Host-uncrm_session", true}} {
 		u, _ := url.Parse(c.publicURL)
 		users := &Users{cfg: Config{PublicURL: u}}
 		w := httptest.NewRecorder()
 		users.SetSessionCookie(w, "token")
+		users.SetPendingCookie(w, "pending")
+		users.SetOAuthCookie(w, "state", "/setup/x")
 		got := w.Result().Cookies()
-		if len(got) != 1 {
-			t.Fatalf("%s: %d cookies", c.publicURL, len(got))
+		if len(got) != 4 {
+			t.Fatalf("%s: %d cookies, want 4", c.publicURL, len(got))
 		}
 		ck := got[0]
-		if ck.Name != SessionCookie || ck.Value != "token" || !ck.HttpOnly || ck.SameSite != http.SameSiteLaxMode || ck.Secure != c.secure || ck.MaxAge < 30*24*3600 {
+		if ck.Name != c.name || ck.Value != "token" || !ck.HttpOnly || ck.SameSite != http.SameSiteLaxMode || ck.Secure != c.secure || ck.MaxAge < 30*24*3600 {
 			t.Errorf("%s: cookie %+v", c.publicURL, ck)
 		}
+		for _, ck := range got {
+			if c.secure && (!strings.HasPrefix(ck.Name, "__Host-") || ck.Path != "/" || ck.Domain != "" || !ck.Secure) {
+				t.Errorf("%s: cookie %s with Path %q, Domain %q, Secure %v breaks the __Host- rules", c.publicURL, ck.Name, ck.Path, ck.Domain, ck.Secure)
+			}
+		}
+	}
+}
+
+func TestHTTPSIgnoresAnUnprefixedSessionCookie(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	_, session := f.firstUser("ada@example.com")
+	cfg := f.cfg
+	cfg.PublicURL, _ = url.Parse("https://crm.example.com")
+	users, err := NewUsers(f.pool, cfg)
+	f.must(err)
+	authn := &Authenticator{Keys: NewKeyStore(f.pool, UnkeyConfig{}), Users: users}
+	withCookie := func(name string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+		r.AddCookie(&http.Cookie{Name: name, Value: session})
+		return r
+	}
+	if _, _, err := authn.Caller(withCookie("uncrm_session")); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("an unprefixed session cookie over https, as a sibling subdomain could plant: %v, want ErrUnauthorized", err)
+	}
+	if _, via, err := authn.Caller(withCookie("__Host-uncrm_session")); err != nil || via != ViaSession {
+		t.Fatalf("the __Host- session cookie over https: %v", err)
 	}
 }

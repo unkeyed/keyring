@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useReauthMutation } from "./Reauth";
 import { api, type CreatedKey } from "../../api";
 import { keys } from "../../queries";
 import { Button, Card, ConfirmButton, CopyField, EmptyState, ErrorNote, Icon, inputClass, PageSpinner, RelativeTime } from "../../ui";
@@ -9,7 +10,7 @@ import { SettingsHeader } from "./Settings";
 export function CreateKeyForm({ defaultName = "", onCreated }: { defaultName?: string; onCreated: (k: CreatedKey) => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState(defaultName);
-  const create = useMutation({
+  const create = useReauthMutation({
     mutationFn: () => api.keys.create(name.trim()),
     onSuccess: (k) => {
       setName(defaultName);
@@ -65,8 +66,8 @@ export function ApiKeys() {
   return (
     <>
       <SettingsHeader title="API keys">
-        Keys let agents and backends use the REST API and the MCP server. A key can read and edit contacts, but it cannot manage keys, providers or the
-        team.
+        Keys let agents and backends use the REST API. A key can read and edit contacts, but it cannot manage keys, providers or the team. MCP clients
+        sign in as a person instead, under Agents &amp; MCP.
       </SettingsHeader>
       <div className="space-y-3">
         <CreateKeyForm onCreated={setCreated} />

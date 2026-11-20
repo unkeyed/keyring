@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +14,7 @@ import (
 
 func TestManualEditSurvivesIngestAndEnrichment(t *testing.T) {
 	s, _ := newService(t, fakeEnricher{
-		person: func(Email) (PersonFacts, error) {
+		person: func(Email, string) (PersonFacts, error) {
 			return PersonFacts{Found: true, Name: "Ada Lovelace", Title: "Countess", Raw: json.RawMessage(`{"match":{}}`)}, nil
 		},
 	})
@@ -336,8 +334,9 @@ func TestStagesRenameAndGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := s.ListStages(ctx); !slices.Equal(got, []Stage{"lead", "qualified", "customer", "churned"}) {
-		t.Fatalf("stages = %v", got)
+	want := []StageCount{{"lead", 1}, {"qualified", 0}, {"customer", 0}, {"churned", 0}}
+	if got, _ := s.ListStages(ctx); !slices.Equal(got, want) {
+		t.Fatalf("stages = %v, want %v", got, want)
 	}
 	if c := contact(t, s, id); c.Stage != "lead" {
 		t.Fatalf("renamed stage did not follow: %q", c.Stage)
@@ -355,27 +354,25 @@ func TestStagesRenameAndGuard(t *testing.T) {
 	}
 }
 
-// TestFieldListsMatchSchema keeps contactFields and companyFields equal to
-// the manual_fields CHECKs in 001_init.sql.
+// TestFieldListsMatchSchema keeps ContactFields and CompanyFields equal to
+// the manual_fields CHECKs of the migrated schema.
 func TestFieldListsMatchSchema(t *testing.T) {
-	sql, err := os.ReadFile("../db/migrations/001_init.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := regexp.MustCompile(`(?s)manual_fields\s+text\[\].*?ARRAY\[([^\]]*)\]`).FindAllSubmatch(sql, -1)
-	if len(m) != 2 {
-		t.Fatalf("found %d manual_fields CHECKs, want companies and contacts", len(m))
-	}
-	for i, inGo := range [][]Field{companyFields, contactFields} {
+	_, pool := newService(t, nil)
+	for table, inGo := range map[string][]Field{"companies": CompanyFields, "contacts": ContactFields} {
+		var def string
+		if err := pool.QueryRow(context.Background(), `
+			SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1`, table+"_manual_fields_check").Scan(&def); err != nil {
+			t.Fatal(err)
+		}
 		var inSchema []string
-		for _, v := range strings.Split(string(m[i][1]), ",") {
-			inSchema = append(inSchema, strings.Trim(strings.TrimSpace(v), "'"))
+		for _, m := range regexp.MustCompile(`'([a-z_]+)'`).FindAllStringSubmatch(def, -1) {
+			inSchema = append(inSchema, m[1])
 		}
 		got := fieldNames(inGo)
 		slices.Sort(inSchema)
 		slices.Sort(got)
 		if !slices.Equal(inSchema, got) {
-			t.Errorf("schema allows %v, Go lists %v", inSchema, got)
+			t.Errorf("%s: schema allows %v, Go lists %v", table, inSchema, got)
 		}
 	}
 }

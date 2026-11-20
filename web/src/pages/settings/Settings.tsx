@@ -6,6 +6,7 @@ import { Agents } from "./Agents";
 import { ApiKeys } from "./ApiKeys";
 import { Enrichment } from "./Enrichment";
 import { Providers } from "./Providers";
+import { ReauthProvider } from "./Reauth";
 import { Stages } from "./Stages";
 import { Team } from "./Team";
 
@@ -32,7 +33,7 @@ export function Settings() {
   return (
     <>
       <PageHeader title="Settings" />
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="relative min-h-0 flex-1 overflow-auto">
         <nav aria-label="Settings" className="z-10 bg-bg md:sticky md:top-0 md:border-b md:border-line">
           <div className="mx-auto flex max-w-3xl flex-wrap gap-1 px-4 pt-4 md:flex-nowrap md:gap-0 md:px-[1.375rem] md:pt-1">
             {tabs.map((t) => (
@@ -41,9 +42,11 @@ export function Settings() {
                 to={t.path}
                 className={({ isActive }) =>
                   cx(
-                    "flex h-8 items-center rounded-control px-2.5 text-sm font-medium whitespace-nowrap transition-colors",
-                    "md:-mb-px md:h-10 md:rounded-none md:border-b-2 md:px-2.5",
-                    isActive ? "bg-subtle-strong text-fg md:border-fg md:bg-transparent" : "text-muted hover:bg-subtle hover:text-fg md:border-transparent md:hover:bg-transparent",
+                    "relative flex h-8 items-center rounded-control px-2.5 text-sm font-medium whitespace-nowrap transition-colors",
+                    "md:h-10 md:rounded-none md:px-2.5 md:after:absolute md:after:inset-x-2.5 md:after:-bottom-px md:after:h-0.5 md:after:rounded-full md:after:bg-fg md:after:transition-[scale,opacity] md:after:duration-200",
+                    isActive
+                      ? "bg-subtle-strong text-fg md:bg-transparent md:after:scale-x-100 md:after:opacity-100"
+                      : "text-muted hover:bg-subtle hover:text-fg md:after:scale-x-50 md:after:opacity-0 md:hover:bg-transparent",
                   )
                 }
               >
@@ -53,7 +56,9 @@ export function Settings() {
           </div>
         </nav>
         <div className="mx-auto max-w-3xl px-4 py-6 pb-16 md:px-8 md:py-8">
-          <Outlet />
+          <ReauthProvider>
+            <Outlet />
+          </ReauthProvider>
         </div>
       </div>
     </>

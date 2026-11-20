@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,6 +26,8 @@ func TestDecideSocial(t *testing.T) {
 		{"verified email of a user links", socialFacts{ident: verified("ada@acme.com"), emailUser: 3}, socialLink, nil},
 		{"verified email with an invite", socialFacts{ident: verified("bob@other.com"), invited: true}, socialAcceptInvite, nil},
 		{"allowed domain joins", socialFacts{ident: verified("eve@acme.com")}, socialJoinDomain, nil},
+		{"github at an allowed domain needs an invite", socialFacts{ident: ExternalIdentity{Provider: "github", Email: "eve@acme.com", EmailVerified: true}}, 0, errStranger},
+		{"github at an allowed domain with an invite", socialFacts{ident: ExternalIdentity{Provider: "github", Email: "eve@acme.com", EmailVerified: true}, invited: true}, socialAcceptInvite, nil},
 		{"google needs a matching hd", socialFacts{ident: ExternalIdentity{Provider: "google", Email: "eve@acme.com", EmailVerified: true}}, 0, errStranger},
 		{"google with hd joins", socialFacts{ident: ExternalIdentity{Provider: "google", Email: "eve@acme.com", EmailVerified: true, HostedDomain: "acme.com"}}, socialJoinDomain, nil},
 		{"stranger is refused", socialFacts{ident: verified("mallory@evil.com")}, 0, errStranger},
@@ -55,7 +58,7 @@ func TestSocialSignInAgainstFakeIssuer(t *testing.T) {
 	iss := authtest.NewIssuer()
 	defer iss.Close()
 	f := socialFixture(t, iss, "acme.com")
-	_, adminCookie := f.firstUser("ada@example.com")
+	adminPasskey, adminCookie := f.firstUser("ada@example.com")
 
 	iss.SetNext(authtest.Identity{Subject: "ada-sso", Email: "ADA@example.com", EmailVerified: false})
 	if _, err := f.oauth("oidc", IntentLogin, "", nil); !errors.Is(err, errUnverifiedEmail) {
@@ -65,10 +68,12 @@ func TestSocialSignInAgainstFakeIssuer(t *testing.T) {
 	iss.SetNext(authtest.Identity{Subject: "ada-sso", Email: "ADA@example.com", EmailVerified: true, Name: "Ada"})
 	res, err := f.oauth("oidc", IntentLogin, "", nil)
 	f.must(err)
-	if res.SignIn.Session == "" || res.Redirect != "/contacts" {
-		t.Fatalf("verified email of an existing user: %+v, want a session landing on next", res)
+	if res.SignIn.Pending == "" || res.Redirect != "/login?second_factor=1&next=%2Fcontacts" {
+		t.Fatalf("verified email of an existing user with a passkey: %+v, want a pending login", res)
 	}
-	if f.actor(res.SignIn.Session).ID != f.actor(adminCookie).ID {
+	in, err := f.passkeySecondFactor(res.SignIn.Pending, adminPasskey)
+	f.must(err)
+	if f.actor(in.Session).ID != f.actor(adminCookie).ID {
 		t.Fatal("social sign-in signed in someone other than the matching user")
 	}
 
@@ -121,8 +126,8 @@ func TestSocialSignInAsksForTheAuthenticatorCode(t *testing.T) {
 	if res.SignIn.Session != "" || res.SignIn.Pending == "" || !strings.HasPrefix(res.Redirect, "/login?second_factor=1") {
 		t.Fatalf("social sign-in with an app enrolled: %+v, want a pending login", res)
 	}
-	if got := strings.Join(res.SignIn.SecondFactors, ","); got != "totp,recovery_code" {
-		t.Fatalf("second factors %q, want totp,recovery_code", got)
+	if got := strings.Join(res.SignIn.SecondFactors, ","); got != "totp,recovery_code,passkey" {
+		t.Fatalf("second factors %q, want totp,recovery_code,passkey", got)
 	}
 	if n := f.count(`SELECT count(*) FROM user_identities`); n != 0 {
 		t.Fatal("the provider login was linked before the second factor passed")
@@ -138,6 +143,69 @@ func TestSocialSignInAsksForTheAuthenticatorCode(t *testing.T) {
 	}
 	if n := f.count(`SELECT count(*) FROM user_identities`); n != 1 {
 		t.Fatalf("%d provider logins linked after the second factor passed, want 1", n)
+	}
+}
+
+func TestLinkingByEmailNeedsThePasskey(t *testing.T) {
+	t.Parallel()
+	iss := authtest.NewIssuer()
+	defer iss.Close()
+	f := socialFixture(t, iss)
+	adaPasskey, adaCookie := f.firstUser("ada@example.com")
+
+	iss.SetNext(authtest.Identity{Subject: "ada-sso", Email: "ada@example.com", EmailVerified: true})
+	res, err := f.oauth("oidc", IntentLogin, "", nil)
+	f.must(err)
+	if res.SignIn.Session != "" || !slices.Equal(res.SignIn.SecondFactors, []string{MethodPasskey}) {
+		t.Fatalf("a provider login matched by email to a passkey user: %+v, want a pending login that takes the passkey", res)
+	}
+	if _, err := f.users.SecondFactorCode(f.ctx, res.SignIn.Pending, "000000", browser); err == nil {
+		t.Fatal("a code finished a login that needs the passkey")
+	}
+	if n := f.count(`SELECT count(*) FROM user_identities`); n != 0 {
+		t.Fatalf("%d provider logins linked before Ada's passkey passed, want 0", n)
+	}
+	in, err := f.passkeySecondFactor(res.SignIn.Pending, adaPasskey)
+	f.must(err)
+	if f.actor(in.Session).ID != f.actor(adaCookie).ID {
+		t.Fatal("the passkey step signed in someone other than Ada")
+	}
+
+	res, err = f.oauth("oidc", IntentLogin, "", nil)
+	f.must(err)
+	if res.SignIn.Session == "" || f.actor(res.SignIn.Session).ID != f.actor(adaCookie).ID {
+		t.Fatalf("the linked provider login signing in again: %+v, want a session for Ada at once", res)
+	}
+}
+
+func TestGitHubNeverJoinsByDomain(t *testing.T) {
+	t.Parallel()
+	iss := authtest.NewIssuer()
+	defer iss.Close()
+	f := socialFixture(t, iss, "acme.com")
+	_, adminCookie := f.firstUser("ada@acme.com")
+	bob := authtest.GitHubUser{ID: 7, Login: "bob", Emails: []authtest.GitHubEmail{{Email: "bob@acme.com", Primary: true, Verified: true}}}
+
+	iss.SetNextGitHub(bob)
+	if _, err := f.oauth("github", IntentLogin, "", nil); !errors.Is(err, errStranger) {
+		t.Fatalf("a GitHub account with a verified address at an allowed domain: %v, want errStranger", err)
+	}
+	if n := f.count(`SELECT count(*) FROM users WHERE email = 'bob@acme.com'`); n != 0 {
+		t.Fatal("GitHub sign-in created an account through the allowed domain")
+	}
+
+	_, err := f.users.Invite(f.ctx, f.actor(adminCookie), "bob@acme.com")
+	f.must(err)
+	iss.SetNextGitHub(bob)
+	res, err := f.oauth("github", IntentLogin, "", nil)
+	f.must(err)
+	if f.actor(res.SignIn.Session).Label != "bob" {
+		t.Fatalf("an invited GitHub account: %+v, want a session for bob", res)
+	}
+
+	iss.SetNext(authtest.Identity{Subject: "eve-sso", Email: "eve@acme.com", EmailVerified: true, Name: "Eve"})
+	if res, err := f.oauth("oidc", IntentLogin, "", nil); err != nil || f.actor(res.SignIn.Session).Label != "Eve" {
+		t.Fatalf("the OIDC issuer at an allowed domain: %v, want a new user Eve", err)
 	}
 }
 
@@ -219,7 +287,7 @@ func TestGitHubUsesTheVerifiedPrimaryEmail(t *testing.T) {
 	iss := authtest.NewIssuer()
 	defer iss.Close()
 	f := socialFixture(t, iss)
-	_, cookie := f.firstUser("ada@example.com")
+	pk, cookie := f.firstUser("ada@example.com")
 
 	iss.SetNextGitHub(authtest.GitHubUser{ID: 42, Login: "ada", Emails: []authtest.GitHubEmail{
 		{Email: "ada@example.com", Primary: false, Verified: true},
@@ -234,7 +302,9 @@ func TestGitHubUsesTheVerifiedPrimaryEmail(t *testing.T) {
 	}})
 	res, err := f.oauth("github", IntentLogin, "", nil)
 	f.must(err)
-	if f.actor(res.SignIn.Session).ID != f.actor(cookie).ID {
+	in, err := f.passkeySecondFactor(res.SignIn.Pending, pk)
+	f.must(err)
+	if f.actor(in.Session).ID != f.actor(cookie).ID {
 		t.Fatal("GitHub sign-in with the verified primary email did not sign in its user")
 	}
 }

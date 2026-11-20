@@ -20,6 +20,7 @@ import (
 	"github.com/uncrm/uncrm/internal/auth"
 	"github.com/uncrm/uncrm/internal/authtest"
 	"github.com/uncrm/uncrm/internal/crm"
+	"github.com/uncrm/uncrm/internal/mcpserver"
 	"github.com/uncrm/uncrm/internal/testdb"
 )
 
@@ -33,6 +34,7 @@ const (
 type client struct {
 	t          *testing.T
 	base       string
+	origin     string // PUBLIC_URL, which passkeys are bound to
 	session    string
 	pending    string
 	key        string
@@ -102,7 +104,8 @@ func (c client) call(method, path string, body any, want int, out any) reply {
 }
 
 // listKeys are the JSON fields that hold arrays. None may be null.
-var listKeys = []string{"items", "tags", "providers", "manual_fields", "identities", "notes", "activity", "contacts", "stages"}
+var listKeys = []string{"items", "tags", "providers", "manual_fields", "identities", "notes", "activity", "contacts", "stages",
+	"socials", "links", "segments", "logos"}
 
 func noNullLists(t *testing.T, what string, body []byte) {
 	t.Helper()
@@ -137,8 +140,16 @@ func noNullLists(t *testing.T, what string, body []byte) {
 
 func newServer(t *testing.T, mod ...func(*auth.Config)) client {
 	t.Helper()
+	srv := httptest.NewUnstartedServer(nil)
+	return serve(t, srv, testOrigin, mod...)
+}
+
+// serve starts srv as uncrm with PUBLIC_URL publicURL, mounting /mcp the
+// way main does.
+func serve(t *testing.T, srv *httptest.Server, publicURL string, mod ...func(*auth.Config)) client {
+	t.Helper()
 	pool := testdb.New(t)
-	u, _ := url.Parse(testOrigin)
+	u, _ := url.Parse(publicURL)
 	cfg := auth.Config{PublicURL: u}
 	for _, m := range mod {
 		m(&cfg)
@@ -151,10 +162,14 @@ func newServer(t *testing.T, mod ...func(*auth.Config)) client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authn := &auth.Authenticator{Keys: auth.NewKeyStore(pool, auth.UnkeyConfig{}), Users: users}
-	srv := httptest.NewServer(NewMux(crm.New(pool, nil), authn, slog.New(slog.DiscardHandler)))
+	authn := &auth.Authenticator{Keys: auth.NewKeyStore(pool, auth.UnkeyConfig{}), Users: users, OAuth: auth.NewOAuthServer(pool, u)}
+	svc := crm.New(pool, nil)
+	mux := NewMux(svc, authn, slog.New(slog.DiscardHandler))
+	mux.Handle("/mcp", mcpserver.Handler(svc, authn.Keys, authn.OAuth, "test"))
+	srv.Config.Handler = mux
+	srv.Start()
 	t.Cleanup(srv.Close)
-	return client{t: t, base: srv.URL, setupToken: token, db: pool}
+	return client{t: t, base: srv.URL, origin: publicURL, setupToken: token, db: pool}
 }
 
 func cookieValue(r reply, name string) string {
@@ -175,7 +190,7 @@ func (c client) signup(body map[string]string) client {
 	c.t.Helper()
 	var begun ceremony
 	c.call("POST", "/auth/signup/passkey/begin", body, http.StatusOK, &begun)
-	pk, cred, err := authtest.NewPasskey(testOrigin, begun.Options)
+	pk, cred, err := authtest.NewPasskey(c.origin, begun.Options)
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -234,8 +249,8 @@ func TestEmptyInstanceListsAreArrays(t *testing.T) {
 	if !bytes.Contains(r.body, []byte(`"items":[]`)) {
 		t.Fatalf("empty contacts page = %s, want items []", r.body)
 	}
-	if r := agent.call("GET", "/v1/activity", nil, http.StatusOK, nil); string(bytes.TrimSpace(r.body)) != "[]" {
-		t.Fatalf("empty activity = %s, want []", r.body)
+	if r := agent.call("GET", "/v1/activity", nil, http.StatusOK, nil); string(bytes.TrimSpace(r.body)) != `{"items":[]}` {
+		t.Fatalf("empty activity = %s, want {\"items\":[]}", r.body)
 	}
 }
 
@@ -286,10 +301,10 @@ func TestContactLifecycle(t *testing.T) {
 	if tags["vip"] != 1 {
 		t.Fatalf("tags = %v", tags)
 	}
-	var signups []crm.Activity
+	var signups crm.Page[crm.Activity]
 	agent.call("GET", "/v1/activity?kind=signed_up&contact_id="+id, nil, http.StatusOK, &signups)
-	if len(signups) != 1 {
-		t.Fatalf("signed_up activity = %d rows, want 1", len(signups))
+	if len(signups.Items) != 1 {
+		t.Fatalf("signed_up activity = %d rows, want 1", len(signups.Items))
 	}
 
 	var other crm.IngestResult
@@ -330,6 +345,44 @@ func TestContactLifecycle(t *testing.T) {
 	}
 }
 
+func TestCreateByHand(t *testing.T) {
+	c := newServer(t)
+	_, agent := login(t, c)
+
+	var ada crm.Contact
+	agent.call("POST", "/v1/contacts", map[string]any{"email": "Ada@Stripe.com", "name": "Ada", "stage": "qualified", "tags": []string{"event"}},
+		http.StatusCreated, &ada)
+	if ada.Company == nil || ada.Company.Domain.String() != "stripe.com" || ada.Stage != "qualified" || !slices.Equal(ada.ManualFields, []crm.Field{crm.FieldName}) {
+		t.Fatalf("created %+v", ada)
+	}
+	var exists struct {
+		Error string
+		ID    int64
+	}
+	agent.call("POST", "/v1/contacts", map[string]any{"email": "ada@stripe.com"}, http.StatusConflict, &exists)
+	if exists.ID != int64(ada.ID) || exists.Error == "" {
+		t.Fatalf("409 body = %+v, want the existing contact's id %d", exists, ada.ID)
+	}
+	var created crm.Page[crm.Activity]
+	agent.call("GET", fmt.Sprintf("/v1/activity?kind=contact_created&contact_id=%d", ada.ID), nil, http.StatusOK, &created)
+	if len(created.Items) != 1 || created.Items[0].Actor.Kind != crm.ActorAPIKey || created.Items[0].Actor.Label != "test agent" {
+		t.Fatalf("contact_created activity = %+v, want one by the API key", created.Items)
+	}
+
+	var linear crm.Company
+	agent.call("POST", "/v1/companies", map[string]string{"domain": "linear.app", "name": "Linear"}, http.StatusCreated, &linear)
+	if linear.Domain.String() != "linear.app" || linear.Name != "Linear" || linear.Enrichment != crm.JobPending {
+		t.Fatalf("created %+v", linear)
+	}
+	agent.call("POST", "/v1/companies", map[string]string{"domain": "LINEAR.app"}, http.StatusConflict, &exists)
+	if exists.ID != int64(linear.ID) {
+		t.Fatalf("409 id = %d, want %d", exists.ID, linear.ID)
+	}
+	agent.call("POST", "/v1/companies", map[string]string{"domain": "stripe.com"}, http.StatusConflict, nil)
+	agent.call("POST", "/v1/companies", map[string]string{"domain": "gmail.com"}, http.StatusBadRequest, nil)
+	agent.call("POST", "/v1/contacts", map[string]string{"name": "No Email"}, http.StatusBadRequest, nil)
+}
+
 func TestErrorStatuses(t *testing.T) {
 	c := newServer(t)
 	person, agent := login(t, c)
@@ -360,6 +413,12 @@ func TestErrorStatuses(t *testing.T) {
 		{"webhook for an unconnected provider", c, "POST", "/webhooks/clerk", map[string]string{}, http.StatusNotFound},
 		{"invite an existing user", person, "POST", "/v1/invites", map[string]string{"email": adminEmail}, http.StatusConflict},
 		{"unknown /v1 route", agent, "GET", "/v1/nope", nil, http.StatusNotFound},
+		{"unknown activity kind", agent, "GET", "/v1/activity?kind=signup", nil, http.StatusBadRequest},
+		{"unknown stage filter", agent, "GET", "/v1/contacts?stage=New", nil, http.StatusBadRequest},
+		{"script URL", agent, "POST", "/v1/contacts", map[string]string{"email": "a@b.co", "linkedin_url": "javascript:alert(1)"}, http.StatusBadRequest},
+		{"script avatar", agent, "POST", "/v1/signups", map[string]string{"email": "a@b.co", "avatar_url": "javascript:alert(1)"}, http.StatusBadRequest},
+		{"empty bulk update", agent, "POST", "/v1/contacts/bulk", map[string]any{"ids": []int{}, "stage": "new"}, http.StatusBadRequest},
+		{"wrong method", agent, "PUT", "/v1/contacts", map[string]string{}, http.StatusMethodNotAllowed},
 	}
 	for _, tc := range cases {
 		r := tc.as.do(tc.method, tc.path, tc.body)
@@ -461,6 +520,11 @@ func TestInviteFlow(t *testing.T) {
 	if me.Label != "Grace" {
 		t.Fatalf("invited user's session is %+v", me)
 	}
+	var key struct{ Key string }
+	grace.call("POST", "/v1/keys", map[string]string{"name": "grace's agent"}, http.StatusCreated, &key)
+	gracesAgent := c
+	gracesAgent.key = key.Key
+	gracesAgent.call("GET", "/v1/contacts", nil, http.StatusOK, nil)
 	c.call("POST", "/auth/signup/passkey/begin", map[string]string{"invite_token": inv.Token, "name": "Grace"}, http.StatusNotFound, nil)
 	c.call("GET", "/auth/invites/"+inv.Token, nil, http.StatusNotFound, nil)
 
@@ -472,6 +536,7 @@ func TestInviteFlow(t *testing.T) {
 
 	person.call("DELETE", fmt.Sprintf("/v1/users/%d", users[1].ID), nil, http.StatusNoContent, nil)
 	grace.call("GET", "/v1/me", nil, http.StatusUnauthorized, nil)
+	gracesAgent.call("GET", "/v1/contacts", nil, http.StatusUnauthorized, nil)
 	person.call("DELETE", fmt.Sprintf("/v1/users/%d", users[0].ID), nil, http.StatusConflict, nil)
 }
 
@@ -503,13 +568,60 @@ func TestAccountChangesNeedARecentSignIn(t *testing.T) {
 	person.call("POST", "/v1/account/totp/begin", nil, http.StatusOK, nil)
 }
 
+func TestTeamAndKeyChangesNeedARecentSignIn(t *testing.T) {
+	c := newServer(t)
+	person, _ := login(t, c)
+	var inv struct{ Token string }
+	person.call("POST", "/v1/invites", map[string]string{"email": "grace@example.com"}, http.StatusCreated, &inv)
+	c.signup(map[string]string{"invite_token": inv.Token, "name": "Grace"})
+	var users []auth.User
+	person.call("GET", "/v1/users", nil, http.StatusOK, &users)
+
+	if _, err := c.db.Exec(context.Background(), `UPDATE sessions SET authenticated_at = now() - interval '1 hour'`); err != nil {
+		t.Fatal(err)
+	}
+	changes := []struct {
+		method, path string
+		body         any
+		want         int
+	}{
+		{"POST", "/v1/keys", map[string]string{"name": "agent"}, http.StatusCreated},
+		{"POST", "/v1/invites", map[string]string{"email": "hal@example.com"}, http.StatusCreated},
+		{"PUT", "/v1/providers/better-auth", map[string]string{"secret": ""}, http.StatusOK},
+		{"DELETE", "/v1/providers/better-auth", nil, http.StatusNoContent},
+		{"DELETE", fmt.Sprintf("/v1/users/%d", users[1].ID), nil, http.StatusNoContent},
+	}
+	for _, ch := range changes {
+		r := person.call(ch.method, ch.path, ch.body, http.StatusForbidden, nil)
+		var e struct{ Code string }
+		if err := json.Unmarshal(r.body, &e); err != nil || e.Code != "reauth_required" {
+			t.Errorf("%s %s on a stale session: %s, want code reauth_required", ch.method, ch.path, r.body)
+		}
+	}
+	person.call("GET", "/v1/users", nil, http.StatusOK, &users)
+	if len(users) != 2 {
+		t.Fatalf("a refused removal still removed someone: %+v", users)
+	}
+
+	var begun ceremony
+	person.call("POST", "/v1/account/reauth/passkey/begin", nil, http.StatusOK, &begun)
+	cred, err := person.passkey.Sign(begun.Options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	person.call("POST", "/v1/account/reauth/passkey", map[string]any{"handle": begun.Handle, "credential": cred}, http.StatusNoContent, nil)
+	for _, ch := range changes {
+		person.call(ch.method, ch.path, ch.body, ch.want, nil)
+	}
+}
+
 func TestOAuthSignInSetsCookiesAndRedirects(t *testing.T) {
 	iss := authtest.NewIssuer()
 	defer iss.Close()
 	c := newServer(t, func(cfg *auth.Config) {
 		cfg.Providers = []auth.ProviderConfig{{ID: "oidc", Name: "Acme SSO", ClientID: "uncrm", ClientSecret: "s3cret", Issuer: iss.URL}}
 	})
-	login(t, c)
+	person, _ := login(t, c)
 	jar, _ := cookiejar.New(nil)
 	browser := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	get := func(u string) *http.Response {
@@ -571,17 +683,39 @@ func TestOAuthSignInSetsCookiesAndRedirects(t *testing.T) {
 	}
 
 	res = get(callback)
-	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/contacts" {
-		t.Fatalf("callback = %d to %q, want 303 to /contacts", res.StatusCode, res.Header.Get("Location"))
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/login?second_factor=1&next=%2Fcontacts" {
+		t.Fatalf("callback = %d to %q, want 303 to the second factor step: the admin has a passkey and this login matched by email", res.StatusCode, res.Header.Get("Location"))
 	}
-	var session string
-	for _, ck := range jar.Cookies(base) {
-		if ck.Name == auth.SessionCookie {
-			session = ck.Value
+	jarCookie := func(name string) string {
+		for _, ck := range jar.Cookies(base) {
+			if ck.Name == name {
+				return ck.Value
+			}
 		}
+		return ""
 	}
+	if jarCookie(auth.SessionCookie) != "" {
+		t.Fatal("the callback set a session before the passkey step")
+	}
+	pending := c
+	pending.pending = jarCookie(auth.PendingCookie)
+	var step struct {
+		Status        string   `json:"status"`
+		SecondFactors []string `json:"second_factors"`
+	}
+	pending.call("GET", "/auth/second-factor", nil, http.StatusOK, &step)
+	if !slices.Equal(step.SecondFactors, []string{"passkey"}) {
+		t.Fatalf("second factors %v, want passkey", step.SecondFactors)
+	}
+	var begun ceremony
+	pending.call("POST", "/auth/second-factor/passkey/begin", nil, http.StatusOK, &begun)
+	cred, err := person.passkey.Sign(begun.Options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := pending.call("POST", "/auth/second-factor/passkey/finish", map[string]any{"handle": begun.Handle, "credential": cred}, http.StatusOK, &step)
 	signedIn := c
-	signedIn.session = session
+	signedIn.session = cookieValue(r, auth.SessionCookie)
 	var me crm.Actor
 	signedIn.call("GET", "/v1/me", nil, http.StatusOK, &me)
 	if me.Label != adminEmail {
@@ -604,7 +738,7 @@ func TestKeyStoreOutageIs503(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authn := &auth.Authenticator{Keys: downKeys{}, Users: users}
+	authn := &auth.Authenticator{Keys: downKeys{}, Users: users, OAuth: auth.NewOAuthServer(pool, u)}
 	srv := httptest.NewServer(NewMux(crm.New(pool, nil), authn, slog.New(slog.DiscardHandler)))
 	t.Cleanup(srv.Close)
 	r := client{t: t, base: srv.URL, key: "uncrm_whatever"}.do("GET", "/v1/contacts", nil)
@@ -652,5 +786,26 @@ func TestSettings(t *testing.T) {
 	r := c.call("GET", "/v1/openapi.yaml", nil, http.StatusOK, nil)
 	if !bytes.HasPrefix(r.body, []byte("openapi: 3.1")) {
 		t.Fatalf("openapi.yaml starts %q", r.body[:min(len(r.body), 20)])
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	const csp = "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
+	for _, publicURL := range []string{"http://localhost:8080", "https://crm.example.com"} {
+		u, _ := url.Parse(publicURL)
+		mux := NewMux(nil, &auth.Authenticator{OAuth: auth.NewOAuthServer(nil, u)}, slog.New(slog.DiscardHandler))
+		mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "<!doctype html>") }))
+		srv := httptest.NewServer(SecurityHeaders(u, mux))
+		t.Cleanup(srv.Close)
+		for _, path := range []string{"/", "/contacts/42", "/healthz", "/v1/nope"} {
+			h := client{t: t, base: srv.URL}.do("GET", path, nil).header
+			if h.Get("Content-Security-Policy") != csp || h.Get("X-Content-Type-Options") != "nosniff" ||
+				h.Get("Referrer-Policy") != "same-origin" || h.Get("X-Frame-Options") != "DENY" {
+				t.Errorf("%s %s: headers %v", publicURL, path, h)
+			}
+			if hsts := h.Get("Strict-Transport-Security"); (hsts != "") != (u.Scheme == "https") {
+				t.Errorf("%s %s: Strict-Transport-Security %q", publicURL, path, hsts)
+			}
+		}
 	}
 }

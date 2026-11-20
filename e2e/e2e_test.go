@@ -24,7 +24,9 @@ import (
 	"testing"
 	"time"
 
+	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	"github.com/uncrm/uncrm/internal/authtest"
 )
@@ -145,11 +147,14 @@ func TestMCPSearchContacts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := connectMCP(ctx, ""); err == nil {
-		t.Fatal("MCP accepted a session without an API key")
+	if _, err := connectMCP(ctx, bearer{""}); err == nil {
+		t.Fatal("MCP accepted a session without a token")
+	}
+	if _, err := connectMCP(ctx, bearer{inst.apiKey}); err == nil {
+		t.Fatal("MCP accepted an API key")
 	}
 
-	cs, err := connectMCP(ctx, inst.apiKey)
+	cs, err := connectMCPWithOAuth(ctx, inst.session)
 	if err != nil {
 		t.Fatalf("connect to %s/mcp: %v", baseURL, err)
 	}
@@ -190,9 +195,10 @@ func TestMCPSearchContacts(t *testing.T) {
 	}
 }
 
-// instance is what the checks share: an API key, and the signing secret of
-// the Clerk connection they created.
+// instance is what the checks share: the person's session, an API key,
+// and the signing secret of the Clerk connection they created.
 type instance struct {
+	session     string
 	apiKey      string
 	clerkSecret []byte
 }
@@ -241,7 +247,7 @@ func connect() (instance, error) {
 	if err := conn.check(http.StatusOK, http.StatusNoContent); err != nil {
 		return instance{}, err
 	}
-	return instance{apiKey: key.Key, clerkSecret: secret}, nil
+	return instance{session: session, apiKey: key.Key, clerkSecret: secret}, nil
 }
 
 type ceremony struct {
@@ -433,15 +439,63 @@ func svixHeaders(secret []byte, msgID string, at time.Time, body []byte) http.He
 	return h
 }
 
-func connectMCP(ctx context.Context, key string) (*mcp.ClientSession, error) {
-	client := mcp.NewClient(&mcp.Implementation{Name: "uncrm-e2e", Version: "0"}, nil)
-	transport := &mcp.StreamableClientTransport{
+func connectMCP(ctx context.Context, rt http.RoundTripper) (*mcp.ClientSession, error) {
+	return mcp.NewClient(&mcp.Implementation{Name: "uncrm-e2e", Version: "0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint:             baseURL + "/mcp",
-		HTTPClient:           &http.Client{Transport: bearer{key}, Timeout: 30 * time.Second},
+		HTTPClient:           &http.Client{Transport: rt, Timeout: 30 * time.Second},
 		DisableStandaloneSSE: true,
 		MaxRetries:           -1,
+	}, nil)
+}
+
+// connectMCPWithOAuth connects the way Claude Code does: the SDK's OAuth
+// client finds uncrm's authorization server from the 401, registers, and
+// opens the authorization URL, where the signed-in person approves.
+func connectMCPWithOAuth(ctx context.Context, session string) (*mcp.ClientSession, error) {
+	const redirect = "http://127.0.0.1:33418/callback"
+	h, err := mcpauth.NewAuthorizationCodeHandler(&mcpauth.AuthorizationCodeHandlerConfig{
+		DynamicClientRegistrationConfig: &mcpauth.DynamicClientRegistrationConfig{
+			Metadata: &oauthex.ClientRegistrationMetadata{ClientName: "uncrm e2e", RedirectURIs: []string{redirect}},
+		},
+		AuthorizationCodeFetcher: func(_ context.Context, args *mcpauth.AuthorizationArgs) (*mcpauth.AuthorizationResult, error) {
+			return approve(args.URL, session)
+		},
+	})
+	if err != nil {
+		return nil, err
 	}
-	return client.Connect(ctx, transport, nil)
+	return mcp.NewClient(&mcp.Implementation{Name: "uncrm-e2e", Version: "0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:             baseURL + "/mcp",
+		HTTPClient:           &http.Client{Timeout: 30 * time.Second},
+		OAuthHandler:         h,
+		DisableStandaloneSSE: true,
+		MaxRetries:           -1,
+	}, nil)
+}
+
+// approve does what the browser and the person do with an authorization
+// URL: follow it to the consent page and approve as session.
+func approve(authorizeURL, session string) (*mcpauth.AuthorizationResult, error) {
+	noFollow := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := noFollow.Get(authorizeURL)
+	if err != nil {
+		return nil, err
+	}
+	res.Body.Close()
+	consent, err := url.Parse(res.Header.Get("Location"))
+	if err != nil || consent.Query().Get("request") == "" {
+		return nil, fmt.Errorf("GET %s = %d to %q, want the consent page", authorizeURL, res.StatusCode, res.Header.Get("Location"))
+	}
+	var out struct{ Redirect string }
+	if err := call(request{method: "POST", path: "/v1/oauth/requests/" + consent.Query().Get("request"), session: session,
+		body: map[string]bool{"approve": true}}, &out); err != nil {
+		return nil, err
+	}
+	back, err := url.Parse(out.Redirect)
+	if err != nil {
+		return nil, err
+	}
+	return &mcpauth.AuthorizationResult{Code: back.Query().Get("code"), State: back.Query().Get("state")}, nil
 }
 
 type bearer struct{ key string }

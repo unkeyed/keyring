@@ -65,7 +65,7 @@ func activities(t *testing.T, s *Service, q ActivityQuery) []Activity {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return a
+	return a.Items
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -79,15 +79,15 @@ func wantErr(t *testing.T, err, target error) {
 
 // fakeEnricher answers with fixed functions; a nil function finds nothing.
 type fakeEnricher struct {
-	person  func(Email) (PersonFacts, error)
+	person  func(Email, string) (PersonFacts, error)
 	company func(Domain) (CompanyFacts, error)
 }
 
-func (f fakeEnricher) Person(_ context.Context, e Email) (PersonFacts, error) {
+func (f fakeEnricher) Person(_ context.Context, e Email, linkedInURL string) (PersonFacts, error) {
 	if f.person == nil {
 		return PersonFacts{}, nil
 	}
-	return f.person(e)
+	return f.person(e, linkedInURL)
 }
 
 func (f fakeEnricher) Company(_ context.Context, d Domain) (CompanyFacts, error) {
