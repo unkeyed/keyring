@@ -9,14 +9,14 @@
   <a href="https://kyring.dev">Website</a> · <a href="https://kyring.dev/docs/">Docs</a> · <a href="https://kyring.dev/#deploy">Deploy on Unkey</a>
 </p>
 
-Keyring is an open source CRM you host yourself. Every person who signs up through your auth provider becomes a contact, enriched with their job title and company, ready for your team in the web UI and for your agents over MCP and REST.
+Keyring is an open source CRM you run yourself. Every person who signs up through your auth provider becomes a contact with a job title and a company, ready for your team in the web UI and for your agents over MCP and REST.
 
 ## Why Keyring
 
 - **Sign-ups arrive on their own.** Connect Clerk, WorkOS AuthKit, Better Auth, Supabase Auth, Auth0 or Stytch once, or post sign-ups from any backend. Retries and duplicates land once.
 - **Every contact comes with context.** Keyring looks up job titles, locations, company logos, sizes and industries on [context.dev](https://context.dev). Nothing a person edits is ever overwritten.
 - **Built for agents.** Claude Code, Cursor and other MCP clients sign in as you in the browser. Backends use scoped API keys that can be read-only and expire.
-- **Yours to run.** One container and a Postgres database, on Unkey or any host. MIT licensed.
+- **MIT licensed. Yours to run, change and keep.** One container and a Postgres database, on Unkey or any host.
 - **Secure by default.** Passkey sign-in, no default password, secrets encrypted at rest.
 
 ## Get started
