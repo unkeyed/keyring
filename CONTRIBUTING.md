@@ -2,6 +2,14 @@
 
 This page covers running Keyring from source, the checks a change has to pass, and the most common contribution: a new auth provider.
 
+## How the code fits together
+
+- One Go binary serves the React UI, the REST API, the MCP server and the webhooks, and runs the enrichment worker.
+- Postgres holds all state. Keyring applies its migrations when it starts.
+- `internal/signup` has one file per auth provider that verifies and parses its webhooks.
+- `internal/crm` does every read and write, and REST, MCP and the UI all call it.
+- Every write is an upsert on a natural key, so retries, replays and replicas end in the same state.
+
 ## Run Keyring from source
 
 You need Go 1.26, Node.js 24, and Docker.
