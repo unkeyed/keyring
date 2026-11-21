@@ -4,13 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Keyring: everyone you deal with, kept in one place</title>
-<meta name="description" content="Keyring is an open source CRM you host yourself. Every sign-up from your auth provider becomes an enriched contact, ready for your team and your agents." />
+<meta name="description" content="Keyring is an open source CRM you run yourself. Every sign-up from your auth provider becomes a contact with a job title and a company, ready for your team and your agents." />
 <meta name="theme-color" content="#040406" />
 <link rel="canonical" href="https://kyring.dev/" />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Keyring" />
 <meta property="og:title" content="Keyring: everyone you deal with, kept in one place" />
-<meta property="og:description" content="An open source CRM you host yourself. Every sign-up from your auth provider becomes an enriched contact, ready for your team and your agents. Deploy it on Unkey in one prompt." />
+<meta property="og:description" content="An open source CRM you run yourself. Every sign-up from your auth provider becomes a contact with a job title and a company. Deploy it on Unkey in one prompt." />
 <meta property="og:url" content="https://kyring.dev/" />
 <meta property="og:image" content="https://kyring.dev/og.png" />
 <meta property="og:image:width" content="1200" />
@@ -18,7 +18,7 @@
 <meta property="og:image:alt" content="Keyring: everyone you deal with, kept in one place. A feed of new sign-ups, each enriched with a job title." />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Keyring: everyone you deal with, kept in one place" />
-<meta name="twitter:description" content="An open source CRM you host yourself. Deploy it on Unkey in one prompt." />
+<meta name="twitter:description" content="An open source CRM you run yourself. MIT licensed. Deploy it on Unkey in one prompt." />
 <meta name="twitter:image" content="https://kyring.dev/og.png" />
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -60,6 +60,7 @@
   .hero-copy { position: relative; z-index: 2; margin-top: auto; padding-bottom: 56px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 32px; }
   h1 { font-size: clamp(40px, 5vw, 72px); line-height: 1.06; max-width: 17ch; }
   .lede { margin: 22px 0 0; max-width: 560px; color: var(--muted); font-size: 17px; line-height: 1.45; letter-spacing: -0.01em; }
+  .lede-tag { margin: 14px 0 0; max-width: 560px; color: var(--fg); font-size: 17px; line-height: 1.45; letter-spacing: -0.01em; }
   .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 
   /* Sections */
@@ -228,12 +229,13 @@
     <div class="wrap hero-copy">
       <div>
         <h1>Everyone you deal with, kept in one place.</h1>
-        <p class="lede">Keyring is an open source CRM you host yourself. Every sign-up from your auth provider becomes a contact, enriched with job titles and company details, and ready for your team and your agents.</p>
+        <p class="lede">Keyring is an open source CRM you run yourself. Point your auth provider at it once, and every sign-up shows up as a contact with a job title and a company. Your team uses the web UI. Your agents use the MCP server or the REST API.</p>
+        <p class="lede-tag">MIT licensed. Yours to run, change and keep.</p>
       </div>
       <div class="hero-actions">
-        <button class="btn btn-primary" type="button" data-copy-prompt data-label="Deploy on Unkey" title="Copies a prompt for your coding agent">
+        <button class="btn btn-primary" type="button" data-copy-prompt data-label="Deploy with one prompt" title="Copies a prompt for your coding agent">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="12" height="12" /><path d="M5 15H3V3h12v2" /></svg>
-          <span class="copy-state">Deploy on Unkey</span>
+          <span class="copy-state">Deploy with one prompt</span>
         </button>
         <a class="btn btn-outline" href="https://github.com/unkeyed/keyring">View on GitHub</a>
       </div>
@@ -262,7 +264,7 @@
         </div>
         <div class="step">
           <span class="num">03</span>
-          <h3>Work it from anywhere</h3>
+          <h3>Your agents see the same thing</h3>
           <p>Your team uses the web UI. Your agents use the MCP server or the REST API, which call the same code, so they see exactly what your team sees.</p>
         </div>
       </div>
@@ -312,7 +314,7 @@
         </div>
         <div class="cell">
           <div class="cell-top"><span class="num">03</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="4" width="16" height="16" /><path d="M9 9h6v6H9z" /></svg></div>
-          <h3>Built for agents</h3>
+          <h3>24 tools for your agents</h3>
           <p>An MCP server with 24 tools that agents sign in to with OAuth, and a REST API with read-only and expiring keys.</p>
         </div>
         <div class="cell">
@@ -339,9 +341,9 @@
       <div class="section-head">
         <div>
           <span class="eyebrow"><span class="glow"><i></i></span>Agents</span>
-          <h2>Your agents know your customers too.</h2>
+          <h2>Ask your agent who signed up this week.</h2>
         </div>
-        <p>Ask Claude who signed up from a company this week, or have a backend job tag every contact from a trial. Every change shows which agent made it, and for an MCP client, which person approved it.</p>
+        <p>Name a company and Claude can list who signed up. Or have a backend job tag every contact from a trial. Every change shows which agent made it, and for an MCP client, which person approved it.</p>
       </div>
       <div class="split">
         <div>
@@ -369,7 +371,7 @@ curl <span class="s">"https://crm.example.com/v1/contacts?q=stripe.com"</span> \
           <span class="eyebrow"><span class="glow"><i></i></span>Deploy on Unkey</span>
           <h2>Your agent deploys it. Unkey runs it.</h2>
         </div>
-        <p>Unkey's MCP server lets a coding agent create the project, set the secrets, deploy and protect Keyring on Unkey, while you watch and approve. Sign in to Unkey from the agent, or create a free account on the way.</p>
+        <p>Paste one prompt into your coding agent. It creates the project, sets the secrets, then deploys and protects Keyring on Unkey. You watch and approve. Sign in to Unkey from the agent, or create a free account on the way.</p>
       </div>
       <div class="agent">
         <div class="agent-copy">
