@@ -1,4 +1,4 @@
-// Copies the agent prompt shown on the page.
+// Copies the agent prompt shown on the landing page.
 const prompt = document.getElementById("agent-prompt").textContent.trim();
 const toast = document.querySelector(".toast");
 let hide;

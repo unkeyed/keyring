@@ -9,8 +9,9 @@ web/node_modules/
 web/dist/*
 !web/dist/.gitkeep
 
-site/docs-build/node_modules/
-site/out/
+site/node_modules/
+site/dist/
+site/.astro/
 site/launch-video/frames/
 site/launch-video/node_modules/
 site/launch-video/*.mp4

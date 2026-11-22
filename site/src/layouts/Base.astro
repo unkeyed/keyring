@@ -1,0 +1,85 @@
+---
+// Every page: head metadata, the white nav bar and the footer.
+import "@fontsource-variable/inter";
+import "@fontsource-variable/manrope";
+import "@fontsource-variable/jetbrains-mono";
+import "../styles/base.css";
+import { origin, repo } from "../lib/site";
+
+interface Props {
+  title: string;
+  description: string;
+  /** Overrides description for Open Graph and Twitter cards. */
+  ogDescription?: string;
+  twitterDescription?: string;
+  path: string;
+  type?: "website" | "article";
+  /** The page as Markdown, for agents. */
+  markdown?: string;
+  bodyClass?: string;
+  docs?: boolean;
+}
+const { title, description, ogDescription = description, twitterDescription = ogDescription, path, type = "website", markdown, bodyClass, docs = false } = Astro.props;
+const url = origin + path;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#040406" />
+    <link rel="canonical" href={url} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    {markdown && <link rel="alternate" type="text/markdown" href={markdown} />}
+    <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content="Keyring" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={ogDescription} />
+    <meta property="og:url" content={url} />
+    <meta property="og:image" content={`${origin}/og.png`} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Keyring: everyone you deal with, kept in one place. A feed of new sign-ups, each enriched with a job title." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={twitterDescription} />
+    <meta name="twitter:image" content={`${origin}/og.png`} />
+  </head>
+  <body class={bodyClass}>
+    <header class="nav">
+      <div class="wrap">
+        <div class="nav-bar">
+          <a class="brand" href="/" aria-label="Keyring home"><span class="brand-mark">K</span>keyring</a>
+          <nav class="nav-links" aria-label="Site">
+            <a href="/#features">Features</a>
+            <a href="/#agents">Agents</a>
+            <a href="/#deploy">Deploy on Unkey</a>
+            <a href="/docs/" aria-current={docs ? "page" : undefined}>Docs</a>
+          </nav>
+        </div>
+        <a class="btn btn-primary btn-github" href={repo}>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" /></svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </header>
+
+    <slot />
+
+    <footer>
+      <div class="wrap">
+        <a class="brand brand-light" href="/" aria-label="Keyring home"><span class="brand-mark">K</span>keyring</a>
+        <nav aria-label="Footer">
+          <a href={repo}>GitHub</a>
+          <a href="/docs/">Docs</a>
+          <a href="/llms.txt">llms.txt</a>
+          <a href={`${repo}/blob/main/LICENSE`}>MIT license</a>
+        </nav>
+        <p class="provided">Provided by <a href="https://www.unkey.com">Unkey</a></p>
+      </div>
+    </footer>
+  </body>
+</html>

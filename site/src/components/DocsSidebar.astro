@@ -1,0 +1,23 @@
+---
+import { label, type Doc } from "../lib/docs";
+import { sections } from "../lib/site";
+
+interface Props {
+  docs: Doc[];
+  active?: string;
+}
+const { docs, active } = Astro.props;
+const byId = new Map(docs.map((d) => [d.id, d]));
+---
+<aside class="docs-side" aria-label="Documentation">
+  {sections.map((s) => (
+    <div class="side-group">
+      <p class="side-title">{s.title}</p>
+      <ul>
+        {s.pages.map((id) => (
+          <li><a href={`/docs/${id}`} aria-current={id === active ? "page" : undefined}>{label(byId.get(id)!)}</a></li>
+        ))}
+      </ul>
+    </div>
+  ))}
+</aside>

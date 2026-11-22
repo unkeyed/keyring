@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="site/og.png" alt="Keyring: everyone you deal with, kept in one place. A feed of new sign-ups, each enriched with a job title." width="760" />
+  <img src="site/public/og.png" alt="Keyring: everyone you deal with, kept in one place. A feed of new sign-ups, each enriched with a job title." width="760" />
 </p>
 
 <h1 align="center">Keyring</h1>

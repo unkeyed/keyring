@@ -1,0 +1,16 @@
+---
+import Base from "../layouts/Base.astro";
+import "../styles/docs.css";
+Astro.response.status = 404;
+---
+<Base title="Not found · Keyring" description="This page does not exist." path={Astro.url.pathname} bodyClass="docs">
+  <main class="wrap docs-layout" style="grid-template-columns: 1fr">
+    <article class="docs-main">
+      <span class="eyebrow"><span class="glow"><i></i></span>404</span>
+      <div class="prose">
+        <h1>Nothing here</h1>
+        <p class="lede-doc">This page does not exist. Try the <a href="/docs/">docs</a> or the <a href="/">home page</a>.</p>
+      </div>
+    </article>
+  </main>
+</Base>

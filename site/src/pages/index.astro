@@ -1,0 +1,240 @@
+---
+import Base from "../layouts/Base.astro";
+import "../styles/home.css";
+import { deployPrompt } from "../lib/prompt";
+import { summary, title } from "../lib/site";
+---
+<Base
+  title={title}
+  description={summary}
+  ogDescription="An open source CRM you run yourself. Every sign-up from your auth provider becomes a contact with a job title and a company. Deploy it on Unkey in one prompt."
+  twitterDescription="An open source CRM you run yourself. MIT licensed. Deploy it on Unkey in one prompt."
+  path="/"
+  markdown="/llms.txt"
+>
+<main id="top">
+  <div class="hero">
+    <svg class="blocks" aria-hidden="true" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1440 900">
+      <defs><filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="26" /></filter></defs>
+      <g filter="url(#soft)" fill="#8b8d96">
+        <path d="M150 90h330v120h140v180H510v140H150z" opacity=".75" />
+        <path d="M0 330h140v-90h120v240H60v170H0z" opacity=".45" />
+        <path d="M930 110h200V40h200v260h110v220h-170V420H990V260h-60z" opacity=".8" />
+        <path d="M640 560h300v140h-80v140H600V700h40z" opacity=".35" />
+        <path d="M1190 600h250v260h-250z" opacity=".3" />
+      </g>
+    </svg>
+    <div class="grain" aria-hidden="true"></div>
+
+    <div class="feed" aria-hidden="true">
+      <div class="feed-head">
+        <span class="eyebrow feed-eyebrow"><span class="glow"><i></i></span>New sign-ups</span>
+        <span class="feed-live">live</span>
+      </div>
+      <ol class="feed-rows">
+        <li style="--i: 0">
+          <span class="who"><span class="avatar">MR</span><span><b>Maya Reyes</b><small class="email">maya@northwind.dev</small><small class="title enriched">Staff Engineer · Northwind</small></span></span>
+          <span class="role"><span class="enriched">Staff Engineer</span><small class="enriched">Northwind · Lisbon</small></span>
+          <span class="src">Clerk</span>
+          <span class="state"><span class="glow"><i></i></span>Enriched</span>
+        </li>
+        <li style="--i: 1">
+          <span class="who"><span class="avatar">JO</span><span><b>Jonas Olsen</b><small class="email">jonas@lumen.io</small><small class="title enriched">Head of Platform · Lumen</small></span></span>
+          <span class="role"><span class="enriched">Head of Platform</span><small class="enriched">Lumen · Oslo</small></span>
+          <span class="src">WorkOS</span>
+          <span class="state"><span class="glow"><i></i></span>Enriched</span>
+        </li>
+        <li style="--i: 2">
+          <span class="who"><span class="avatar">PK</span><span><b>Priya Kapoor</b><small class="email">priya@fieldnote.app</small><small class="title enriched">Founder · Fieldnote</small></span></span>
+          <span class="role"><span class="enriched">Founder</span><small class="enriched">Fieldnote · Bengaluru</small></span>
+          <span class="src">Auth0</span>
+          <span class="state"><span class="glow"><i></i></span>Enriched</span>
+        </li>
+        <li style="--i: 3">
+          <span class="who"><span class="avatar">SD</span><span><b>Sam Dubois</b><small class="email">sam@hollow.studio</small><small class="title enriched">Product Designer · Hollow Studio</small></span></span>
+          <span class="role"><span class="enriched">Product Designer</span><small class="enriched">Hollow Studio · Paris</small></span>
+          <span class="src">Better Auth</span>
+          <span class="state"><span class="glow"><i></i></span>Enriched</span>
+        </li>
+      </ol>
+    </div>
+
+    <div class="wrap hero-copy">
+      <div>
+        <h1>Everyone you deal with, kept in one place.</h1>
+        <p class="lede">Keyring is an open source CRM you run yourself. Point your auth provider at it once, and every sign-up shows up as a contact with a job title and a company. Your team uses the web UI. Your agents use the MCP server or the REST API.</p>
+        <p class="lede-tag">MIT licensed. Yours to run, change and keep.</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-primary" type="button" data-copy-prompt data-label="Deploy with one prompt" title="Copies a prompt for your coding agent">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="12" height="12" /><path d="M5 15H3V3h12v2" /></svg>
+          <span class="copy-state">Deploy with one prompt</span>
+        </button>
+        <a class="btn btn-outline" href="https://github.com/unkeyed/keyring">View on GitHub</a>
+      </div>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow"><span class="glow"><i></i></span>How it works</span>
+          <h2>Sign-ups arrive on their own. Context arrives with them.</h2>
+        </div>
+        <p>No CSV imports and no forms to fill in. Point your auth provider at Keyring once, and every person who signs up shows up as a contact a few seconds later.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <span class="num">01</span>
+          <h3>Connect your auth</h3>
+          <p>Paste Keyring's webhook URL into your auth provider. Keyring checks every delivery's signature, and retries and replays land once.</p>
+        </div>
+        <div class="step">
+          <span class="num">02</span>
+          <h3>Enrich every contact</h3>
+          <p>Keyring looks each person and company up on context.dev: job title, location, logo, size and industry. Free-mail addresses are skipped, and fields a person edited are never overwritten.</p>
+        </div>
+        <div class="step">
+          <span class="num">03</span>
+          <h3>Your agents see the same thing</h3>
+          <p>Your team uses the web UI. Your agents use the MCP server or the REST API, which call the same code, so they see exactly what your team sees.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="providers">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow"><span class="glow"><i></i></span>Works with your auth</span>
+          <h2>Six providers built in. Anything else over HTTP.</h2>
+        </div>
+        <p>Settings shows each provider's webhook URL, the steps to connect it, and the last delivery or the reason it failed.</p>
+      </div>
+      <div class="providers">
+        <div><b>Clerk</b><code>/webhooks/clerk</code></div>
+        <div><b>WorkOS AuthKit</b><code>/webhooks/workos</code></div>
+        <div><b>Better Auth</b><code>/webhooks/better-auth</code></div>
+        <div><b>Supabase Auth</b><code>/webhooks/supabase</code></div>
+        <div><b>Auth0</b><code>/webhooks/auth0</code></div>
+        <div><b>Stytch</b><code>/webhooks/stytch</code></div>
+      </div>
+      <p class="providers-note">Using something else? Post each sign-up from your backend to <code>POST /v1/signups</code> with an API key.</p>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow"><span class="glow"><i></i></span>Features</span>
+          <h2>A small CRM that does the boring parts for you.</h2>
+        </div>
+        <p>One container and a Postgres database. No per-seat pricing, no data leaving your infrastructure except the lookups you turn on.</p>
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="cell-top"><span class="num">01</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 12h16M12 4v16" /></svg></div>
+          <h3>Every sign-up, exactly once</h3>
+          <p>Deliveries are verified with the provider's signature. Duplicates, retries and replays never create a second contact.</p>
+        </div>
+        <div class="cell">
+          <div class="cell-top"><span class="num">02</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M12 4v16M4 12h16" /></svg></div>
+          <h3>Enrichment with a budget</h3>
+          <p>context.dev fills in people and companies. A daily cap keeps a leaked key or a flood of sign-ups from spending your credits.</p>
+        </div>
+        <div class="cell">
+          <div class="cell-top"><span class="num">03</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="4" width="16" height="16" /><path d="M9 9h6v6H9z" /></svg></div>
+          <h3>24 tools for your agents</h3>
+          <p>An MCP server with 24 tools that agents sign in to with OAuth, and a REST API with read-only and expiring keys.</p>
+        </div>
+        <div class="cell">
+          <div class="cell-top"><span class="num">04</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="12" r="4" /><path d="M12 12h9M18 12v3M21 12v2" /></svg></div>
+          <h3>Passkeys first</h3>
+          <p>Sign in with a passkey, Google, GitHub or your own OIDC provider. Authenticator codes and recovery codes when you want them.</p>
+        </div>
+        <div class="cell">
+          <div class="cell-top"><span class="num">05</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7l8-4 8 4v10l-8 4-8-4z" /><path d="M4 7l8 4 8-4M12 11v10" /></svg></div>
+          <h3>One container, your Postgres</h3>
+          <p>Migrations run on start, nothing is kept on disk, and several replicas can share one database. Run it on Unkey or any container host.</p>
+        </div>
+        <div class="cell">
+          <div class="cell-top"><span class="num">06</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.7-7 9-4-1.3-7-4.5-7-9V6z" /></svg></div>
+          <h3>Secure by default</h3>
+          <p>Webhook secrets and authenticator seeds are encrypted at rest, sign-in and webhook abuse is throttled per client, and every token is stored hashed.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="agents">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow"><span class="glow"><i></i></span>Agents</span>
+          <h2>Ask your agent who signed up this week.</h2>
+        </div>
+        <p>Name a company and Claude can list who signed up. Or have a backend job tag every contact from a trial. Every change shows which agent made it, and for an MCP client, which person approved it.</p>
+      </div>
+      <div class="split">
+        <div>
+          <h3>MCP, signed in with OAuth</h3>
+          <p>Add the URL to Claude Code, Cursor or Claude Desktop. The client opens your browser, you approve it once, and it can search, read and update contacts as you.</p>
+<pre class="code"><span class="c"># Claude Code</span>
+claude mcp add --transport http keyring \
+  <span class="s">https://crm.example.com/mcp</span></pre>
+        </div>
+        <div>
+          <h3>REST, with scoped keys</h3>
+          <p>Create a key per agent or backend. Make it read-only, give it an expiry, and let the agent revoke it itself if it ever leaks.</p>
+<pre class="code"><span class="c"># Find everyone from a company</span>
+curl <span class="s">"https://crm.example.com/v1/contacts?q=stripe.com"</span> \
+  -H "Authorization: Bearer $KEYRING_API_KEY"</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="deploy">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow"><span class="glow"><i></i></span>Deploy on Unkey</span>
+          <h2>Your agent deploys it. Unkey runs it.</h2>
+        </div>
+        <p>Paste one prompt into your coding agent. It creates the project, sets the secrets, then deploys and protects Keyring on Unkey. You watch and approve. Sign in to Unkey from the agent, or create a free account on the way.</p>
+      </div>
+      <div class="agent">
+        <div class="agent-copy">
+          <ol class="install">
+            <li>
+              <b>Add Unkey's MCP server to your agent</b>
+<pre class="code"><span class="c"># Claude Code. Other agents: mcp.unkey.com/install</span>
+claude mcp add --transport http unkey \
+  <span class="s">https://mcp.unkey.com</span></pre>
+            </li>
+            <li><b>Copy the prompt and paste it into your agent</b><span>It signs you in to Unkey, asks for your Postgres URL, and does the rest.</span></li>
+            <li><b>Open the link it gives you</b><span>Register a passkey, connect your auth provider, and your sign-ups start arriving.</span></li>
+          </ol>
+          <div class="agent-actions">
+            <button class="btn btn-primary" type="button" data-copy-prompt data-label="Copy agent prompt">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="12" height="12" /><path d="M5 15H3V3h12v2" /></svg>
+              <span class="copy-state">Copy agent prompt</span>
+            </button>
+            <a class="btn btn-outline" href="https://app.unkey.com">Create an Unkey account</a>
+          </div>
+        </div>
+        <div class="prompt">
+          <div class="prompt-bar"><span class="dots"><i></i><i></i><i></i></span><span>deploy-keyring-on-unkey.md</span></div>
+<pre id="agent-prompt" tabindex="0" aria-label="Agent prompt">{deployPrompt}</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" role="status" aria-live="polite"></div>
+<script is:inline src="/app.js" defer></script>
+</Base>

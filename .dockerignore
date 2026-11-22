@@ -4,5 +4,7 @@ web/node_modules
 web/dist
 docker-compose.yml
 Dockerfile
-site/docs-build/node_modules
-site/out
+site/node_modules
+site/dist
+site/.astro
+site/launch-video

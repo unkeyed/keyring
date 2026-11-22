@@ -1,0 +1,37 @@
+---
+import Base from "../../layouts/Base.astro";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+import "../../styles/docs.css";
+import { allDocs, description, label } from "../../lib/docs";
+import { sections } from "../../lib/site";
+
+const docs = await allDocs();
+const byId = new Map(docs.map((d) => [d.id, d]));
+const intro = "Run Keyring yourself or on Unkey, connect your auth provider, and give your agents access.";
+---
+<Base title="Documentation · Keyring docs" description={intro} path="/docs/" type="article" markdown="/llms.txt" bodyClass="docs" docs>
+  <main class="wrap docs-layout">
+    <DocsSidebar docs={docs} />
+    <article class="docs-main">
+      <span class="eyebrow"><span class="glow"><i></i></span>Docs</span>
+      <div class="prose">
+        <h1>Documentation</h1>
+        <p class="lede-doc">{intro}</p>
+      </div>
+      {sections.map((s) => (
+        <>
+          <h2 class="index-title">{s.title}</h2>
+          <div class="index-grid">
+            {s.pages.map((id) => (
+              <a class="index-card" href={`/docs/${id}`}>
+                <span class="index-name">{label(byId.get(id)!)}</span>
+                <span class="index-desc">{description(byId.get(id)!)}</span>
+              </a>
+            ))}
+          </div>
+        </>
+      ))}
+    </article>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+  </main>
+</Base>

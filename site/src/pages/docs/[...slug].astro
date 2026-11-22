@@ -1,0 +1,34 @@
+---
+import Base from "../../layouts/Base.astro";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+import "../../styles/docs.css";
+import { allDocs, description, headings, html, sectionOf, title } from "../../lib/docs";
+import { repo } from "../../lib/site";
+
+const docs = await allDocs();
+const doc = docs.find((d) => d.id === Astro.params.slug?.replace(/\/$/, ""));
+if (!doc) return Astro.rewrite("/404");
+const toc = headings(doc).filter((h) => h.depth === 2);
+---
+<Base title={`${title(doc)} · Keyring docs`} description={description(doc)} path={`/docs/${doc.id}`} type="article" markdown={`/docs/${doc.id}.md`} bodyClass="docs" docs>
+  <main class="wrap docs-layout">
+    <DocsSidebar docs={docs} active={doc.id} />
+    <article class="docs-main">
+      <a class="docs-back" href="/docs/">&larr; All docs</a><br />
+      <span class="eyebrow"><span class="glow"><i></i></span>{sectionOf(doc.id)}</span>
+      <div class="prose" set:html={html(doc)} />
+      <div class="docs-edit">
+        <a href={`/docs/${doc.id}.md`}>View as Markdown</a>
+        <a href={`${repo}/blob/main/docs/${doc.id}.md`}>Edit this page on GitHub</a>
+      </div>
+    </article>
+    <aside class="docs-toc" aria-label="On this page">
+      {toc.length > 1 && (
+        <nav class="toc">
+          <p class="side-title">On this page</p>
+          <ul>{toc.map((h) => <li><a href={`#${h.slug}`}>{h.text}</a></li>)}</ul>
+        </nav>
+      )}
+    </aside>
+  </main>
+</Base>

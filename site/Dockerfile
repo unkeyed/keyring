@@ -1,17 +1,21 @@
-# The Keyring site: the landing page plus docs/*.md rendered to HTML, behind
-# nginx on port 8080. Build from the repository root so docs/ is in the
-# context: docker build -f site/Dockerfile .
-FROM node:24-alpine AS docs
-WORKDIR /build
-COPY site/docs-build/package.json site/docs-build/package-lock.json ./
+# kyring.dev: Astro builds the landing page and renders docs/*.md, and its
+# Node server serves everything on port 8080. Build from the repository root
+# so docs/ is in the context: docker build -f site/Dockerfile .
+FROM node:24-alpine AS build
+WORKDIR /repo/site
+COPY site/package.json site/package-lock.json ./
 RUN npm ci --no-audit --no-fund
-COPY site/docs-build/ ./
-COPY docs/ /docs/
-RUN node build.mjs /docs /out/docs
+COPY site/ ./
+COPY docs/ /repo/docs/
+RUN npm run build
 
-FROM nginx:1.27-alpine
-COPY site/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --chmod=755 site/analytics.sh /docker-entrypoint.d/40-analytics.sh
-COPY site/index.html site/app.js site/base.css site/favicon.svg site/og.png /usr/share/nginx/html/
-COPY --from=docs /out/docs /usr/share/nginx/html/docs
+FROM node:24-alpine
+WORKDIR /site
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=8080
+COPY site/package.json site/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY --from=build /repo/site/dist ./dist
+COPY site/start.mjs ./
+USER node
 EXPOSE 8080
+CMD ["node", "start.mjs"]
