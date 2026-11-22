@@ -242,7 +242,8 @@ func (s *Service) FindContactByEmail(ctx context.Context, email string) (Contact
 // CreateContact adds a person by hand, such as someone met at an event who
 // never signed up. The company comes from the email domain as it does for a
 // sign-up (none for free mail), and the contact and a new company are queued
-// for enrichment. Given fields are manual. An email that already resolves to
+// for enrichment. Without a Stage it starts in its company's stage, if the
+// company has one, else the first. Given fields are manual. An email that already resolves to
 // a contact, directly or through an identity, is an *ExistsError naming it.
 // An unknown Stage or a LinkedInURL that is not a web address is ErrInvalid.
 // Writes a contact_created activity.
@@ -312,6 +313,15 @@ func (s *Service) CreateContact(ctx context.Context, actor Actor, in NewContact)
 				return err
 			}
 			c.companyID = &coID
+			if in.Stage == "" {
+				st, err := companyStage(ctx, tx, coID)
+				if err != nil {
+					return err
+				}
+				if st != "" {
+					c.stage = st
+				}
+			}
 		}
 		if err := writeContact(ctx, tx, c); err != nil {
 			return err
@@ -733,17 +743,20 @@ func (s *Service) ListTags(ctx context.Context) (map[Tag]int, error) {
 	return tags, err
 }
 
-// ListStages returns stages in position order with their contact counts.
+// ListStages returns stages in position order with their contact and
+// company counts.
 func (s *Service) ListStages(ctx context.Context) ([]StageCount, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT s.name, count(c.id) FROM stages s LEFT JOIN contacts c ON c.stage = s.name
-		 GROUP BY s.name, s.position ORDER BY s.position, s.name`)
+		SELECT s.name,
+		       (SELECT count(*) FROM contacts c WHERE c.stage = s.name),
+		       (SELECT count(*) FROM companies co WHERE co.stage = s.name)
+		  FROM stages s ORDER BY s.position, s.name`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (StageCount, error) {
 		var sc StageCount
-		err := r.Scan(&sc.Name, &sc.ContactCount)
+		err := r.Scan(&sc.Name, &sc.ContactCount, &sc.CompanyCount)
 		return sc, err
 	})
 }
@@ -764,7 +777,8 @@ func (s *Service) checkStage(ctx context.Context, st Stage) error {
 
 // SetStages replaces the ordered stage list. renames maps old name to new
 // name so contacts follow (ON UPDATE CASCADE). Removing a stage that
-// contacts still use is ErrInvalid. New contacts take the first stage.
+// contacts or companies still use is ErrInvalid. New contacts take the
+// first stage, or their company's.
 func (s *Service) SetStages(ctx context.Context, actor Actor, stages []Stage, renames map[Stage]Stage) error {
 	if len(stages) == 0 {
 		return fmt.Errorf("%w: keep at least one stage; new contacts start in the first", ErrInvalid)
@@ -794,7 +808,7 @@ func (s *Service) SetStages(ctx context.Context, actor Actor, stages []Stage, re
 	})
 	switch pgCode(err) {
 	case foreignKeyViolation:
-		return fmt.Errorf("%w: a removed stage still has contacts; move them first", ErrInvalid)
+		return fmt.Errorf("%w: a removed stage still has contacts or companies; move them first", ErrInvalid)
 	case uniqueViolation, checkViolation:
 		return fmt.Errorf("%w: stage names must be unique, trimmed and non-empty", ErrInvalid)
 	}

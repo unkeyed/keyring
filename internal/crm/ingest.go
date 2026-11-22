@@ -118,6 +118,17 @@ func ingestSignup(ctx context.Context, tx pgx.Tx, actor Actor, su signup.Signup,
 			c.companyID = &coID
 		}
 	}
+	// A new person at a company with a stage, such as a customer, joins it
+	// there rather than in the first stage.
+	if created && c.companyID != nil {
+		st, err := companyStage(ctx, tx, *c.companyID)
+		if err != nil {
+			return res, err
+		}
+		if st != "" {
+			c.stage = st
+		}
+	}
 	if err := writeContact(ctx, tx, c); err != nil {
 		return res, err
 	}

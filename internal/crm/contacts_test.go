@@ -334,7 +334,7 @@ func TestStagesRenameAndGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []StageCount{{"lead", 1}, {"qualified", 0}, {"customer", 0}, {"churned", 0}}
+	want := []StageCount{{"lead", 1, 0}, {"qualified", 0, 0}, {"customer", 0, 0}, {"churned", 0, 0}}
 	if got, _ := s.ListStages(ctx); !slices.Equal(got, want) {
 		t.Fatalf("stages = %v, want %v", got, want)
 	}

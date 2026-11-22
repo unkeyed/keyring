@@ -169,6 +169,8 @@ export interface Company {
   /** "NASDAQ: XYZ", or "". */
   stock: string;
   logos: Logo[];
+  /** Null until someone sets it. Setting it moves every contact at the company too. */
+  stage: Stage | null;
   contact_count: number;
   enrichment: JobState;
   manual_fields: CompanyField[];
@@ -202,6 +204,7 @@ export interface ContactQuery {
 
 export interface CompanyQuery {
   q?: string;
+  stage?: Stage;
   cursor?: string;
   limit?: number;
 }
@@ -230,7 +233,11 @@ export interface ContactPatch {
   remove_tags?: Tag[];
 }
 
-export type CompanyPatch = Partial<Record<CompanyField, string>>;
+/**
+ * Omitted fields are left alone; every present field becomes manual. stage
+ * moves every contact at the company to it, and "" clears the company's.
+ */
+export type CompanyPatch = Partial<Record<CompanyField, string>> & { stage?: Stage };
 
 /** POST /v1/contacts: a person added by hand. Every field given is pinned. */
 export interface NewContact {

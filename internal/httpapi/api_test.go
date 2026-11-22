@@ -336,6 +336,18 @@ func TestContactLifecycle(t *testing.T) {
 	}
 	agent.call("POST", "/v1/companies/"+co+"/enrich", nil, http.StatusAccepted, nil)
 
+	agent.call("PATCH", "/v1/companies/"+co, map[string]string{"stage": "customer"}, http.StatusOK, &company)
+	if company.Stage == nil || *company.Stage != "customer" {
+		t.Fatalf("company stage = %v", company.Stage)
+	}
+	agent.call("GET", "/v1/companies?stage=customer", nil, http.StatusOK, &companies)
+	var customers crm.Page[crm.Contact]
+	agent.call("GET", "/v1/contacts?stage=customer", nil, http.StatusOK, &customers)
+	if len(companies.Items) != 1 || len(customers.Items) != 1 {
+		t.Fatalf("in customer: %d companies, %d contacts; want 1 and 1", len(companies.Items), len(customers.Items))
+	}
+	agent.call("PATCH", "/v1/companies/"+co, map[string]string{"stage": "vip"}, http.StatusBadRequest, nil)
+
 	var st struct {
 		Contacts int
 		KeyStore string `json:"key_store"`

@@ -530,6 +530,11 @@ paths:
           description: Exact domain, case-insensitive, such as stripe.com.
           schema:
             type: string
+        - name: stage
+          in: query
+          description: Exact stage name. An unknown one is 400 listing the stages.
+          schema:
+            type: string
         - $ref: "#/components/parameters/cursor"
         - $ref: "#/components/parameters/limit"
       responses:
@@ -596,7 +601,13 @@ paths:
     patch:
       tags: [companies]
       operationId: updateCompany
-      summary: Edit a company's fields. Each field you send is pinned.
+      summary: Edit a company's fields or stage. Each field you send is pinned.
+      description: >-
+        Setting stage moves every contact at the company to that stage, and
+        contacts created at the company later start in it. Sending it again
+        moves anyone who has left it since. An empty string clears the
+        company's stage and leaves its contacts where they are. An unknown
+        stage is 400.
       requestBody:
         required: true
         content:
@@ -779,7 +790,7 @@ paths:
       tags: [settings]
       operationId: setStages
       summary: Replace the ordered stage list.
-      description: renames maps an old name to a new one so contacts follow. Removing a stage that contacts still use is 400.
+      description: renames maps an old name to a new one so contacts and companies follow. Removing a stage that contacts or companies still use is 400.
       security:
         - session: []
       requestBody:
@@ -815,7 +826,7 @@ paths:
     get:
       tags: [timeline]
       operationId: listStageCounts
-      summary: The pipeline stages in order, each with how many contacts are in it.
+      summary: The pipeline stages in order, each with how many contacts and companies are in it.
       responses:
         "200":
           description: Stages with counts.
@@ -2296,7 +2307,7 @@ components:
                 $ref: "#/components/schemas/Activity"
     Company:
       type: object
-      required: [id, domain, name, description, logo_url, employee_range, industry, country, linkedin_url, tagline, headquarters, socials, links, segments, stock, logos, contact_count, enrichment, manual_fields, created_at, updated_at]
+      required: [id, domain, name, description, logo_url, employee_range, industry, country, linkedin_url, tagline, headquarters, socials, links, segments, stock, logos, stage, contact_count, enrichment, manual_fields, created_at, updated_at]
       properties:
         id:
           type: integer
@@ -2353,6 +2364,11 @@ components:
             squarest.
           items:
             $ref: "#/components/schemas/Logo"
+        stage:
+          description: >-
+            The company's pipeline stage, or null until someone sets it. New
+            contacts at the company start in it.
+          type: [string, "null"]
         contact_count:
           type: integer
         enrichment:
@@ -2448,11 +2464,13 @@ components:
           description: Absent on the last page.
     StageCount:
       type: object
-      required: [name, contact_count]
+      required: [name, contact_count, company_count]
       properties:
         name:
           type: string
         contact_count:
+          type: integer
+        company_count:
           type: integer
     BulkUpdate:
       type: object
@@ -2528,6 +2546,11 @@ components:
       type: object
       additionalProperties: false
       properties:
+        stage:
+          type: string
+          description: >-
+            One of GET /v1/stages. Moves every contact at the company to it.
+            An empty string clears the company's stage.
         name:
           type: string
         description:

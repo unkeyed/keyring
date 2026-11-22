@@ -115,14 +115,14 @@ Keyring's MCP server has 24 tools. Every REST operation an API key can call has 
 | `list_activity` | `GET /v1/activity` | Pages the timeline, filtered by contact, company, kind, and time. |
 | `list_recent_signups` | `GET /v1/activity?kind=signed_up` | Pages the newest sign-ups from every provider. |
 | `get_company` | `GET /v1/companies/{id}` | Gets a company by id or domain, with its newest 50 contacts and timeline. |
-| `search_companies` | `GET /v1/companies` | Searches companies by name or exact domain. Returns a page of short summaries and a cursor for the next. |
+| `search_companies` | `GET /v1/companies` | Searches companies by name, exact domain, or stage. Returns a page of short summaries and a cursor for the next. |
 | `create_company` | `POST /v1/companies` | Adds a company by domain and queues enrichment. Free-mail domains are refused. |
-| `update_company` | `PATCH /v1/companies/{id}` | Changes a company's fields. |
+| `update_company` | `PATCH /v1/companies/{id}` | Changes a company's fields or stage. Setting the stage moves everyone at the company to it. |
 | `reset_company_field` | `DELETE /v1/companies/{id}/manual_fields/{field}` | Gives a company field back to enrichment. |
 | `delete_company` | `DELETE /v1/companies/{id}` | Deletes a company and its timeline. Its contacts stay, unlinked. Cannot be undone. |
 | `enrich_contact` | `POST /v1/contacts/{id}/enrich` | Queues a new context.dev lookup for a contact and its company. |
 | `enrich_company` | `POST /v1/companies/{id}/enrich` | Queues a new context.dev lookup for a company. |
-| `list_stages` | `GET /v1/stages/counts` | Lists the pipeline stages in order with how many contacts are in each. New contacts start in the first one. |
+| `list_stages` | `GET /v1/stages/counts` | Lists the pipeline stages in order with how many contacts and companies are in each. New contacts start in the first one, or in their company's stage when it has one. |
 | `list_tags` | `GET /v1/tags` | Lists every tag in use and how many contacts have it. |
 | `get_status` | `GET /v1/status` | Counts contacts and companies, says whether enrichment is on or paused and why, and names the API key store. |
 
@@ -199,6 +199,17 @@ curl -X POST https://crm.example.com/v1/contacts/bulk \
 ```
 
 The answer is `200` with `{"results": [{"id": 1, "ok": true}, {"id": 2, "ok": false, "error": "no contact 2"}, ...]}`. A missing contact fails alone. Up to 200 ids fit in one call.
+
+To mark a whole company, such as a customer with many people signed up, set the company's stage:
+
+```sh
+curl -X PATCH https://crm.example.com/v1/companies/42 \
+	-H "Authorization: Bearer keyring_..." \
+	-H "Content-Type: application/json" \
+	-d '{"stage": "customer"}'
+```
+
+Every contact at the company moves to `customer`, and people who sign up there later start in it instead of the first stage. You can still move one person on their own; sending the company's stage again brings them back. `{"stage": ""}` clears the company's stage and leaves its contacts where they are.
 
 `DELETE /v1/contacts/{id}` erases a contact with its identities, notes, and timeline, and answers `204`. `DELETE /v1/companies/{id}` deletes a company and leaves its contacts unlinked. Neither can be undone.
 
