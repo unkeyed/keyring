@@ -24,6 +24,7 @@ const contactSelect = `
 SELECT c.id, c.email, c.name, c.avatar_url, c.title, c.location, c.bio, c.linkedin_url, c.socials,
        co.id, co.domain, co.name, c.stage,
        ARRAY(SELECT t.tag FROM contact_tags t WHERE t.contact_id = c.id ORDER BY t.tag),
+       ARRAY(SELECT t.tag FROM company_tags t WHERE t.company_id = c.company_id ORDER BY t.tag),
        ARRAY(SELECT DISTINCT i.provider FROM identities i WHERE i.contact_id = c.id ORDER BY i.provider),
        COALESCE(j.state, ''), c.manual_fields, c.first_seen_at, c.last_seen_at, c.created_at, c.updated_at
   FROM contacts c
@@ -36,7 +37,7 @@ func scanContact(row pgx.Row) (Contact, error) {
 	var coDomain Domain
 	var coName *string
 	err := row.Scan(&c.ID, &c.Email, &c.Name, &c.AvatarURL, &c.Title, &c.Location, &c.Bio, &c.LinkedInURL, &c.Socials,
-		&coID, &coDomain, &coName, &c.Stage, &c.Tags, &c.Providers, &c.Enrichment, &c.ManualFields,
+		&coID, &coDomain, &coName, &c.Stage, &c.Tags, &c.CompanyTags, &c.Providers, &c.Enrichment, &c.ManualFields,
 		&c.FirstSeenAt, &c.LastSeenAt, &c.CreatedAt, &c.UpdatedAt)
 	if coID != nil {
 		c.Company = &CompanyRef{ID: *coID, Domain: coDomain, Name: *coName}
@@ -135,7 +136,8 @@ func (s *Service) SearchContacts(ctx context.Context, q ContactQuery) (Page[Cont
 		w.add("(c.email = %[1]s OR EXISTS (SELECT 1 FROM identities i WHERE i.contact_id = c.id AND i.email = %[1]s))", w.arg(e))
 	}
 	if tag, err := ParseTag(string(q.Tag)); err == nil {
-		w.add("EXISTS (SELECT 1 FROM contact_tags t WHERE t.contact_id = c.id AND t.tag = %s)", w.arg(tag))
+		w.add(`(EXISTS (SELECT 1 FROM contact_tags t WHERE t.contact_id = c.id AND t.tag = %[1]s)
+			OR EXISTS (SELECT 1 FROM company_tags t WHERE t.company_id = c.company_id AND t.tag = %[1]s))`, w.arg(tag))
 	}
 	if q.Stage != "" {
 		if err := s.checkStage(ctx, q.Stage); err != nil {
@@ -316,7 +318,7 @@ func (s *Service) CreateContact(ctx context.Context, actor Actor, in NewContact)
 		if err := writeContact(ctx, tx, c); err != nil {
 			return err
 		}
-		if _, err := changeTags(ctx, tx, id, tags, nil); err != nil {
+		if _, err := changeTags(ctx, tx, contactTags, int64(id), tags, nil); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO enrichment_jobs (contact_id, state) VALUES ($1, $2)`, id, state); err != nil {
@@ -416,7 +418,7 @@ func (s *Service) UpdateContact(ctx context.Context, actor Actor, id ContactID, 
 				return err
 			}
 		}
-		if tags, err := changeTags(ctx, tx, id, add, remove); err != nil {
+		if tags, err := changeTags(ctx, tx, contactTags, int64(id), add, remove); err != nil {
 			return err
 		} else if tags != nil {
 			diff["tags"] = tags
@@ -450,13 +452,21 @@ type tagChange struct {
 	Removed []string `json:"removed,omitempty"`
 }
 
-// changeTags applies tag set changes and returns the ones that took effect,
-// or nil when none did.
-func changeTags(ctx context.Context, tx pgx.Tx, id ContactID, add, remove []string) (*tagChange, error) {
+// tagTable is a tag table and the column naming the tagged row.
+type tagTable struct{ table, key string }
+
+var (
+	contactTags = tagTable{"contact_tags", "contact_id"}
+	companyTags = tagTable{"company_tags", "company_id"}
+)
+
+// changeTags applies tag set changes to row id of t and returns the ones
+// that took effect, or nil when none did.
+func changeTags(ctx context.Context, tx pgx.Tx, t tagTable, id int64, add, remove []string) (*tagChange, error) {
 	var tc tagChange
 	if len(add) > 0 {
 		rows, err := tx.Query(ctx, `
-			INSERT INTO contact_tags (contact_id, tag) SELECT $1, unnest($2::text[])
+			INSERT INTO `+t.table+` (`+t.key+`, tag) SELECT $1, unnest($2::text[])
 			ON CONFLICT DO NOTHING RETURNING tag`, id, add)
 		if err != nil {
 			return nil, err
@@ -466,7 +476,7 @@ func changeTags(ctx context.Context, tx pgx.Tx, id ContactID, add, remove []stri
 		}
 	}
 	if len(remove) > 0 {
-		rows, err := tx.Query(ctx, `DELETE FROM contact_tags WHERE contact_id = $1 AND tag = ANY($2) RETURNING tag`, id, remove)
+		rows, err := tx.Query(ctx, `DELETE FROM `+t.table+` WHERE `+t.key+` = $1 AND tag = ANY($2) RETURNING tag`, id, remove)
 		if err != nil {
 			return nil, err
 		}
@@ -717,9 +727,17 @@ func (s *Service) BulkUpdateContacts(ctx context.Context, actor Actor, b BulkUpd
 	return results, nil
 }
 
-// ListTags returns every tag in use with its contact count.
+// ListTags returns every tag on a contact or a company, with how many
+// contacts carry it themselves or through their company: the number a
+// contact search by that tag finds. A tag only on companies without
+// contacts counts 0.
 func (s *Service) ListTags(ctx context.Context) (map[Tag]int, error) {
-	rows, err := s.db.Query(ctx, `SELECT tag, count(*) FROM contact_tags GROUP BY tag`)
+	rows, err := s.db.Query(ctx, `
+		SELECT tag, count(DISTINCT contact_id) FROM (
+		  SELECT tag, contact_id FROM contact_tags
+		  UNION ALL
+		  SELECT t.tag, c.id FROM company_tags t LEFT JOIN contacts c ON c.company_id = t.company_id
+		) x GROUP BY tag`)
 	if err != nil {
 		return nil, err
 	}

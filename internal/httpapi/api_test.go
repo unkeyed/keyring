@@ -105,7 +105,7 @@ func (c client) call(method, path string, body any, want int, out any) reply {
 }
 
 // listKeys are the JSON fields that hold arrays. None may be null.
-var listKeys = []string{"items", "tags", "providers", "manual_fields", "identities", "notes", "activity", "contacts", "stages",
+var listKeys = []string{"items", "tags", "company_tags", "providers", "manual_fields", "identities", "notes", "activity", "contacts", "stages",
 	"socials", "links", "segments", "logos"}
 
 func noNullLists(t *testing.T, what string, body []byte) {
@@ -335,6 +335,20 @@ func TestContactLifecycle(t *testing.T) {
 		t.Fatalf("company contacts = %d, want 1", len(codetail.Contacts))
 	}
 	agent.call("POST", "/v1/companies/"+co+"/enrich", nil, http.StatusAccepted, nil)
+
+	agent.call("PATCH", "/v1/companies/"+co, map[string]any{"add_tags": []string{"customer"}}, http.StatusOK, &company)
+	if !slices.Equal(company.Tags, []crm.Tag{"customer"}) {
+		t.Fatalf("company tags = %v", company.Tags)
+	}
+	agent.call("GET", "/v1/companies?tag=customer", nil, http.StatusOK, &companies)
+	if len(companies.Items) != 1 {
+		t.Fatalf("companies tagged customer = %+v", companies.Items)
+	}
+	var customers crm.Page[crm.Contact]
+	agent.call("GET", "/v1/contacts?tag=customer", nil, http.StatusOK, &customers)
+	if len(customers.Items) != 1 || !slices.Equal(customers.Items[0].CompanyTags, []crm.Tag{"customer"}) {
+		t.Fatalf("contacts tagged customer = %+v", customers.Items)
+	}
 
 	var st struct {
 		Contacts int

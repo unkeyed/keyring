@@ -22,6 +22,7 @@ const fieldLogoURL Field = "logo_url"
 const companySelect = `
 SELECT co.id, co.domain, co.name, co.description, co.logo_url, co.employee_range, co.industry, co.country,
        co.linkedin_url, co.tagline, co.headquarters, co.socials, co.links, co.segments, co.stock, co.logos,
+       ARRAY(SELECT t.tag FROM company_tags t WHERE t.company_id = co.id ORDER BY t.tag),
        (SELECT count(*) FROM contacts c WHERE c.company_id = co.id),
        COALESCE(j.state, ''), co.manual_fields, co.created_at, co.updated_at
   FROM companies co
@@ -31,7 +32,7 @@ func scanCompany(row pgx.Row) (Company, error) {
 	var c Company
 	err := row.Scan(&c.ID, &c.Domain, &c.Name, &c.Description, &c.LogoURL, &c.EmployeeRange, &c.Industry, &c.Country,
 		&c.LinkedInURL, &c.Tagline, &c.Headquarters, &c.Socials, &c.Links, &c.Segments, &c.Stock, &c.Logos,
-		&c.ContactCount, &c.Enrichment, &c.ManualFields, &c.CreatedAt, &c.UpdatedAt)
+		&c.Tags, &c.ContactCount, &c.Enrichment, &c.ManualFields, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 
@@ -154,6 +155,9 @@ func (s *Service) SearchCompanies(ctx context.Context, q CompanyQuery) (Page[Com
 		}
 		w.add("co.domain = %s", w.arg(d))
 	}
+	if tag, err := ParseTag(string(q.Tag)); err == nil {
+		w.add("EXISTS (SELECT 1 FROM company_tags t WHERE t.company_id = co.id AND t.tag = %s)", w.arg(tag))
+	}
 	if q.Cursor != "" {
 		t, id, err := decodeCursor(q.Cursor)
 		if err != nil {
@@ -207,10 +211,18 @@ func (s *Service) GetCompanyByDomain(ctx context.Context, domain string) (Compan
 	return s.GetCompany(ctx, id)
 }
 
-// UpdateCompany overwrites non-nil fields, adds them to manual_fields and
-// writes a company_updated activity. A LinkedInURL that is not a web address
-// is ErrInvalid.
+// UpdateCompany overwrites non-nil fields, adds them to manual_fields,
+// applies tag changes and writes one company_updated activity. A LinkedInURL
+// that is not a web address or a blank tag is ErrInvalid.
 func (s *Service) UpdateCompany(ctx context.Context, actor Actor, id CompanyID, p CompanyPatch) (Company, error) {
+	add, err := parseTags(p.AddTags)
+	if err != nil {
+		return Company{}, err
+	}
+	remove, err := parseTags(p.RemoveTags)
+	if err != nil {
+		return Company{}, err
+	}
 	if p.LinkedInURL != nil {
 		u, err := webURL(FieldLinkedInURL, *p.LinkedInURL)
 		if err != nil {
@@ -218,13 +230,13 @@ func (s *Service) UpdateCompany(ctx context.Context, actor Actor, id CompanyID, 
 		}
 		p.LinkedInURL = &u
 	}
-	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		c, err := lockCompany(ctx, tx, id)
 		if err != nil {
 			return err
 		}
 		before := len(c.manual)
-		diff := map[string]change{}
+		diff := map[string]any{}
 		for _, e := range []struct {
 			f   Field
 			col *string
@@ -248,11 +260,18 @@ func (s *Service) UpdateCompany(ctx context.Context, actor Actor, id CompanyID, 
 				*e.col = v
 			}
 		}
-		if len(diff) == 0 && len(c.manual) == before {
-			return nil
+		if len(diff) > 0 || len(c.manual) != before {
+			if err := writeCompany(ctx, tx, c); err != nil {
+				return err
+			}
 		}
-		if err := writeCompany(ctx, tx, c); err != nil || len(diff) == 0 {
+		if tags, err := changeTags(ctx, tx, companyTags, int64(id), add, remove); err != nil {
 			return err
+		} else if tags != nil {
+			diff["tags"] = tags
+		}
+		if len(diff) == 0 {
+			return nil
 		}
 		_, err = recordActivity(ctx, tx, activityRow{company: id, kind: ActivityCompanyUpdated, actor: actor, data: diff, at: s.now()})
 		return err

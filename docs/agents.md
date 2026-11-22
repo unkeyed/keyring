@@ -101,7 +101,7 @@ Keyring's MCP server has 24 tools. Every REST operation an API key can call has 
 
 | Tool | REST | What it does |
 |---|---|---|
-| `search_contacts` | `GET /v1/contacts` | Searches contacts by text, exact email, tag, stage, auth provider, company, or sign-up time. Returns a page of short summaries and a cursor for the next. |
+| `search_contacts` | `GET /v1/contacts` | Searches contacts by text, exact email, tag (on the contact or its company), stage, auth provider, company, or sign-up time. Returns a page of short summaries and a cursor for the next. |
 | `get_contact` | `GET /v1/contacts/{id}` | Gets one contact by id or any email it used, with identities, notes, and the newest 50 timeline entries. |
 | `create_contact` | `POST /v1/contacts` | Adds a person by email, such as someone met at an event. Finds the company from the email domain and queues enrichment. |
 | `update_contact` | `PATCH /v1/contacts/{id}` | Changes a contact's fields, stage, company, or tags. |
@@ -115,15 +115,15 @@ Keyring's MCP server has 24 tools. Every REST operation an API key can call has 
 | `list_activity` | `GET /v1/activity` | Pages the timeline, filtered by contact, company, kind, and time. |
 | `list_recent_signups` | `GET /v1/activity?kind=signed_up` | Pages the newest sign-ups from every provider. |
 | `get_company` | `GET /v1/companies/{id}` | Gets a company by id or domain, with its newest 50 contacts and timeline. |
-| `search_companies` | `GET /v1/companies` | Searches companies by name or exact domain. Returns a page of short summaries and a cursor for the next. |
+| `search_companies` | `GET /v1/companies` | Searches companies by name, exact domain, or tag. Returns a page of short summaries and a cursor for the next. |
 | `create_company` | `POST /v1/companies` | Adds a company by domain and queues enrichment. Free-mail domains are refused. |
-| `update_company` | `PATCH /v1/companies/{id}` | Changes a company's fields. |
+| `update_company` | `PATCH /v1/companies/{id}` | Changes a company's fields or tags. A company's tags apply to every contact at it. |
 | `reset_company_field` | `DELETE /v1/companies/{id}/manual_fields/{field}` | Gives a company field back to enrichment. |
 | `delete_company` | `DELETE /v1/companies/{id}` | Deletes a company and its timeline. Its contacts stay, unlinked. Cannot be undone. |
 | `enrich_contact` | `POST /v1/contacts/{id}/enrich` | Queues a new context.dev lookup for a contact and its company. |
 | `enrich_company` | `POST /v1/companies/{id}/enrich` | Queues a new context.dev lookup for a company. |
 | `list_stages` | `GET /v1/stages/counts` | Lists the pipeline stages in order with how many contacts are in each. New contacts start in the first one. |
-| `list_tags` | `GET /v1/tags` | Lists every tag in use and how many contacts have it. |
+| `list_tags` | `GET /v1/tags` | Lists every tag on contacts and companies, and how many contacts have it, directly or through their company. |
 | `get_status` | `GET /v1/status` | Counts contacts and companies, says whether enrichment is on or paused and why, and names the API key store. |
 
 A value that a person or an agent sets wins over machine data. After an agent sets a contact's `title`, a later webhook or enrichment does not change it. `reset_contact_field` removes that hold.
@@ -199,6 +199,17 @@ curl -X POST https://crm.example.com/v1/contacts/bulk \
 ```
 
 The answer is `200` with `{"results": [{"id": 1, "ok": true}, {"id": 2, "ok": false, "error": "no contact 2"}, ...]}`. A missing contact fails alone. Up to 200 ids fit in one call.
+
+To tag everyone at a company, such as a customer with many people signed up, tag the company once:
+
+```sh
+curl -X PATCH https://crm.example.com/v1/companies/42 \
+	-H "Authorization: Bearer keyring_..." \
+	-H "Content-Type: application/json" \
+	-d '{"add_tags": ["customer"]}'
+```
+
+The tag applies to the company's contacts, including people who sign up later. Each contact lists it under `company_tags`, and `GET /v1/contacts?tag=customer` finds them along with contacts tagged `customer` themselves.
 
 `DELETE /v1/contacts/{id}` erases a contact with its identities, notes, and timeline, and answers `204`. `DELETE /v1/companies/{id}` deletes a company and leaves its contacts unlinked. Neither can be undone.
 

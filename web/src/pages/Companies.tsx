@@ -3,14 +3,22 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type Company, type Status } from "../api";
 import { companyLabel, countryName } from "../format";
-import { keys, usePrefetch, useStatus } from "../queries";
+import { keys, usePrefetch, useStatus, useTags } from "../queries";
 import { NewCompanyDialog } from "../components/CreateDialogs";
 import { useRowNav } from "../components/RowNav";
-import { Button, CompanyLogo, cx, EmptyState, EnrichmentBadge, ErrorNote, Icon, inputClass, Kbd, ListSkeleton, listShortcuts, PageHeader, ProgressBar, SearchKbd, ShortcutsHelp, useWide } from "../ui";
+import { TagCell } from "../components/Tags";
+import { Button, CompanyLogo, cx, EmptyState, EnrichmentBadge, ErrorNote, Icon, inputClass, Kbd, ListSkeleton, listShortcuts, PageHeader, ProgressBar, SearchKbd, selectClass, ShortcutsHelp, useWide } from "../ui";
 
 export function Companies() {
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
+  const tag = params.get("tag") ?? "";
+  const tags = useTags();
+  /** Writes q and tag to the URL, dropping empty ones. */
+  const setQuery = (next: { q?: string; tag?: string }) => {
+    const v = { q, tag, ...next };
+    setParams(Object.fromEntries(Object.entries(v).filter(([, x]) => x)), { replace: true });
+  };
   const [draft, setDraft] = useState(q);
   const [creating, setCreating] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -22,13 +30,13 @@ export function Companies() {
 
   useEffect(() => {
     if (draft === q) return;
-    const t = window.setTimeout(() => setParams(draft ? { q: draft } : {}, { replace: true }), 200);
+    const t = window.setTimeout(() => setQuery({ q: draft }), 200);
     return () => window.clearTimeout(t);
   });
 
   const list = useInfiniteQuery({
-    queryKey: [...keys.companies, q],
-    queryFn: ({ pageParam }) => api.companies.search({ q: q.trim() || undefined, cursor: pageParam, limit: 50 }),
+    queryKey: [...keys.companies, q, tag],
+    queryFn: ({ pageParam }) => api.companies.search({ q: q.trim() || undefined, tag: tag || undefined, cursor: pageParam, limit: 50 }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor || undefined,
     placeholderData: (prev) => prev,
@@ -47,7 +55,7 @@ export function Companies() {
     onNearEnd: () => list.hasNextPage && !list.isFetchingNextPage && void list.fetchNextPage(),
   });
   const { select } = nav;
-  useEffect(() => select(0), [q, select]);
+  useEffect(() => select(0), [q, tag, select]);
 
   return (
     <>
@@ -84,6 +92,17 @@ export function Companies() {
           />
           <SearchKbd />
         </div>
+        {(tag || (tags.data?.length ?? 0) > 0) && (
+          <select aria-label="Tag" className={cx(selectClass, "max-md:max-w-36")} value={tag} onChange={(e) => setQuery({ tag: e.target.value })}>
+            <option value="">All tags</option>
+            {tag && !tags.data?.some((t) => t.tag === tag) && <option value={tag}>{tag}</option>}
+            {tags.data?.map((t) => (
+              <option key={t.tag} value={t.tag}>
+                {t.tag}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div ref={listRef} aria-busy={stale || list.isPending} className={cx("relative min-h-0 flex-1 overflow-auto transition-opacity", stale && "opacity-60")}>
         {list.isPending ? (
@@ -94,8 +113,8 @@ export function Companies() {
           </div>
         ) : rows.length === 0 ? (
           <div className="mx-auto max-w-md px-4 py-16">
-            <EmptyState icon={q ? "search" : "building"} title={q ? "No companies match" : "No companies yet"}>
-              {q ? "Try a domain like acme.com." : "Companies appear when someone signs up with a work email, or when you add one with New company. Gmail and other free-mail addresses don't create one."}
+            <EmptyState icon={q || tag ? "search" : "building"} title={q || tag ? "No companies match" : "No companies yet"}>
+              {tag ? `No company${q ? " matching that search" : ""} is tagged ${tag}. Tag one from its page.` : q ? "Try a domain like acme.com." : "Companies appear when someone signs up with a work email, or when you add one with New company. Gmail and other free-mail addresses don't create one."}
             </EmptyState>
           </div>
         ) : wide ? (
@@ -106,6 +125,7 @@ export function Companies() {
                 <th scope="col" className="w-[22%] px-3 py-2 font-medium">Industry</th>
                 <th scope="col" className="hidden w-28 px-3 py-2 font-medium lg:table-cell">Employees</th>
                 <th scope="col" className="w-36 px-3 py-2 font-medium">Country</th>
+                <th scope="col" className="w-36 px-3 py-2 font-medium xl:w-52">Tags</th>
                 <th scope="col" className="w-24 py-2 pr-5 pl-3 text-right font-medium">Contacts</th>
               </tr>
             </thead>
@@ -163,6 +183,9 @@ function CompanyRow({ c, status, row, onOpen, onPrefetch }: { c: Company; status
       <td className="truncate px-3 text-muted">{c.industry || dash}</td>
       <td className="hidden truncate px-3 text-muted lg:table-cell">{c.employee_range || dash}</td>
       <td className="truncate px-3 text-muted">{c.country ? countryName(c.country) : dash}</td>
+      <td className="px-3">
+        <TagCell tags={c.tags ?? []} />
+      </td>
       <td className="py-1.5 pr-5 pl-3 text-right tabular-nums">{c.contact_count.toLocaleString()}</td>
     </tr>
   );

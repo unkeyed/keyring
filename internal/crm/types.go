@@ -78,7 +78,8 @@ type Contact struct {
 	Company      *CompanyRef `json:"company"` // nil for free-mail or unknown
 	Stage        Stage       `json:"stage"`
 	Tags         []Tag       `json:"tags"`
-	Providers    []string    `json:"providers"` // distinct identities.provider
+	CompanyTags  []Tag       `json:"company_tags"` // the company's tags, which apply to the contact too
+	Providers    []string    `json:"providers"`    // distinct identities.provider
 	Enrichment   JobState    `json:"enrichment"`
 	ManualFields []Field     `json:"manual_fields"`
 	FirstSeenAt  time.Time   `json:"first_seen_at"`
@@ -129,6 +130,7 @@ type Company struct {
 	Segments      []string  `json:"segments"` // sub-industries, most relevant first
 	Stock         string    `json:"stock"`    // "NASDAQ: XYZ", or ""
 	Logos         []Logo    `json:"logos"`    // best first (see Logo); LogoURL is the first one's URL
+	Tags          []Tag     `json:"tags"`     // apply to every contact at the company
 	ContactCount  int       `json:"contact_count"`
 	Enrichment    JobState  `json:"enrichment"`
 	ManualFields  []Field   `json:"manual_fields"`
@@ -240,7 +242,7 @@ const (
 type ContactQuery struct {
 	Text           string // case-insensitive substring of email, name, company name or domain
 	Email          string // exact after ParseEmail; matches the contact's email or any identity's
-	Tag            Tag
+	Tag            Tag    // on the contact or on its company
 	Stage          Stage
 	Provider       string
 	CompanyID      CompanyID
@@ -253,6 +255,7 @@ type ContactQuery struct {
 type CompanyQuery struct {
 	Text   string
 	Domain string // exact after ParseDomain
+	Tag    Tag
 	Cursor string
 	Limit  int
 }
@@ -293,6 +296,8 @@ type ContactPatch struct {
 	RemoveTags    []Tag   `json:"remove_tags,omitempty"`
 }
 
+// CompanyPatch is ContactPatch for companies: the REST PATCH body and the MCP
+// update_company "changes" argument.
 type CompanyPatch struct {
 	Name          *string `json:"name,omitempty"`
 	Description   *string `json:"description,omitempty"`
@@ -302,6 +307,8 @@ type CompanyPatch struct {
 	LinkedInURL   *string `json:"linkedin_url,omitempty"`
 	Tagline       *string `json:"tagline,omitempty"`
 	Headquarters  *string `json:"headquarters,omitempty"`
+	AddTags       []Tag   `json:"add_tags,omitempty" jsonschema:"tags such as customer; they apply to every contact at the company"`
+	RemoveTags    []Tag   `json:"remove_tags,omitempty"`
 }
 
 // NewContact is a contact added by hand rather than by a sign-up. Only Email

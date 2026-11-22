@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, ApiError, parseID, type Company, type CompanyDetail, type CompanyField, type CompanyID } from "../api";
+import { api, ApiError, parseID, type Company, type CompanyDetail, type CompanyField, type CompanyID, type CompanyPatch } from "../api";
 import { companyLabel, contactLabel, countryName, plural } from "../format";
 import { keys, useCompany, usePrefetch, useStatus } from "../queries";
+import { TagEditor } from "../components/Tags";
 import { DeleteDialog } from "../components/DeleteDialog";
 import { EditableField } from "../components/EditableField";
 import { LinkList, shortURL } from "../components/Links";
@@ -11,7 +12,7 @@ import { RecordLayout, RecordSkeleton, SectionTitle } from "../components/Record
 import { Timeline } from "../components/Timeline";
 import { useToast } from "../components/Toaster";
 import { NotFound } from "../Layout";
-import { Avatar, Badge, Button, CompanyLogo, Crumbs, cx, EnrichmentBadge, ErrorNote, Icon, PageHeader, RelativeTime, Skeleton, useEscapeTo } from "../ui";
+import { Avatar, Badge, Button, CompanyLogo, Crumbs, cx, EnrichmentBadge, errorMessage, ErrorNote, Icon, PageHeader, RelativeTime, Skeleton, useEscapeTo } from "../ui";
 
 const missing = { title: "Company not found", body: "The link may be wrong, or the company was removed.", parent: { label: "Companies", to: "/companies" } };
 
@@ -46,6 +47,33 @@ function CompanyView({ id }: { id: CompanyID }) {
     void qc.invalidateQueries({ queryKey: keys.company(id) });
     void qc.invalidateQueries({ queryKey: keys.companies });
   };
+  // Tag changes show at once and roll back if the save fails, as on a contact.
+  const patchKey = ["patch-company", id];
+  const tag = useMutation({
+    mutationKey: patchKey,
+    mutationFn: (p: CompanyPatch) => api.companies.update(id, p),
+    onMutate: async (p) => {
+      await qc.cancelQueries({ queryKey: keys.company(id) });
+      const prev = qc.getQueryData<CompanyDetail>(keys.company(id));
+      if (prev) {
+        const tags = [...new Set([...(prev.tags ?? []), ...(p.add_tags ?? [])])].filter((t) => !p.remove_tags?.includes(t)).sort();
+        qc.setQueryData<CompanyDetail>(keys.company(id), { ...prev, tags });
+      }
+      return prev;
+    },
+    onError: (err, _p, prev) => {
+      if (prev) qc.setQueryData(keys.company(id), prev);
+      toast(`Couldn't save: ${errorMessage(err)}`, "error");
+    },
+    onSettled: () => {
+      if (qc.isMutating({ mutationKey: patchKey }) > 1) return;
+      void qc.invalidateQueries({ queryKey: keys.company(id) });
+      void qc.invalidateQueries({ queryKey: keys.companies });
+      void qc.invalidateQueries({ queryKey: keys.contacts });
+      void qc.invalidateQueries({ queryKey: ["contact"] });
+      void qc.invalidateQueries({ queryKey: keys.tags });
+    },
+  });
   const enrich = useMutation({
     mutationFn: () => api.companies.enrich(id),
     onSuccess: () => toast("Re-enrichment queued"),
@@ -164,6 +192,11 @@ function CompanyView({ id }: { id: CompanyID }) {
                 onReset={async () => settle(await api.companies.resetField(id, f.field))}
               />
             ))}
+            <TagEditor
+              tags={c.tags ?? []}
+              onChange={tag.mutate}
+              note={c.contact_count > 0 && `Applies to ${c.contact_count === 1 ? "the 1 contact" : `all ${plural(c.contact_count, "contact")}`} at ${label}.`}
+            />
             <Links company={c} />
           </>
         }
