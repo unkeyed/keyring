@@ -206,18 +206,10 @@ func TestEveryToolOverHTTP(t *testing.T) {
 	if slices.Contains(co.ManualFields, crm.FieldName) {
 		t.Fatalf("reset_company_field left name pinned: %v", co.ManualFields)
 	}
-	call(t, cs, "update_company", map[string]any{"id": company.ID, "changes": map[string]any{"add_tags": []string{"customer"}}}, &co)
-	if !slices.Equal(co.Tags, []crm.Tag{"customer"}) {
-		t.Fatalf("update_company add_tags = %v", co.Tags)
-	}
-	call(t, cs, "search_companies", map[string]any{"tag": "customer"}, &companies)
-	if len(companies.Items) != 1 || !slices.Equal(companies.Items[0].Tags, []crm.Tag{"customer"}) {
-		t.Fatalf("search_companies tag = %+v", companies.Items)
-	}
-	var customers crm.Page[ContactSummary]
-	call(t, cs, "search_contacts", map[string]any{"tag": "customer"}, &customers)
-	if len(customers.Items) != 1 || !slices.Equal(customers.Items[0].CompanyTags, []crm.Tag{"customer"}) {
-		t.Fatalf("search_contacts tag customer = %+v", customers.Items)
+	call(t, cs, "update_company", map[string]any{"id": company.ID, "changes": map[string]any{"stage": "qualified"}}, &co)
+	call(t, cs, "search_companies", map[string]any{"stage": "qualified"}, &companies)
+	if len(companies.Items) != 1 || companies.Items[0].Stage == nil || *companies.Items[0].Stage != "qualified" {
+		t.Fatalf("search_companies stage = %+v", companies.Items)
 	}
 
 	var job enrichOut
@@ -232,7 +224,7 @@ func TestEveryToolOverHTTP(t *testing.T) {
 
 	var stages stagesOut
 	call(t, cs, "list_stages", nil, &stages)
-	if len(stages.Stages) != 4 || stages.Stages[0] != (crm.StageCount{Name: "new", ContactCount: 1}) || stages.Stages[1] != (crm.StageCount{Name: "qualified", ContactCount: 1}) {
+	if len(stages.Stages) != 4 || stages.Stages[0] != (crm.StageCount{Name: "new", ContactCount: 1}) || stages.Stages[1] != (crm.StageCount{Name: "qualified", ContactCount: 1, CompanyCount: 1}) {
 		t.Fatalf("list_stages = %v", stages.Stages)
 	}
 	var tags tagsOut

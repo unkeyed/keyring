@@ -21,8 +21,7 @@ const fieldLogoURL Field = "logo_url"
 
 const companySelect = `
 SELECT co.id, co.domain, co.name, co.description, co.logo_url, co.employee_range, co.industry, co.country,
-       co.linkedin_url, co.tagline, co.headquarters, co.socials, co.links, co.segments, co.stock, co.logos,
-       ARRAY(SELECT t.tag FROM company_tags t WHERE t.company_id = co.id ORDER BY t.tag),
+       co.linkedin_url, co.tagline, co.headquarters, co.socials, co.links, co.segments, co.stock, co.logos, co.stage,
        (SELECT count(*) FROM contacts c WHERE c.company_id = co.id),
        COALESCE(j.state, ''), co.manual_fields, co.created_at, co.updated_at
   FROM companies co
@@ -31,8 +30,8 @@ SELECT co.id, co.domain, co.name, co.description, co.logo_url, co.employee_range
 func scanCompany(row pgx.Row) (Company, error) {
 	var c Company
 	err := row.Scan(&c.ID, &c.Domain, &c.Name, &c.Description, &c.LogoURL, &c.EmployeeRange, &c.Industry, &c.Country,
-		&c.LinkedInURL, &c.Tagline, &c.Headquarters, &c.Socials, &c.Links, &c.Segments, &c.Stock, &c.Logos,
-		&c.Tags, &c.ContactCount, &c.Enrichment, &c.ManualFields, &c.CreatedAt, &c.UpdatedAt)
+		&c.LinkedInURL, &c.Tagline, &c.Headquarters, &c.Socials, &c.Links, &c.Segments, &c.Stock, &c.Logos, &c.Stage,
+		&c.ContactCount, &c.Enrichment, &c.ManualFields, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 
@@ -54,6 +53,7 @@ type companyRow struct {
 	links                                                                     Links
 	segments                                                                  []string
 	logos                                                                     []Logo
+	stage                                                                     *Stage
 	manual                                                                    []Field
 }
 
@@ -61,10 +61,10 @@ func lockCompany(ctx context.Context, tx pgx.Tx, id CompanyID) (companyRow, erro
 	c := companyRow{id: id}
 	err := tx.QueryRow(ctx, `
 		SELECT domain, name, description, logo_url, employee_range, industry, country, linkedin_url,
-		       tagline, headquarters, stock, socials, links, segments, logos, manual_fields
+		       tagline, headquarters, stock, socials, links, segments, logos, stage, manual_fields
 		  FROM companies WHERE id = $1 FOR NO KEY UPDATE`, id).
 		Scan(&c.domain, &c.name, &c.description, &c.logoURL, &c.employeeRange, &c.industry, &c.country, &c.linkedInURL,
-			&c.tagline, &c.headquarters, &c.stock, &c.socials, &c.links, &c.segments, &c.logos, &c.manual)
+			&c.tagline, &c.headquarters, &c.stock, &c.socials, &c.links, &c.segments, &c.logos, &c.stage, &c.manual)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, notFound(RecordCompany, "no company %d", id)
 	}
@@ -76,10 +76,10 @@ func writeCompany(ctx context.Context, tx pgx.Tx, c companyRow) error {
 		UPDATE companies
 		   SET name = $2, description = $3, logo_url = $4, employee_range = $5, industry = $6, country = $7,
 		       linkedin_url = $8, tagline = $9, headquarters = $10, stock = $11, socials = $12, links = $13,
-		       segments = $14, logos = $15, manual_fields = $16, updated_at = now()
+		       segments = $14, logos = $15, manual_fields = $16, stage = $17, updated_at = now()
 		 WHERE id = $1`,
 		c.id, c.name, c.description, c.logoURL, c.employeeRange, c.industry, c.country, c.linkedInURL,
-		c.tagline, c.headquarters, c.stock, c.socials, c.links, c.segments, c.logos, fieldNames(c.manual))
+		c.tagline, c.headquarters, c.stock, c.socials, c.links, c.segments, c.logos, fieldNames(c.manual), c.stage)
 	return err
 }
 
@@ -98,6 +98,16 @@ func upsertCompany(ctx context.Context, tx pgx.Tx, d Domain) (CompanyID, error) 
 	// A separate statement, so it sees a row a concurrent insert just committed.
 	err = tx.QueryRow(ctx, `SELECT id FROM companies WHERE domain = $1`, d).Scan(&id)
 	return id, err
+}
+
+// companyStage is company id's stage, or "" when it has none. A new
+// contact at the company starts in it.
+func companyStage(ctx context.Context, tx pgx.Tx, id CompanyID) (Stage, error) {
+	var st *Stage
+	if err := tx.QueryRow(ctx, `SELECT stage FROM companies WHERE id = $1`, id).Scan(&st); err != nil || st == nil {
+		return "", err
+	}
+	return *st, nil
 }
 
 // CreateCompany adds a company by hand and queues its enrichment. A
@@ -155,8 +165,11 @@ func (s *Service) SearchCompanies(ctx context.Context, q CompanyQuery) (Page[Com
 		}
 		w.add("co.domain = %s", w.arg(d))
 	}
-	if tag, err := ParseTag(string(q.Tag)); err == nil {
-		w.add("EXISTS (SELECT 1 FROM company_tags t WHERE t.company_id = co.id AND t.tag = %s)", w.arg(tag))
+	if q.Stage != "" {
+		if err := s.checkStage(ctx, q.Stage); err != nil {
+			return Page[Company]{}, err
+		}
+		w.add("co.stage = %s", w.arg(q.Stage))
 	}
 	if q.Cursor != "" {
 		t, id, err := decodeCursor(q.Cursor)
@@ -211,17 +224,17 @@ func (s *Service) GetCompanyByDomain(ctx context.Context, domain string) (Compan
 	return s.GetCompany(ctx, id)
 }
 
-// UpdateCompany overwrites non-nil fields, adds them to manual_fields,
-// applies tag changes and writes one company_updated activity. A LinkedInURL
-// that is not a web address or a blank tag is ErrInvalid.
+// UpdateCompany overwrites non-nil fields, adds them to manual_fields and
+// writes a company_updated activity. A non-empty Stage also moves every
+// contact at the company to it, each with its own contact_updated activity;
+// running it again moves anyone who has left the stage since. An empty Stage
+// clears the company's and leaves its contacts alone. An unknown Stage or a
+// LinkedInURL that is not a web address is ErrInvalid.
 func (s *Service) UpdateCompany(ctx context.Context, actor Actor, id CompanyID, p CompanyPatch) (Company, error) {
-	add, err := parseTags(p.AddTags)
-	if err != nil {
-		return Company{}, err
-	}
-	remove, err := parseTags(p.RemoveTags)
-	if err != nil {
-		return Company{}, err
+	if p.Stage != nil && *p.Stage != "" {
+		if err := s.checkStage(ctx, *p.Stage); err != nil {
+			return Company{}, err
+		}
 	}
 	if p.LinkedInURL != nil {
 		u, err := webURL(FieldLinkedInURL, *p.LinkedInURL)
@@ -230,13 +243,24 @@ func (s *Service) UpdateCompany(ctx context.Context, actor Actor, id CompanyID, 
 		}
 		p.LinkedInURL = &u
 	}
-	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if p.Stage != nil {
+			// Contacts before companies: the lock order every writer keeps.
+			if _, err := tx.Exec(ctx, `SELECT 1 FROM contacts WHERE company_id = $1 ORDER BY id FOR NO KEY UPDATE`, id); err != nil {
+				return err
+			}
+		}
 		c, err := lockCompany(ctx, tx, id)
 		if err != nil {
 			return err
 		}
 		before := len(c.manual)
-		diff := map[string]any{}
+		diff := map[string]change{}
+		if p.Stage != nil {
+			if err := s.setCompanyStage(ctx, tx, actor, &c, *p.Stage, diff); err != nil {
+				return err
+			}
+		}
 		for _, e := range []struct {
 			f   Field
 			col *string
@@ -260,18 +284,12 @@ func (s *Service) UpdateCompany(ctx context.Context, actor Actor, id CompanyID, 
 				*e.col = v
 			}
 		}
-		if len(diff) > 0 || len(c.manual) != before {
-			if err := writeCompany(ctx, tx, c); err != nil {
-				return err
-			}
-		}
-		if tags, err := changeTags(ctx, tx, companyTags, int64(id), add, remove); err != nil {
-			return err
-		} else if tags != nil {
-			diff["tags"] = tags
-		}
-		if len(diff) == 0 {
+		if len(diff) == 0 && len(c.manual) == before {
 			return nil
+		}
+
+		if err := writeCompany(ctx, tx, c); err != nil || len(diff) == 0 {
+			return err
 		}
 		_, err = recordActivity(ctx, tx, activityRow{company: id, kind: ActivityCompanyUpdated, actor: actor, data: diff, at: s.now()})
 		return err
@@ -280,6 +298,49 @@ func (s *Service) UpdateCompany(ctx context.Context, actor Actor, id CompanyID, 
 		return Company{}, err
 	}
 	return s.company(ctx, id)
+}
+
+// setCompanyStage sets c's stage to st, or clears it when st is "", and
+// records the change in diff. A non-empty st also moves every contact at the
+// company that is in another stage, each with a contact_updated activity.
+// The caller holds the contact and company locks and writes c.
+func (s *Service) setCompanyStage(ctx context.Context, tx pgx.Tx, actor Actor, c *companyRow, st Stage, diff map[string]change) error {
+	var from Stage
+	if c.stage != nil {
+		from = *c.stage
+	}
+	if st != from {
+		diff["stage"] = change{string(from), string(st)}
+	}
+	if st == "" {
+		c.stage = nil
+		return nil
+	}
+	c.stage = &st
+	rows, err := tx.Query(ctx, `
+		UPDATE contacts c SET stage = $2, updated_at = now()
+		  FROM (SELECT id, stage FROM contacts WHERE company_id = $1 AND stage <> $2) old
+		 WHERE c.id = old.id
+		RETURNING c.id, old.stage`, c.id, st)
+	if err != nil {
+		return err
+	}
+	type moved struct {
+		id   ContactID
+		from Stage
+	}
+	var ms []moved
+	var m moved
+	if _, err := pgx.ForEachRow(rows, []any{&m.id, &m.from}, func() error { ms = append(ms, m); return nil }); err != nil {
+		return err
+	}
+	for _, m := range ms {
+		if _, err := recordActivity(ctx, tx, activityRow{contact: m.id, kind: ActivityContactUpdated, actor: actor,
+			data: map[string]change{"stage": {string(m.from), string(st)}}, at: s.now()}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ResetCompanyField is ResetContactField for companies.

@@ -105,7 +105,7 @@ func (c client) call(method, path string, body any, want int, out any) reply {
 }
 
 // listKeys are the JSON fields that hold arrays. None may be null.
-var listKeys = []string{"items", "tags", "company_tags", "providers", "manual_fields", "identities", "notes", "activity", "contacts", "stages",
+var listKeys = []string{"items", "tags", "providers", "manual_fields", "identities", "notes", "activity", "contacts", "stages",
 	"socials", "links", "segments", "logos"}
 
 func noNullLists(t *testing.T, what string, body []byte) {
@@ -336,19 +336,17 @@ func TestContactLifecycle(t *testing.T) {
 	}
 	agent.call("POST", "/v1/companies/"+co+"/enrich", nil, http.StatusAccepted, nil)
 
-	agent.call("PATCH", "/v1/companies/"+co, map[string]any{"add_tags": []string{"customer"}}, http.StatusOK, &company)
-	if !slices.Equal(company.Tags, []crm.Tag{"customer"}) {
-		t.Fatalf("company tags = %v", company.Tags)
+	agent.call("PATCH", "/v1/companies/"+co, map[string]string{"stage": "customer"}, http.StatusOK, &company)
+	if company.Stage == nil || *company.Stage != "customer" {
+		t.Fatalf("company stage = %v", company.Stage)
 	}
-	agent.call("GET", "/v1/companies?tag=customer", nil, http.StatusOK, &companies)
-	if len(companies.Items) != 1 {
-		t.Fatalf("companies tagged customer = %+v", companies.Items)
-	}
+	agent.call("GET", "/v1/companies?stage=customer", nil, http.StatusOK, &companies)
 	var customers crm.Page[crm.Contact]
-	agent.call("GET", "/v1/contacts?tag=customer", nil, http.StatusOK, &customers)
-	if len(customers.Items) != 1 || !slices.Equal(customers.Items[0].CompanyTags, []crm.Tag{"customer"}) {
-		t.Fatalf("contacts tagged customer = %+v", customers.Items)
+	agent.call("GET", "/v1/contacts?stage=customer", nil, http.StatusOK, &customers)
+	if len(companies.Items) != 1 || len(customers.Items) != 1 {
+		t.Fatalf("in customer: %d companies, %d contacts; want 1 and 1", len(companies.Items), len(customers.Items))
 	}
+	agent.call("PATCH", "/v1/companies/"+co, map[string]string{"stage": "vip"}, http.StatusBadRequest, nil)
 
 	var st struct {
 		Contacts int

@@ -334,7 +334,7 @@ func TestStagesRenameAndGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []StageCount{{"lead", 1}, {"qualified", 0}, {"customer", 0}, {"churned", 0}}
+	want := []StageCount{{"lead", 1, 0}, {"qualified", 0, 0}, {"customer", 0, 0}, {"churned", 0, 0}}
 	if got, _ := s.ListStages(ctx); !slices.Equal(got, want) {
 		t.Fatalf("stages = %v, want %v", got, want)
 	}
@@ -374,94 +374,5 @@ func TestFieldListsMatchSchema(t *testing.T) {
 		if !slices.Equal(inSchema, got) {
 			t.Errorf("%s: schema allows %v, Go lists %v", table, inSchema, got)
 		}
-	}
-}
-
-// A company's tags apply to its people: tagging the company "customer" makes
-// every contact at it show up under that tag, without tagging each one.
-func TestCompanyTagsApplyToItsContacts(t *testing.T) {
-	s, _ := newService(t, nil)
-	ctx := context.Background()
-	ada := ingest(t, s, clerk, created(clerk, "u1", "ada@acme.com")).ContactID
-	bob := ingest(t, s, clerk, created(clerk, "u2", "bob@acme.com")).ContactID
-	eve := ingest(t, s, clerk, created(clerk, "u3", "eve@globex.com")).ContactID
-	acme, err := s.GetCompanyByDomain(ctx, "acme.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	co, err := s.UpdateCompany(ctx, human, acme.ID, CompanyPatch{AddTags: []Tag{" Customer ", "enterprise"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(co.Tags, []Tag{"customer", "enterprise"}) {
-		t.Fatalf("company tags = %v", co.Tags)
-	}
-	if len(co.ManualFields) != 0 {
-		t.Fatalf("tagging pinned fields: %v", co.ManualFields)
-	}
-	if c := contact(t, s, bob); !slices.Equal(c.CompanyTags, []Tag{"customer", "enterprise"}) || len(c.Tags) != 0 {
-		t.Fatalf("bob tags = %v, company tags = %v", c.Tags, c.CompanyTags)
-	}
-	if c := contact(t, s, eve); len(c.CompanyTags) != 0 {
-		t.Fatalf("eve company tags = %v", c.CompanyTags)
-	}
-	// eve is tagged herself, so a tag search finds both kinds.
-	if _, err := s.UpdateContact(ctx, human, eve, ContactPatch{AddTags: []Tag{"customer"}}); err != nil {
-		t.Fatal(err)
-	}
-
-	p, err := s.SearchContacts(ctx, ContactQuery{Tag: "customer"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []ContactID
-	for _, c := range p.Items {
-		got = append(got, c.ID)
-	}
-	if want := []ContactID{eve, bob, ada}; !slices.Equal(got, want) {
-		t.Fatalf("contacts tagged customer = %v, want %v", got, want)
-	}
-	tags, err := s.ListTags(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tags["customer"] != 3 || tags["enterprise"] != 2 {
-		t.Fatalf("ListTags = %v", tags)
-	}
-
-	cp, err := s.SearchCompanies(ctx, CompanyQuery{Tag: "CUSTOMER"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cp.Items) != 1 || cp.Items[0].ID != acme.ID {
-		t.Fatalf("companies tagged customer = %+v", cp.Items)
-	}
-
-	// Adding a tag the company has and removing one it lacks changes nothing
-	// and writes no activity.
-	before := len(activities(t, s, ActivityQuery{CompanyID: acme.ID, Kind: ActivityCompanyUpdated}))
-	if _, err := s.UpdateCompany(ctx, agent, acme.ID, CompanyPatch{AddTags: []Tag{"customer"}, RemoveTags: []Tag{"vip"}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpdateCompany(ctx, agent, acme.ID, CompanyPatch{RemoveTags: []Tag{"enterprise"}}); err != nil {
-		t.Fatal(err)
-	}
-	a := activities(t, s, ActivityQuery{CompanyID: acme.ID, Kind: ActivityCompanyUpdated})
-	if len(a) != before+1 || string(a[0].Data) != `{"tags": {"removed": ["enterprise"]}}` {
-		t.Fatalf("activities = %d (was %d), newest %s", len(a), before, a[0].Data)
-	}
-
-	_, err = s.UpdateCompany(ctx, human, acme.ID, CompanyPatch{AddTags: []Tag{" "}})
-	wantErr(t, err, ErrInvalid)
-	_, err = s.UpdateCompany(ctx, human, 999, CompanyPatch{AddTags: []Tag{"customer"}})
-	wantErr(t, err, ErrNotFound)
-
-	// Deleting the company takes its tags; its contacts no longer carry them.
-	if err := s.DeleteCompany(ctx, human, acme.ID); err != nil {
-		t.Fatal(err)
-	}
-	if c := contact(t, s, ada); len(c.CompanyTags) != 0 {
-		t.Fatalf("after delete, ada company tags = %v", c.CompanyTags)
 	}
 }

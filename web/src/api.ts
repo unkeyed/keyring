@@ -65,8 +65,6 @@ export interface Contact {
   company: CompanyRef | null;
   stage: Stage;
   tags: Tag[];
-  /** The company's tags, which apply to the contact too. Changed on the company. */
-  company_tags: Tag[];
   providers: string[];
   enrichment: JobState;
   manual_fields: ContactField[];
@@ -171,8 +169,8 @@ export interface Company {
   /** "NASDAQ: XYZ", or "". */
   stock: string;
   logos: Logo[];
-  /** Apply to every contact at the company, such as "customer". */
-  tags: Tag[];
+  /** Null until someone sets it. Setting it moves every contact at the company too. */
+  stage: Stage | null;
   contact_count: number;
   enrichment: JobState;
   manual_fields: CompanyField[];
@@ -206,7 +204,7 @@ export interface ContactQuery {
 
 export interface CompanyQuery {
   q?: string;
-  tag?: Tag;
+  stage?: Stage;
   cursor?: string;
   limit?: number;
 }
@@ -235,7 +233,11 @@ export interface ContactPatch {
   remove_tags?: Tag[];
 }
 
-export type CompanyPatch = Partial<Record<CompanyField, string>> & { add_tags?: Tag[]; remove_tags?: Tag[] };
+/**
+ * Omitted fields are left alone; every present field becomes manual. stage
+ * moves every contact at the company to it, and "" clears the company's.
+ */
+export type CompanyPatch = Partial<Record<CompanyField, string>> & { stage?: Stage };
 
 /** POST /v1/contacts: a person added by hand. Every field given is pinned. */
 export interface NewContact {
@@ -583,7 +585,7 @@ export const api = {
     list: (q: ActivityQuery) => request<Page<Activity>>("GET", "/v1/activity", { query: { ...q } }),
   },
 
-  /** Every tag on a contact or company, with how many contacts carry it themselves or through their company. */
+  /** Every tag in use, with its contact count. */
   tags: () => request<Record<Tag, number>>("GET", "/v1/tags"),
 
   stages: {

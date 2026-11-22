@@ -28,10 +28,11 @@ func ParseTag(s string) (Tag, error) {
 // is checked against the table (checkStage), not a Go list.
 type Stage string
 
-// StageCount is a stage and how many contacts are in it.
+// StageCount is a stage and how many contacts and companies are in it.
 type StageCount struct {
 	Name         Stage `json:"name"`
 	ContactCount int   `json:"contact_count"`
+	CompanyCount int   `json:"company_count"`
 }
 
 // Field names a column a person or agent can set, which then stays theirs
@@ -78,8 +79,7 @@ type Contact struct {
 	Company      *CompanyRef `json:"company"` // nil for free-mail or unknown
 	Stage        Stage       `json:"stage"`
 	Tags         []Tag       `json:"tags"`
-	CompanyTags  []Tag       `json:"company_tags"` // the company's tags, which apply to the contact too
-	Providers    []string    `json:"providers"`    // distinct identities.provider
+	Providers    []string    `json:"providers"` // distinct identities.provider
 	Enrichment   JobState    `json:"enrichment"`
 	ManualFields []Field     `json:"manual_fields"`
 	FirstSeenAt  time.Time   `json:"first_seen_at"`
@@ -130,12 +130,14 @@ type Company struct {
 	Segments      []string  `json:"segments"` // sub-industries, most relevant first
 	Stock         string    `json:"stock"`    // "NASDAQ: XYZ", or ""
 	Logos         []Logo    `json:"logos"`    // best first (see Logo); LogoURL is the first one's URL
-	Tags          []Tag     `json:"tags"`     // apply to every contact at the company
-	ContactCount  int       `json:"contact_count"`
-	Enrichment    JobState  `json:"enrichment"`
-	ManualFields  []Field   `json:"manual_fields"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	// Stage is nil until someone sets it. Setting it moves the company's
+	// contacts too, and new contacts at the company start in it.
+	Stage        *Stage    `json:"stage"`
+	ContactCount int       `json:"contact_count"`
+	Enrichment   JobState  `json:"enrichment"`
+	ManualFields []Field   `json:"manual_fields"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Links are a company's own pages, by kind: careers, pricing, blog, contact.
@@ -242,7 +244,7 @@ const (
 type ContactQuery struct {
 	Text           string // case-insensitive substring of email, name, company name or domain
 	Email          string // exact after ParseEmail; matches the contact's email or any identity's
-	Tag            Tag    // on the contact or on its company
+	Tag            Tag
 	Stage          Stage
 	Provider       string
 	CompanyID      CompanyID
@@ -255,7 +257,7 @@ type ContactQuery struct {
 type CompanyQuery struct {
 	Text   string
 	Domain string // exact after ParseDomain
-	Tag    Tag
+	Stage  Stage
 	Cursor string
 	Limit  int
 }
@@ -296,9 +298,11 @@ type ContactPatch struct {
 	RemoveTags    []Tag   `json:"remove_tags,omitempty"`
 }
 
-// CompanyPatch is ContactPatch for companies: the REST PATCH body and the MCP
-// update_company "changes" argument.
+// CompanyPatch is the REST PATCH body and the MCP update_company "changes"
+// argument. Stage moves every contact at the company to that stage; ""
+// clears the company's stage and leaves its contacts where they are.
 type CompanyPatch struct {
+	Stage         *Stage  `json:"stage,omitempty" jsonschema:"pipeline stage name from list_stages; moves every contact at the company to it, and new contacts start in it. Empty string clears it"`
 	Name          *string `json:"name,omitempty"`
 	Description   *string `json:"description,omitempty"`
 	EmployeeRange *string `json:"employee_range,omitempty"`
@@ -307,8 +311,6 @@ type CompanyPatch struct {
 	LinkedInURL   *string `json:"linkedin_url,omitempty"`
 	Tagline       *string `json:"tagline,omitempty"`
 	Headquarters  *string `json:"headquarters,omitempty"`
-	AddTags       []Tag   `json:"add_tags,omitempty" jsonschema:"tags such as customer; they apply to every contact at the company"`
-	RemoveTags    []Tag   `json:"remove_tags,omitempty"`
 }
 
 // NewContact is a contact added by hand rather than by a sign-up. Only Email

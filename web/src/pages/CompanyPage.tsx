@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, ApiError, parseID, type Company, type CompanyDetail, type CompanyField, type CompanyID, type CompanyPatch } from "../api";
+import { api, ApiError, parseID, type Company, type CompanyDetail, type CompanyField, type CompanyID } from "../api";
 import { companyLabel, contactLabel, countryName, plural } from "../format";
-import { keys, useCompany, usePrefetch, useStatus } from "../queries";
-import { TagEditor } from "../components/Tags";
+import { keys, useCompany, usePrefetch, useStages, useStatus } from "../queries";
 import { DeleteDialog } from "../components/DeleteDialog";
 import { EditableField } from "../components/EditableField";
 import { LinkList, shortURL } from "../components/Links";
@@ -12,7 +11,7 @@ import { RecordLayout, RecordSkeleton, SectionTitle } from "../components/Record
 import { Timeline } from "../components/Timeline";
 import { useToast } from "../components/Toaster";
 import { NotFound } from "../Layout";
-import { Avatar, Badge, Button, CompanyLogo, Crumbs, cx, EnrichmentBadge, errorMessage, ErrorNote, Icon, PageHeader, RelativeTime, Skeleton, useEscapeTo } from "../ui";
+import { Avatar, Badge, Button, CompanyLogo, Crumbs, cx, EnrichmentBadge, errorMessage, ErrorNote, Icon, PageHeader, RelativeTime, selectClass, Skeleton, useEscapeTo } from "../ui";
 
 const missing = { title: "Company not found", body: "The link may be wrong, or the company was removed.", parent: { label: "Companies", to: "/companies" } };
 
@@ -39,6 +38,7 @@ function CompanyView({ id }: { id: CompanyID }) {
   const prefetch = usePrefetch();
   const company = useCompany(id);
   const status = useStatus();
+  const stages = useStages();
   const [deleting, setDeleting] = useState(false);
   useEscapeTo("/companies");
 
@@ -47,32 +47,19 @@ function CompanyView({ id }: { id: CompanyID }) {
     void qc.invalidateQueries({ queryKey: keys.company(id) });
     void qc.invalidateQueries({ queryKey: keys.companies });
   };
-  // Tag changes show at once and roll back if the save fails, as on a contact.
-  const patchKey = ["patch-company", id];
-  const tag = useMutation({
-    mutationKey: patchKey,
-    mutationFn: (p: CompanyPatch) => api.companies.update(id, p),
-    onMutate: async (p) => {
-      await qc.cancelQueries({ queryKey: keys.company(id) });
-      const prev = qc.getQueryData<CompanyDetail>(keys.company(id));
-      if (prev) {
-        const tags = [...new Set([...(prev.tags ?? []), ...(p.add_tags ?? [])])].filter((t) => !p.remove_tags?.includes(t)).sort();
-        qc.setQueryData<CompanyDetail>(keys.company(id), { ...prev, tags });
-      }
-      return prev;
-    },
-    onError: (err, _p, prev) => {
-      if (prev) qc.setQueryData(keys.company(id), prev);
-      toast(`Couldn't save: ${errorMessage(err)}`, "error");
-    },
-    onSettled: () => {
-      if (qc.isMutating({ mutationKey: patchKey }) > 1) return;
-      void qc.invalidateQueries({ queryKey: keys.company(id) });
-      void qc.invalidateQueries({ queryKey: keys.companies });
+  // A stage change moves the company's contacts too, so the people list and
+  // every contact view refetch once it lands.
+  const setStage = useMutation({
+    mutationFn: (stage: string) => api.companies.update(id, { stage }),
+    onSuccess: (co, stage) => {
+      settle(co);
       void qc.invalidateQueries({ queryKey: keys.contacts });
       void qc.invalidateQueries({ queryKey: ["contact"] });
-      void qc.invalidateQueries({ queryKey: keys.tags });
+      void qc.invalidateQueries({ queryKey: keys.stages });
+      const who = co.contact_count === 0 ? "" : co.contact_count === 1 ? " and its contact" : ` and its ${plural(co.contact_count, "contact")}`;
+      toast(stage ? `Moved ${companyLabel(co)}${who} to ${stage}` : `Cleared the stage of ${companyLabel(co)}; its contacts keep theirs`);
     },
+    onError: (err) => toast(`Couldn't change the stage: ${errorMessage(err)}`, "error"),
   });
   const enrich = useMutation({
     mutationFn: () => api.companies.enrich(id),
@@ -159,6 +146,27 @@ function CompanyView({ id }: { id: CompanyID }) {
                 {facts.length > 0 && <p className="mt-1 text-sm text-muted">{facts.join(" · ")}</p>}
               </div>
             </div>
+            <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <label className="flex items-center gap-2 text-xs text-muted">
+                Stage
+                <select
+                  className={selectClass}
+                  value={setStage.isPending ? setStage.variables : (c.stage ?? "")}
+                  disabled={setStage.isPending}
+                  onChange={(e) => setStage.mutate(e.target.value)}
+                >
+                  <option value="">No stage</option>
+                  {(stages.data ?? (c.stage ? [c.stage] : [])).map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="text-xs text-faint">
+                {c.stage ? "People who sign up here start in it." : c.contact_count > 0 ? `Moves all ${plural(c.contact_count, "contact")} here when set.` : "New contacts here start in it once set."}
+              </span>
+            </div>
             <div className="mt-3 flex flex-wrap items-center gap-1.5 empty:hidden">
               <EnrichmentBadge state={c.enrichment} status={status.data} />
               {segments.map((s) => (
@@ -192,11 +200,6 @@ function CompanyView({ id }: { id: CompanyID }) {
                 onReset={async () => settle(await api.companies.resetField(id, f.field))}
               />
             ))}
-            <TagEditor
-              tags={c.tags ?? []}
-              onChange={tag.mutate}
-              note={c.contact_count > 0 && `Applies to ${c.contact_count === 1 ? "the 1 contact" : `all ${plural(c.contact_count, "contact")}`} at ${label}.`}
-            />
             <Links company={c} />
           </>
         }

@@ -24,7 +24,6 @@ const contactSelect = `
 SELECT c.id, c.email, c.name, c.avatar_url, c.title, c.location, c.bio, c.linkedin_url, c.socials,
        co.id, co.domain, co.name, c.stage,
        ARRAY(SELECT t.tag FROM contact_tags t WHERE t.contact_id = c.id ORDER BY t.tag),
-       ARRAY(SELECT t.tag FROM company_tags t WHERE t.company_id = c.company_id ORDER BY t.tag),
        ARRAY(SELECT DISTINCT i.provider FROM identities i WHERE i.contact_id = c.id ORDER BY i.provider),
        COALESCE(j.state, ''), c.manual_fields, c.first_seen_at, c.last_seen_at, c.created_at, c.updated_at
   FROM contacts c
@@ -37,7 +36,7 @@ func scanContact(row pgx.Row) (Contact, error) {
 	var coDomain Domain
 	var coName *string
 	err := row.Scan(&c.ID, &c.Email, &c.Name, &c.AvatarURL, &c.Title, &c.Location, &c.Bio, &c.LinkedInURL, &c.Socials,
-		&coID, &coDomain, &coName, &c.Stage, &c.Tags, &c.CompanyTags, &c.Providers, &c.Enrichment, &c.ManualFields,
+		&coID, &coDomain, &coName, &c.Stage, &c.Tags, &c.Providers, &c.Enrichment, &c.ManualFields,
 		&c.FirstSeenAt, &c.LastSeenAt, &c.CreatedAt, &c.UpdatedAt)
 	if coID != nil {
 		c.Company = &CompanyRef{ID: *coID, Domain: coDomain, Name: *coName}
@@ -136,8 +135,7 @@ func (s *Service) SearchContacts(ctx context.Context, q ContactQuery) (Page[Cont
 		w.add("(c.email = %[1]s OR EXISTS (SELECT 1 FROM identities i WHERE i.contact_id = c.id AND i.email = %[1]s))", w.arg(e))
 	}
 	if tag, err := ParseTag(string(q.Tag)); err == nil {
-		w.add(`(EXISTS (SELECT 1 FROM contact_tags t WHERE t.contact_id = c.id AND t.tag = %[1]s)
-			OR EXISTS (SELECT 1 FROM company_tags t WHERE t.company_id = c.company_id AND t.tag = %[1]s))`, w.arg(tag))
+		w.add("EXISTS (SELECT 1 FROM contact_tags t WHERE t.contact_id = c.id AND t.tag = %s)", w.arg(tag))
 	}
 	if q.Stage != "" {
 		if err := s.checkStage(ctx, q.Stage); err != nil {
@@ -244,7 +242,8 @@ func (s *Service) FindContactByEmail(ctx context.Context, email string) (Contact
 // CreateContact adds a person by hand, such as someone met at an event who
 // never signed up. The company comes from the email domain as it does for a
 // sign-up (none for free mail), and the contact and a new company are queued
-// for enrichment. Given fields are manual. An email that already resolves to
+// for enrichment. Without a Stage it starts in its company's stage, if the
+// company has one, else the first. Given fields are manual. An email that already resolves to
 // a contact, directly or through an identity, is an *ExistsError naming it.
 // An unknown Stage or a LinkedInURL that is not a web address is ErrInvalid.
 // Writes a contact_created activity.
@@ -314,11 +313,20 @@ func (s *Service) CreateContact(ctx context.Context, actor Actor, in NewContact)
 				return err
 			}
 			c.companyID = &coID
+			if in.Stage == "" {
+				st, err := companyStage(ctx, tx, coID)
+				if err != nil {
+					return err
+				}
+				if st != "" {
+					c.stage = st
+				}
+			}
 		}
 		if err := writeContact(ctx, tx, c); err != nil {
 			return err
 		}
-		if _, err := changeTags(ctx, tx, contactTags, int64(id), tags, nil); err != nil {
+		if _, err := changeTags(ctx, tx, id, tags, nil); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO enrichment_jobs (contact_id, state) VALUES ($1, $2)`, id, state); err != nil {
@@ -418,7 +426,7 @@ func (s *Service) UpdateContact(ctx context.Context, actor Actor, id ContactID, 
 				return err
 			}
 		}
-		if tags, err := changeTags(ctx, tx, contactTags, int64(id), add, remove); err != nil {
+		if tags, err := changeTags(ctx, tx, id, add, remove); err != nil {
 			return err
 		} else if tags != nil {
 			diff["tags"] = tags
@@ -452,21 +460,13 @@ type tagChange struct {
 	Removed []string `json:"removed,omitempty"`
 }
 
-// tagTable is a tag table and the column naming the tagged row.
-type tagTable struct{ table, key string }
-
-var (
-	contactTags = tagTable{"contact_tags", "contact_id"}
-	companyTags = tagTable{"company_tags", "company_id"}
-)
-
-// changeTags applies tag set changes to row id of t and returns the ones
-// that took effect, or nil when none did.
-func changeTags(ctx context.Context, tx pgx.Tx, t tagTable, id int64, add, remove []string) (*tagChange, error) {
+// changeTags applies tag set changes and returns the ones that took effect,
+// or nil when none did.
+func changeTags(ctx context.Context, tx pgx.Tx, id ContactID, add, remove []string) (*tagChange, error) {
 	var tc tagChange
 	if len(add) > 0 {
 		rows, err := tx.Query(ctx, `
-			INSERT INTO `+t.table+` (`+t.key+`, tag) SELECT $1, unnest($2::text[])
+			INSERT INTO contact_tags (contact_id, tag) SELECT $1, unnest($2::text[])
 			ON CONFLICT DO NOTHING RETURNING tag`, id, add)
 		if err != nil {
 			return nil, err
@@ -476,7 +476,7 @@ func changeTags(ctx context.Context, tx pgx.Tx, t tagTable, id int64, add, remov
 		}
 	}
 	if len(remove) > 0 {
-		rows, err := tx.Query(ctx, `DELETE FROM `+t.table+` WHERE `+t.key+` = $1 AND tag = ANY($2) RETURNING tag`, id, remove)
+		rows, err := tx.Query(ctx, `DELETE FROM contact_tags WHERE contact_id = $1 AND tag = ANY($2) RETURNING tag`, id, remove)
 		if err != nil {
 			return nil, err
 		}
@@ -727,17 +727,9 @@ func (s *Service) BulkUpdateContacts(ctx context.Context, actor Actor, b BulkUpd
 	return results, nil
 }
 
-// ListTags returns every tag on a contact or a company, with how many
-// contacts carry it themselves or through their company: the number a
-// contact search by that tag finds. A tag only on companies without
-// contacts counts 0.
+// ListTags returns every tag in use with its contact count.
 func (s *Service) ListTags(ctx context.Context) (map[Tag]int, error) {
-	rows, err := s.db.Query(ctx, `
-		SELECT tag, count(DISTINCT contact_id) FROM (
-		  SELECT tag, contact_id FROM contact_tags
-		  UNION ALL
-		  SELECT t.tag, c.id FROM company_tags t LEFT JOIN contacts c ON c.company_id = t.company_id
-		) x GROUP BY tag`)
+	rows, err := s.db.Query(ctx, `SELECT tag, count(*) FROM contact_tags GROUP BY tag`)
 	if err != nil {
 		return nil, err
 	}
@@ -751,17 +743,20 @@ func (s *Service) ListTags(ctx context.Context) (map[Tag]int, error) {
 	return tags, err
 }
 
-// ListStages returns stages in position order with their contact counts.
+// ListStages returns stages in position order with their contact and
+// company counts.
 func (s *Service) ListStages(ctx context.Context) ([]StageCount, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT s.name, count(c.id) FROM stages s LEFT JOIN contacts c ON c.stage = s.name
-		 GROUP BY s.name, s.position ORDER BY s.position, s.name`)
+		SELECT s.name,
+		       (SELECT count(*) FROM contacts c WHERE c.stage = s.name),
+		       (SELECT count(*) FROM companies co WHERE co.stage = s.name)
+		  FROM stages s ORDER BY s.position, s.name`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (StageCount, error) {
 		var sc StageCount
-		err := r.Scan(&sc.Name, &sc.ContactCount)
+		err := r.Scan(&sc.Name, &sc.ContactCount, &sc.CompanyCount)
 		return sc, err
 	})
 }
@@ -782,7 +777,8 @@ func (s *Service) checkStage(ctx context.Context, st Stage) error {
 
 // SetStages replaces the ordered stage list. renames maps old name to new
 // name so contacts follow (ON UPDATE CASCADE). Removing a stage that
-// contacts still use is ErrInvalid. New contacts take the first stage.
+// contacts or companies still use is ErrInvalid. New contacts take the
+// first stage, or their company's.
 func (s *Service) SetStages(ctx context.Context, actor Actor, stages []Stage, renames map[Stage]Stage) error {
 	if len(stages) == 0 {
 		return fmt.Errorf("%w: keep at least one stage; new contacts start in the first", ErrInvalid)
@@ -812,7 +808,7 @@ func (s *Service) SetStages(ctx context.Context, actor Actor, stages []Stage, re
 	})
 	switch pgCode(err) {
 	case foreignKeyViolation:
-		return fmt.Errorf("%w: a removed stage still has contacts; move them first", ErrInvalid)
+		return fmt.Errorf("%w: a removed stage still has contacts or companies; move them first", ErrInvalid)
 	case uniqueViolation, checkViolation:
 		return fmt.Errorf("%w: stage names must be unique, trimmed and non-empty", ErrInvalid)
 	}
