@@ -206,19 +206,6 @@ func TestEveryToolOverHTTP(t *testing.T) {
 	if slices.Contains(co.ManualFields, crm.FieldName) {
 		t.Fatalf("reset_company_field left name pinned: %v", co.ManualFields)
 	}
-	call(t, cs, "update_company", map[string]any{"id": company.ID, "changes": map[string]any{"add_tags": []string{"customer"}}}, &co)
-	if !slices.Equal(co.Tags, []crm.Tag{"customer"}) {
-		t.Fatalf("update_company add_tags = %v", co.Tags)
-	}
-	call(t, cs, "search_companies", map[string]any{"tag": "customer"}, &companies)
-	if len(companies.Items) != 1 || !slices.Equal(companies.Items[0].Tags, []crm.Tag{"customer"}) {
-		t.Fatalf("search_companies tag = %+v", companies.Items)
-	}
-	var customers crm.Page[ContactSummary]
-	call(t, cs, "search_contacts", map[string]any{"tag": "customer"}, &customers)
-	if len(customers.Items) != 1 || !slices.Equal(customers.Items[0].CompanyTags, []crm.Tag{"customer"}) {
-		t.Fatalf("search_contacts tag customer = %+v", customers.Items)
-	}
 
 	var job enrichOut
 	call(t, cs, "enrich_contact", map[string]any{"id": ada.ContactID}, &job)

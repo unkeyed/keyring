@@ -3,13 +3,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, parseID, type CompanyRef, type Contact, type ContactDetail, type ContactField, type ContactID, type ContactPatch, type Note } from "../api";
 import { companyLabel, contactLabel } from "../format";
-import { keys, useCompany, useContact, usePrefetch, useStages, useStatus } from "../queries";
+import { keys, useCompany, useContact, usePrefetch, useStages, useStatus, useTags } from "../queries";
 import { DeleteDialog } from "../components/DeleteDialog";
 import { EditableField } from "../components/EditableField";
 import { LinkList, shortURL } from "../components/Links";
 import { MergeDialog } from "../components/MergeDialog";
 import { RecordLayout, RecordSkeleton, SectionTitle } from "../components/RecordLayout";
-import { TagEditor } from "../components/Tags";
 import { Timeline } from "../components/Timeline";
 import { useToast } from "../components/Toaster";
 import { NotFound } from "../Layout";
@@ -26,6 +25,7 @@ import {
   errorMessage,
   ErrorNote,
   Icon,
+  inputClass,
   PageHeader,
   RelativeTime,
   selectClass,
@@ -242,7 +242,7 @@ function ContactView({ id }: { id: ContactID }) {
 
             <Profiles links={c.socials} />
 
-            <TagEditor tags={c.tags ?? []} onChange={patch.mutate} lead={c.company && <CompanyTags company={c.company} tags={c.company_tags ?? []} />} />
+            <Tags tags={c.tags ?? []} onChange={patch.mutate} />
 
             <SectionTitle className="mt-6">Sources</SectionTitle>
             {loading ? (
@@ -359,18 +359,49 @@ function CompanyCard({ company: ref }: { company: CompanyRef }) {
   );
 }
 
-/** Tags the contact carries through its company. They are changed on the company, so each links there. */
-function CompanyTags({ company, tags }: { company: CompanyRef; tags: string[] }) {
-  const from = `From ${companyLabel(company)}`;
-  return tags.map((t) => (
-    <Link key={t} to={`/companies/${company.id}`} title={`${t}: ${from}; change it on the company`} className="max-w-full rounded-control">
-      <Badge className="hover:bg-subtle-strong">
-        <Icon name="building" className="size-3 shrink-0 text-faint" />
-        <span className="truncate">{t}</span>
-        <span className="sr-only">({from})</span>
-      </Badge>
-    </Link>
-  ));
+function Tags({ tags, onChange }: { tags: string[]; onChange: (p: ContactPatch) => void }) {
+  const all = useTags();
+  const [draft, setDraft] = useState("");
+
+  const add = (e: FormEvent) => {
+    e.preventDefault();
+    const t = draft.trim().toLowerCase();
+    setDraft("");
+    if (t && !tags.includes(t)) onChange({ add_tags: [t] });
+  };
+
+  return (
+    <>
+      <SectionTitle className="mt-6">Tags</SectionTitle>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {tags.map((t) => (
+          <Badge
+            key={t}
+            tone="outline"
+            title={t}
+            onRemove={() => onChange({ remove_tags: [t] })}
+            removeLabel={`Remove tag ${t}`}
+            className="transition-[opacity,scale] duration-150 starting:scale-90 starting:opacity-0"
+          >
+            <span className="truncate">{t}</span>
+          </Badge>
+        ))}
+        <form onSubmit={add} className={cx("min-w-24 flex-1", tags.length === 0 && "-ml-[7px]")}>
+          <input
+            aria-label="Add tag"
+            placeholder="Add tag…"
+            list="tag-options"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className={cx(inputClass, "h-6 border-transparent bg-transparent px-1.5 text-xs hover:border-line-strong")}
+          />
+          <datalist id="tag-options">
+            {all.data?.filter((t) => !tags.includes(t.tag)).map((t) => <option key={t.tag} value={t.tag} />)}
+          </datalist>
+        </form>
+      </div>
+    </>
+  );
 }
 
 function Notes({ contactId, notes, loading }: { contactId: ContactID; notes: Note[]; loading: boolean }) {

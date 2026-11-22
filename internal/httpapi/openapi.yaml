@@ -195,7 +195,6 @@ paths:
             format: email
         - name: tag
           in: query
-          description: Contacts with this tag, on themselves or on their company.
           schema:
             type: string
         - name: stage
@@ -531,11 +530,6 @@ paths:
           description: Exact domain, case-insensitive, such as stripe.com.
           schema:
             type: string
-        - name: tag
-          in: query
-          description: Companies with this tag, such as customer.
-          schema:
-            type: string
         - $ref: "#/components/parameters/cursor"
         - $ref: "#/components/parameters/limit"
       responses:
@@ -602,11 +596,7 @@ paths:
     patch:
       tags: [companies]
       operationId: updateCompany
-      summary: Edit a company's fields or tags. Each field you send is pinned.
-      description: >-
-        Tags are add and remove sets, as for contacts. A company's tags apply
-        to every contact at it: they show in each contact's company_tags, and
-        a contact search by tag finds them.
+      summary: Edit a company's fields. Each field you send is pinned.
       requestBody:
         required: true
         content:
@@ -753,10 +743,6 @@ paths:
       tags: [timeline]
       operationId: listTags
       summary: Every tag in use, with how many contacts carry it.
-      description: >-
-        Covers tags on contacts and on companies. The count includes contacts
-        that carry a tag through their company, so it is what a contact search
-        by that tag finds.
       responses:
         "200":
           description: Tag to contact count.
@@ -2164,7 +2150,7 @@ components:
           type: string
     Contact:
       type: object
-      required: [id, email, name, avatar_url, title, location, bio, linkedin_url, socials, company, stage, tags, company_tags, providers, enrichment, manual_fields, first_seen_at, last_seen_at, created_at, updated_at]
+      required: [id, email, name, avatar_url, title, location, bio, linkedin_url, socials, company, stage, tags, providers, enrichment, manual_fields, first_seen_at, last_seen_at, created_at, updated_at]
       properties:
         id:
           type: integer
@@ -2194,11 +2180,6 @@ components:
           type: string
         tags:
           type: array
-          items:
-            type: string
-        company_tags:
-          type: array
-          description: The company's tags, which apply to this contact too. Empty without a company.
           items:
             type: string
         providers:
@@ -2315,7 +2296,7 @@ components:
                 $ref: "#/components/schemas/Activity"
     Company:
       type: object
-      required: [id, domain, name, description, logo_url, employee_range, industry, country, linkedin_url, tagline, headquarters, socials, links, segments, stock, logos, tags, contact_count, enrichment, manual_fields, created_at, updated_at]
+      required: [id, domain, name, description, logo_url, employee_range, industry, country, linkedin_url, tagline, headquarters, socials, links, segments, stock, logos, contact_count, enrichment, manual_fields, created_at, updated_at]
       properties:
         id:
           type: integer
@@ -2372,11 +2353,6 @@ components:
             squarest.
           items:
             $ref: "#/components/schemas/Logo"
-        tags:
-          type: array
-          description: Tags such as customer. They apply to every contact at the company.
-          items:
-            type: string
         contact_count:
           type: integer
         enrichment:
@@ -2568,14 +2544,6 @@ components:
           type: string
         headquarters:
           type: string
-        add_tags:
-          type: array
-          items:
-            type: string
-        remove_tags:
-          type: array
-          items:
-            type: string
     NewContact:
       type: object
       required: [email]

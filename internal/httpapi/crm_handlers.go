@@ -273,8 +273,8 @@ func (s *server) enrichContact(w http.ResponseWriter, r *http.Request, a crm.Act
 }
 
 func (s *server) searchCompanies(w http.ResponseWriter, r *http.Request, _ crm.Actor) error {
-	p := queryParams(r, "q", "domain", "tag", "cursor", "limit")
-	q := crm.CompanyQuery{Text: p.str("q"), Domain: p.str("domain"), Tag: crm.Tag(p.str("tag")), Cursor: p.str("cursor"), Limit: int(p.int("limit"))}
+	p := queryParams(r, "q", "domain", "cursor", "limit")
+	q := crm.CompanyQuery{Text: p.str("q"), Domain: p.str("domain"), Cursor: p.str("cursor"), Limit: int(p.int("limit"))}
 	if p.err != nil {
 		return p.err
 	}

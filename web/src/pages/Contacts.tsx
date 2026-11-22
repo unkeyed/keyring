@@ -7,7 +7,6 @@ import { keys, usePrefetch, useProviders, useStages, useStatus, useTags } from "
 import { Avatar, Badge, Button, cx, EmptyState, ErrorNote, Icon, inputClass, Kbd, ListSkeleton, listShortcuts, PageHeader, ProgressBar, RelativeTime, selectClass, SearchKbd, ShortcutsHelp, useWide } from "../ui";
 import { NewContactDialog } from "../components/CreateDialogs";
 import { useRowNav } from "../components/RowNav";
-import { TagCell } from "../components/Tags";
 import { Onboarding } from "./Onboarding";
 
 const ranges = {
@@ -231,6 +230,27 @@ export function Contacts() {
   );
 }
 
+function Tag({ tag, className }: { tag: string; className?: string }) {
+  return (
+    <Badge tone="outline" title={tag} className={cx("min-w-0", className)}>
+      <span className="truncate">{tag}</span>
+    </Badge>
+  );
+}
+
+/** One tag up to xl, two from there, then a count of the rest, so no tag is ever cut to a sliver. */
+function TagCell({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return (
+    <div className="flex min-w-0 items-center gap-1" title={tags.join(", ")}>
+      <Tag tag={tags[0]} />
+      {tags[1] && <Tag tag={tags[1]} className="max-xl:hidden" />}
+      {tags.length > 1 && <span className="shrink-0 text-xs text-faint xl:hidden">+{tags.length - 1}</span>}
+      {tags.length > 2 && <span className="hidden shrink-0 text-xs text-faint xl:inline">+{tags.length - 2}</span>}
+    </div>
+  );
+}
+
 type RowProps = ReturnType<ReturnType<typeof useRowNav>["rowProps"]>;
 
 function ContactRow({ c, row, onOpen, onPrefetch }: { c: Contact; row: RowProps; onOpen: () => void; onPrefetch: () => void }) {
@@ -265,7 +285,7 @@ function ContactRow({ c, row, onOpen, onPrefetch }: { c: Contact; row: RowProps;
         </Badge>
       </td>
       <td className="px-3">
-        <TagCell tags={c.tags ?? []} companyTags={c.company_tags ?? []} />
+        <TagCell tags={c.tags ?? []} />
       </td>
       <td className="hidden truncate px-3 text-xs text-muted xl:table-cell">{(c.providers ?? []).join(", ") || <span className="text-faint">manual</span>}</td>
       <td className="py-1.5 pr-5 pl-3 text-right text-xs whitespace-nowrap text-muted">
