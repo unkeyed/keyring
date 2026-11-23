@@ -1,11 +1,11 @@
-# Deploy Keyring to Unkey Deploy
+# Deploy Keyring to Unkey
 
-This guide puts Keyring on [Unkey Deploy](https://www.unkey.com/docs/compute/get-started/deploy-from-github) (Unkey's docs also call it Unkey Compute), connected to a Postgres database you host elsewhere. At the end, Keyring runs at an `unkey.app` URL and your auth provider sends it every sign-up.
+This guide runs Keyring on [Unkey](https://www.unkey.com/docs/compute/get-started/deploy-from-github) compute, connected to a Postgres database you host elsewhere. At the end, Keyring runs at an `unkey.app` URL and your auth provider sends it every sign-up.
 
 You need:
 
 - An Unkey account with a Compute plan. Unkey needs a plan before it deploys anything.
-- A Postgres database. Unkey Deploy has no managed database and no persistent disk.
+- A Postgres database. Unkey compute has no managed database and no persistent disk.
 - For the GitHub path, a GitHub account and your own fork of `unkeyed/keyring`.
 
 ## 1. Create the database

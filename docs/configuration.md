@@ -13,7 +13,7 @@ Keyring reads its configuration from environment variables when it starts. `cmd/
 | `SETUP_TOKEN` | No | random | The token of the setup link, at least 32 characters. See [The setup link](sign-in.md#the-setup-link). |
 | `PASSWORD_LOGIN` | No | `false` | `true` lets people set a password, which always needs a second step. |
 | `ALLOWED_EMAIL_DOMAINS` | No | none | Comma-separated domains, such as `acme.com`, whose addresses can join without an invite through Google Workspace or the OIDC issuer. GitHub accounts always need an invite. |
-| `CLIENT_IP_HEADER` | No | none | The header your proxy writes the client IP to, such as `X-Forwarded-For`. Keyring throttles failed sign-ins, OAuth requests and failed webhook deliveries per client IP. Set it to `X-Forwarded-For` on Unkey Deploy. |
+| `CLIENT_IP_HEADER` | No | none | The header your proxy writes the client IP to, such as `X-Forwarded-For`. Keyring throttles failed sign-ins, OAuth requests and failed webhook deliveries per client IP. Set it to `X-Forwarded-For` on Unkey. |
 | `GOOGLE_CLIENT_ID` | No | none | A Google OAuth client ID. Set it with `GOOGLE_CLIENT_SECRET` to offer Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | No | none | The Google OAuth client secret. |
 | `GITHUB_CLIENT_ID` | No | none | A GitHub OAuth app client ID. Set it with `GITHUB_CLIENT_SECRET` to offer GitHub sign-in. |
@@ -90,7 +90,7 @@ To rotate the key:
 
 ## `PORT`
 
-The Docker image sets `PORT=8080`. Unkey Deploy sets `PORT` for you and sends traffic and health checks to it.
+The Docker image sets `PORT=8080`. Unkey sets `PORT` for you and sends traffic and health checks to it.
 
 ## `PUBLIC_URL`
 

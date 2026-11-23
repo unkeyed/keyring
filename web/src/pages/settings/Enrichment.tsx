@@ -78,7 +78,7 @@ export function Enrichment() {
                   .
                 </li>
                 <li>
-                  Set it as <code className="font-mono text-fg">CONTEXT_DEV_API_KEY</code> on this deployment. On Unkey Deploy that is an environment variable on
+                  Set it as <code className="font-mono text-fg">CONTEXT_DEV_API_KEY</code> on this deployment. On Unkey that is an environment variable on
                   the project; with Docker Compose, add it to <code className="font-mono text-fg">.env</code>.
                 </li>
                 <li>Restart Keyring. Everything queued is enriched right away.</li>

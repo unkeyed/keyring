@@ -81,4 +81,4 @@ git push origin v0.1.0
 
 `.github/workflows/release.yml` builds the image for `linux/amd64` and `linux/arm64` and pushes it to `ghcr.io/unkeyed/keyring` with the version (`0.1.0`), the minor version (`0.1`), and `latest`. A pre-release tag such as `v0.2.0-rc.1` gets only its own version.
 
-Unkey Deploy and `docker pull` need the image without credentials. After the first release, check that the package's visibility is **Public** in the package settings on GitHub.
+Unkey and `docker pull` need the image without credentials. After the first release, check that the package's visibility is **Public** in the package settings on GitHub.
